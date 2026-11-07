@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0.0",
+  "screens": [
+    {
+      "id": "replace-screen-id",
+      "title": "Replace screen title",
+      "purpose": "Replace purpose",
+      "min_size": {
+        "cols": 80,
+        "rows": 24
+      },
+      "regions": [
+        {
+          "id": "root",
+          "kind": "container",
+          "orientation": "vertical",
+          "children": []
+        }
+      ],
+      "focus_order": [],
+      "keybindings": [],
+      "states": [
+        "replace-state-id"
+      ]
+    }
+  ]
+}

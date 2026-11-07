@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "backend": "clackbt-go",
+  "go_module": "github.com/go-cli-template",
+  "command": "mycli prompt",
+  "presentation": "inline",
+  "interaction": "native-workflow",
+  "implementation": {"runner": "RunNative", "allow_legacy_steps": false},
+  "tty": {"required": true, "on_missing": "error"},
+  "io": {"stdout": "human", "stderr": "diagnostics"},
+  "cancellation": {"error": "core.ErrCancelPrompt", "handler": "prompts.IsCancel", "on_interrupt": "return an error to Cobra", "exit_code": null},
+  "terminal": {"success_exit_code": 0},
+  "result_struct": {"Name": "string"},
+  "steps": [{"id": "name", "field": "Name", "screen_id": "replace-screen-id", "states": ["replace-state-id"], "api": "TextModel", "params": {"Message": "What should we call you?", "Required": true}, "preview": {"placeholder": "Ada", "answer": "Ada"}}]
+}

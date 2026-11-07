@@ -1,0 +1,11 @@
+* text=auto
+*.go text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Prompt snapshots contain terminal CRLF sequences that must remain byte-exact.
+/internal/clack/prompts/.snapshots/** -text
+
+# Vendored agent skill trees are third-party content, not project source.
+/.agents/skills/** linguist-vendored

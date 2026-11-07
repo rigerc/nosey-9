@@ -1,0 +1,20 @@
+.gocache
+bin
+dist
+
+# Optional agent planning outputs (not product documentation)
+/.work/
+
+# Python bytecode from bundled agent-skill tooling
+__pycache__/
+*.pyc
+
+# Agentic quality tooling and local environment
+.env
+*.local
+*.log
+*.test
+*.out
+/coverage.out
+/coverage.html
+/custom-gcl

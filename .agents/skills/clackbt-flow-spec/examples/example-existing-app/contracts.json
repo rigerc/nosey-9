@@ -1,0 +1,165 @@
+{
+  "schema_version": "1.0.0",
+  "ui": {
+    "components": [
+      {
+        "id": "task-list-view",
+        "screen": "task-list",
+        "node_id": "list-output",
+        "kind": "list",
+        "props": [
+          {
+            "name": "items",
+            "type": "Task[]",
+            "required": true,
+            "source": "tasks"
+          }
+        ],
+        "emits": [
+          "task.open"
+        ]
+      },
+      {
+        "id": "task-delete-action",
+        "screen": "task-detail",
+        "node_id": "delete-hotkey",
+        "kind": "button",
+        "props": [
+          {
+            "name": "selected",
+            "type": "string",
+            "required": true,
+            "source": "selected_id"
+          }
+        ],
+        "emits": [
+          "task.delete.request"
+        ]
+      },
+      {
+        "id": "task-back-action",
+        "screen": "task-detail",
+        "node_id": "escape-hotkey",
+        "kind": "button",
+        "props": [],
+        "emits": [
+          "nav.back"
+        ]
+      }
+    ]
+  },
+  "state": {
+    "fields": [
+      {
+        "name": "screen",
+        "type": "string",
+        "initial": "task-list",
+        "scope": "feature",
+        "description": "Active rendered view"
+      },
+      {
+        "name": "selected_id",
+        "type": "string",
+        "initial": "",
+        "scope": "feature",
+        "description": "Selected task identifier"
+      },
+      {
+        "name": "error_message",
+        "type": "string",
+        "initial": "",
+        "scope": "feature",
+        "description": "Last deletion error message"
+      }
+    ],
+    "invariants": []
+  },
+  "events": [
+    {
+      "id": "task.open",
+      "payload": {},
+      "description": "Enter task detail on Enter",
+      "origin": "ui"
+    },
+    {
+      "id": "task.delete.request",
+      "payload": {},
+      "description": "Press D on details to delete",
+      "origin": "ui"
+    },
+    {
+      "id": "nav.back",
+      "payload": {},
+      "description": "Escape returns from detail to list",
+      "origin": "ui"
+    },
+    {
+      "id": "task.deleted",
+      "payload": {},
+      "description": "Repository deletion succeeded",
+      "origin": "command"
+    },
+    {
+      "id": "task.delete.failed",
+      "payload": {},
+      "description": "Deletion failed or no task found",
+      "origin": "command"
+    }
+  ],
+  "commands": [
+    {
+      "id": "task.delete",
+      "trigger": "task.delete.request",
+      "input": {
+        "task_id": "string"
+      },
+      "outcomes": [
+        "task.deleted",
+        "task.delete.failed"
+      ],
+      "side_effect": "Remove matching task from JSON file via TaskRepository.delete; on success return to list",
+      "idempotent": false
+    }
+  ],
+  "data": {
+    "models": [
+      {
+        "name": "Task",
+        "fields": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "description": "Task identity"
+          },
+          {
+            "name": "title",
+            "type": "string",
+            "required": true,
+            "description": "Task display title"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "tasks",
+        "model": "Task",
+        "cardinality": "many",
+        "provider": "TaskRepository.list_tasks reading local JSON file",
+        "description": "Collection of tasks rendered in list"
+      }
+    ]
+  },
+  "validation": {
+    "rules": [
+      {
+        "id": "task-id-required",
+        "target": "Task.id",
+        "when": "task.delete.request",
+        "predicate": "len(task_id) > 0",
+        "message": "Select a task before deleting"
+      }
+    ]
+  }
+}

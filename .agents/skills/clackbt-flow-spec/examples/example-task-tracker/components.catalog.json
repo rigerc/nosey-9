@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0.0",
+  "generator": "termcn-schema-v1",
+  "registry_source": "local:registry.json",
+  "registry_sha256": "938d7d3d37354a0a71b15bfa367242327495dbe64382ed26cabb669e0e856d81",
+  "components": [
+    {
+      "name": "ink/text-input",
+      "title": "Text Input",
+      "description": "Single-line text input",
+      "target": "ink",
+      "registry_type": "registry:ui",
+      "schema": "components.schemas/ink--text-input.schema.json",
+      "props": 20,
+      "events": [
+        "onValueChange",
+        "onChange",
+        "onSubmit",
+        "validate"
+      ],
+      "unresolved": [],
+      "dependencies": [],
+      "registry_dependencies": [],
+      "source_sha256": "767d6ed7d96da4ab467296d6d8b3abf6514fa2817c637607057228494a2502d9"
+    },
+    {
+      "name": "ink/checkbox",
+      "title": "Checkbox",
+      "description": "Focusable checkbox",
+      "target": "ink",
+      "registry_type": "registry:ui",
+      "schema": "components.schemas/ink--checkbox.schema.json",
+      "props": 12,
+      "events": [
+        "onCheckedChange",
+        "onChange"
+      ],
+      "unresolved": [],
+      "dependencies": [],
+      "registry_dependencies": [],
+      "source_sha256": "dbfa6e65b797cf97bee69176aa1a194ca670c7b74bebec689d2c9cc0477beaa1"
+    },
+    {
+      "name": "opentui/text-input",
+      "title": "Text Input",
+      "description": "OpenTUI single-line text input",
+      "target": "opentui",
+      "registry_type": "registry:ui",
+      "schema": "components.schemas/opentui--text-input.schema.json",
+      "props": 13,
+      "events": [
+        "onChange",
+        "onSubmit",
+        "validate"
+      ],
+      "unresolved": [],
+      "dependencies": [],
+      "registry_dependencies": [],
+      "source_sha256": "34e9ab1f88b37b60645d6d28cc5e67c11b072699cc5d0bff6c318d0c0c9e52ab"
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": "1.0.0",
+  "defaults": {
+    "data": {
+      "tasks": [
+        {"id": "T-01", "title": "Write specification", "completed": false},
+        {"id": "T-02", "title": "Validate flows", "completed": false},
+        {"id": "T-03", "title": "Review storyboard", "completed": false}
+      ],
+      "selected-task": {"id":"T-01", "title":"Write specification", "completed":false}
+    }
+  },
+  "states": {
+    "list.ready": {"focus": "tasks-list"},
+    "detail.loading": {"status":"Loading selected task...", "components":{"detail-body":{"hidden":true}}},
+    "detail.ready": {"components": {"detail-status": {"text": "Task loaded"}}},
+    "detail.error": {"state":{"error_message":"Unable to load task"},"components":{"detail-status":{"text":"Unable to load task"},"detail-body":{"hidden":true}}},
+    "create.edit": {"state":{"draft_title":"Draft documentation"},"focus":"title-input","components":{"error-status":{"hidden":true}}},
+    "create.invalid": {"state":{"draft_title":"","error_message":"Title is required."},"focus":"title-input"},
+    "create.saving": {"state":{"draft_title":"Draft documentation"},"disabled":true,"components":{"error-status":{"text":"Saving task..."}}},
+    "create.error": {"state":{"draft_title":"Draft documentation","error_message":"Unable to save task"}},
+    "exit.done": {}
+  }
+}

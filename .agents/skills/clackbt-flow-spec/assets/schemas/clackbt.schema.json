@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/clackbt-flow-spec/1.0.0/clackbt.schema.json",
+  "title": "clackbt Go prompt backend binding",
+  "description": "Bindings from canonical screen/machine IDs to actual clackbt prompt model APIs. Cross-reference and semantic rules are enforced by scripts/clackbt-adapter.mjs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version","backend","go_module","command","presentation","interaction","implementation","tty","io","cancellation","terminal","result_struct","steps"],
+  "properties": {
+    "schema_version": {"const":"1.0.0"},
+    "backend": {"const":"clackbt-go"},
+    "go_module": {"type":"string","minLength":1},
+    "command": {"type":"string","minLength":1},
+    "presentation": {"const":"inline"},
+    "interaction": {"enum":["native-workflow","single-prompt","output-only"]},
+    "implementation": {
+      "type":"object","additionalProperties":false,"required":["runner","allow_legacy_steps"],
+      "properties":{"runner":{"enum":["RunNative","one-shot","output-only"]},"allow_legacy_steps":{"type":"boolean"}}
+    },
+    "tty": {
+      "type":"object","additionalProperties":false,"required":["required","on_missing"],
+      "properties":{"required":{"type":"boolean"},"on_missing":{"enum":["error","skip","flags","noninteractive"]}}
+    },
+    "io": {
+      "type":"object","additionalProperties":false,"required":["stdout","stderr"],
+      "properties":{"stdout":{"enum":["human","machine","none"]},"stderr":{"enum":["diagnostics","human","none"]}}
+    },
+    "cancellation": {
+      "type":"object","additionalProperties":false,"required":["error","on_interrupt"],
+      "properties":{"error":{"enum":["core.ErrCancelPrompt","not-applicable"]},"handler":{"type":"string"},"on_interrupt":{"type":"string","minLength":1},"exit_code":{"oneOf":[{"type":"integer","minimum":0,"maximum":255},{"type":"null"}]}}
+    },
+    "terminal": {"type":"object","required":["success_exit_code"],"properties":{"success_exit_code":{"type":"integer","minimum":0,"maximum":255}},"additionalProperties":false},
+    "result_struct": {"type":"object","propertyNames":{"pattern":"^[A-Z][A-Za-z0-9]*$"},"additionalProperties":{"type":"string","minLength":1}},
+    "steps": {
+      "type":"array","items":{"type":"object","additionalProperties":false,
+        "required":["id","field","screen_id","states","api","params"],
+        "properties":{
+          "id":{"type":"string","pattern":"^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$"},
+          "field":{"type":"string","pattern":"^[A-Z][a-zA-Z0-9]*$"},
+          "screen_id":{"type":"string","minLength":1},
+          "states":{"type":"array","minItems":1,"items":{"type":"string","minLength":1},"uniqueItems":true},
+          "api":{"enum":["TextModel","PasswordModel","ConfirmModel","SelectModel","MultiSelectModel","GroupMultiSelectModel","SelectKeyModel","ReorderModel","PathModel","SelectPathModel","MultiSelectPathModel","Text","Password","Confirm","Select","MultiSelect","GroupMultiSelect","SelectKey","Reorder","Path","SelectPath","MultiSelectPath"]},
+          "params":{"type":"object","required":["Message"],"properties":{"Message":{"type":"string","minLength":1},"Required":{"type":"boolean"}},"additionalProperties":true},
+          "conditional":{"type":"boolean"},"condition":{"type":"string"},
+          "preview":{"type":"object","properties":{"answer":{"type":["string","number","boolean"]},"input":{"type":"string"},"placeholder":{"type":"string"},"error":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}},"additionalProperties":false}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,3 @@
+$ shipctl deploy --env staging
+Error: deployment API returned 503.
+No changes were applied.

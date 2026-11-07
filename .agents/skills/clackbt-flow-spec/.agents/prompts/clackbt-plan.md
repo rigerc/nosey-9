@@ -1,0 +1,3 @@
+# clackbt: plan a new prompt flow
+
+Read `SKILL.md`, `references/clackbt-source.md`, and `references/clackbt-workflow.md`. Inspect current `go.mod`, `internal/clack/prompts/` and `cmd/go-cli-template/` if source is available. **Do not generate files yet.** Present a provisional numbered prompt-step plan mapping constructor names to exported Go struct fields and types; identify conditional branches, validation, terminal/TTY constraints, cancellation versus No, stdout/stderr, outputs, side effects, and exit codes. Interview for material unanswered choices, revise visibly, and obtain explicit approval before writing `.work/flow-spec/<slug>/`. No unverified API claims.

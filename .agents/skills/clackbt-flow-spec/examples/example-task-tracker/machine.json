@@ -1,0 +1,359 @@
+{
+  "schema_version": "1.0.0",
+  "initial": "list.ready",
+  "states": [
+    {
+      "id": "list.ready",
+      "screen": "task-list",
+      "terminal": false,
+      "description": "List can receive navigation and creation actions"
+    },
+    {
+      "id": "detail.loading",
+      "screen": "task-detail",
+      "terminal": false,
+      "description": "Awaiting asynchronous task load"
+    },
+    {
+      "id": "detail.ready",
+      "screen": "task-detail",
+      "terminal": false,
+      "description": "Loaded task shown"
+    },
+    {
+      "id": "detail.error",
+      "screen": "task-detail",
+      "terminal": false,
+      "description": "Loading failed; user can return"
+    },
+    {
+      "id": "create.edit",
+      "screen": "task-create",
+      "terminal": false,
+      "description": "User editing the new task title"
+    },
+    {
+      "id": "create.invalid",
+      "screen": "task-create",
+      "terminal": false,
+      "description": "Title validation error shown"
+    },
+    {
+      "id": "create.saving",
+      "screen": "task-create",
+      "terminal": false,
+      "description": "Save in progress; inputs temporarily disabled"
+    },
+    {
+      "id": "create.error",
+      "screen": "task-create",
+      "terminal": false,
+      "description": "Save failed; user may edit, retry, or cancel"
+    },
+    {
+      "id": "exit.done",
+      "screen": "task-list",
+      "terminal": true,
+      "description": "Feature flow ended after exit request"
+    }
+  ],
+  "guards": [
+    {
+      "id": "valid-task-id",
+      "expression": "trim(event.task_id) != \"\"",
+      "description": "Selection event includes a nonempty task identifier"
+    },
+    {
+      "id": "title-valid",
+      "expression": "trim(state.draft_title) != \"\"",
+      "description": "Draft title is not blank"
+    },
+    {
+      "id": "title-empty",
+      "expression": "trim(state.draft_title) == \"\"",
+      "description": "Draft title is blank"
+    }
+  ],
+  "transitions": [
+    {
+      "id": "open-task",
+      "from": "list.ready",
+      "event": "task.open",
+      "to": "detail.loading",
+      "guard": "valid-task-id",
+      "commands": [
+        "task.load"
+      ],
+      "updates": [
+        {
+          "field": "selected_task_id",
+          "expression": "event.task_id"
+        }
+      ],
+      "description": "Begin loading selected task"
+    },
+    {
+      "id": "load-succeeded",
+      "from": "detail.loading",
+      "event": "task.loaded",
+      "to": "detail.ready",
+      "guard": null,
+      "commands": [],
+      "updates": [],
+      "description": "Show loaded task"
+    },
+    {
+      "id": "load-failed",
+      "from": "detail.loading",
+      "event": "task.load.failed",
+      "to": "detail.error",
+      "guard": null,
+      "commands": [],
+      "updates": [
+        {
+          "field": "error_message",
+          "expression": "event.message"
+        }
+      ],
+      "description": "Show loading error"
+    },
+    {
+      "id": "detail-back",
+      "from": "detail.ready",
+      "event": "nav.back",
+      "to": "list.ready",
+      "guard": null,
+      "commands": [],
+      "updates": [],
+      "description": "Return to list"
+    },
+    {
+      "id": "detail-error-back",
+      "from": "detail.error",
+      "event": "nav.back",
+      "to": "list.ready",
+      "guard": null,
+      "commands": [],
+      "updates": [],
+      "description": "Return to list after error"
+    },
+    {
+      "id": "start-create",
+      "from": "list.ready",
+      "event": "task.create.start",
+      "to": "create.edit",
+      "guard": null,
+      "commands": [],
+      "updates": [
+        {
+          "field": "draft_title",
+          "expression": "\"\""
+        },
+        {
+          "field": "error_message",
+          "expression": "\"\""
+        }
+      ],
+      "description": "Open form"
+    },
+    {
+      "id": "create-change",
+      "from": "create.edit",
+      "event": "form.changed",
+      "to": "create.edit",
+      "guard": null,
+      "commands": [],
+      "updates": [
+        {
+          "field": "draft_title",
+          "expression": "event.title"
+        }
+      ],
+      "description": "Update draft title"
+    },
+    {
+      "id": "invalid-change",
+      "from": "create.invalid",
+      "event": "form.changed",
+      "to": "create.edit",
+      "guard": null,
+      "commands": [],
+      "updates": [
+        {
+          "field": "draft_title",
+          "expression": "event.title"
+        },
+        {
+          "field": "error_message",
+          "expression": "\"\""
+        }
+      ],
+      "description": "Clear error on edit"
+    },
+    {
+      "id": "error-change",
+      "from": "create.error",
+      "event": "form.changed",
+      "to": "create.edit",
+      "guard": null,
+      "commands": [],
+      "updates": [
+        {
+          "field": "draft_title",
+          "expression": "event.title"
+        },
+        {
+          "field": "error_message",
+          "expression": "\"\""
+        }
+      ],
+      "description": "Edit after save error"
+    },
+    {
+      "id": "submit-valid",
+      "from": "create.edit",
+      "event": "task.create.submit",
+      "to": "create.saving",
+      "guard": "title-valid",
+      "commands": [
+        "task.create"
+      ],
+      "updates": [],
+      "description": "Persist a valid title"
+    },
+    {
+      "id": "submit-empty",
+      "from": "create.edit",
+      "event": "task.create.submit",
+      "to": "create.invalid",
+      "guard": "title-empty",
+      "commands": [],
+      "updates": [
+        {
+          "field": "error_message",
+          "expression": "\"Title is required\""
+        }
+      ],
+      "description": "Reject empty title"
+    },
+    {
+      "id": "submit-valid-after-invalid",
+      "from": "create.invalid",
+      "event": "task.create.submit",
+      "to": "create.saving",
+      "guard": "title-valid",
+      "commands": [
+        "task.create"
+      ],
+      "updates": [],
+      "description": "Persist corrected title"
+    },
+    {
+      "id": "submit-empty-after-invalid",
+      "from": "create.invalid",
+      "event": "task.create.submit",
+      "to": "create.invalid",
+      "guard": "title-empty",
+      "commands": [],
+      "updates": [
+        {
+          "field": "error_message",
+          "expression": "\"Title is required\""
+        }
+      ],
+      "description": "Keep validation error"
+    },
+    {
+      "id": "retry-after-error",
+      "from": "create.error",
+      "event": "task.create.submit",
+      "to": "create.saving",
+      "guard": "title-valid",
+      "commands": [
+        "task.create"
+      ],
+      "updates": [],
+      "description": "Retry failed save with valid title"
+    },
+    {
+      "id": "reject-retry-empty",
+      "from": "create.error",
+      "event": "task.create.submit",
+      "to": "create.invalid",
+      "guard": "title-empty",
+      "commands": [],
+      "updates": [
+        {
+          "field": "error_message",
+          "expression": "\"Title is required\""
+        }
+      ],
+      "description": "Reject empty retry"
+    },
+    {
+      "id": "save-succeeded",
+      "from": "create.saving",
+      "event": "task.created",
+      "to": "list.ready",
+      "guard": null,
+      "commands": [],
+      "updates": [],
+      "description": "Show list after persisted create"
+    },
+    {
+      "id": "save-failed",
+      "from": "create.saving",
+      "event": "task.create.failed",
+      "to": "create.error",
+      "guard": null,
+      "commands": [],
+      "updates": [
+        {
+          "field": "error_message",
+          "expression": "event.message"
+        }
+      ],
+      "description": "Display error and allow retry"
+    },
+    {
+      "id": "cancel-create",
+      "from": "create.edit",
+      "event": "nav.back",
+      "to": "list.ready",
+      "guard": null,
+      "commands": [],
+      "updates": [],
+      "description": "Discard draft and go back"
+    },
+    {
+      "id": "cancel-invalid",
+      "from": "create.invalid",
+      "event": "nav.back",
+      "to": "list.ready",
+      "guard": null,
+      "commands": [],
+      "updates": [],
+      "description": "Discard invalid draft"
+    },
+    {
+      "id": "cancel-error",
+      "from": "create.error",
+      "event": "nav.back",
+      "to": "list.ready",
+      "guard": null,
+      "commands": [],
+      "updates": [],
+      "description": "Discard draft after save error"
+    },
+    {
+      "id": "exit-app",
+      "from": "list.ready",
+      "event": "app.exit",
+      "to": "exit.done",
+      "guard": null,
+      "commands": [],
+      "updates": [],
+      "description": "End this feature flow"
+    }
+  ]
+}

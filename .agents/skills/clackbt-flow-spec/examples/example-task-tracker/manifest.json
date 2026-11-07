@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0.0",
+  "feature_id": "example-task-tracker",
+  "title": "Example task tracker TUI",
+  "status": "ready",
+  "entry_screen": "task-list",
+  "source_brief": "Illustrative brief: a keyboard-first terminal task tracker that lists tasks, opens task details, creates tasks with nonempty titles, and exits; task storage is a local repository.",
+  "files": [
+    "CONTRACTS.md",
+    "DECISIONS.md",
+    "FLOWS.md",
+    "SPEC.md",
+    "components.catalog.json",
+    "contracts-viewer.html",
+    "contracts.json",
+    "design.json",
+    "machine.json",
+    "manifest.json",
+    "scenarios.json",
+    "screens.json",
+    "storyboard.html",
+    "validation-report.json"
+  ],
+  "assumptions": [
+    "Illustrative example only: keyboard-first navigation; minimum terminal size 60x20; local persistent task repository; creating a task is locked while saving."
+  ],
+  "open_questions": []
+}

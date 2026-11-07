@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tui:termcn:ink:checkbox",
+  "title": "Checkbox",
+  "description": "Focusable checkbox",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "checked": {
+      "type": "boolean"
+    },
+    "defaultChecked": {
+      "type": "boolean"
+    },
+    "label": {
+      "type": "string"
+    },
+    "indeterminate": {
+      "type": "boolean"
+    },
+    "disabled": {
+      "type": "boolean"
+    },
+    "id": {
+      "type": "string"
+    },
+    "autoFocus": {
+      "type": "boolean"
+    },
+    "isActive": {
+      "type": "boolean"
+    },
+    "aria-label": {
+      "type": "string"
+    },
+    "checkedIcon": {
+      "type": "string"
+    },
+    "uncheckedIcon": {
+      "type": "string"
+    },
+    "indeterminateIcon": {
+      "type": "string"
+    }
+  },
+  "x-termcn": {
+    "registry_name": "ink/checkbox",
+    "props_interface": "CheckboxProps",
+    "callbacks": [
+      {
+        "name": "onCheckedChange",
+        "typescript": "(checked: boolean) => void"
+      },
+      {
+        "name": "onChange",
+        "typescript": "(checked: boolean) => void"
+      }
+    ],
+    "unresolved_props": [],
+    "source_sha256": "dbfa6e65b797cf97bee69176aa1a194ca670c7b74bebec689d2c9cc0477beaa1",
+    "source": "local:checkbox.json"
+  }
+}

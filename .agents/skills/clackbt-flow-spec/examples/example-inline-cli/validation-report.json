@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0.0",
+  "feature_id": "example-inline-cli",
+  "checked_at_utc": "2026-11-05T02:14:24.823127+00:00",
+  "status": "pass",
+  "checks": "structure and cross-file references only; not runtime correctness or accessibility compliance",
+  "error_count": 0,
+  "warning_count": 0,
+  "errors": [],
+  "warnings": []
+}

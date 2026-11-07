@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0.0",
+  "initial": "replace-state-id",
+  "states": [
+    {
+      "id": "replace-state-id",
+      "screen": "replace-screen-id",
+      "terminal": true,
+      "description": "Replace with a real state"
+    }
+  ],
+  "guards": [],
+  "transitions": []
+}

@@ -1,0 +1,233 @@
+{
+  "schema_version": "1.1.0",
+  "generator": "semantic-terminal-mockup-v1.6",
+  "source": "canonical screens.json + machine.json",
+  "note": "Mockups are semantic previews, not live clackbt terminal captures.",
+  "viewport": {
+    "cols": 48,
+    "rows": 12
+  },
+  "viewports": {
+    "compact": {
+      "cols": 48,
+      "rows": 12
+    },
+    "wide": {
+      "cols": 96,
+      "rows": 24
+    }
+  },
+  "scenarios": [
+    "default"
+  ],
+  "outputs": [
+    "txt",
+    "svg",
+    "ansi",
+    "html"
+  ],
+  "theme": "dark",
+  "components_cataloged": 0,
+  "screen_count": 3,
+  "state_count": 8,
+  "variant_count": 16,
+  "transition_count": 10,
+  "presentations": [
+    "inline"
+  ],
+  "items": [
+    {
+      "state": "name.ready",
+      "screen": "greet-name",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/name.ready.compact.default.txt",
+      "svg": "mockups/name.ready.compact.default.svg",
+      "ansi": "mockups/name.ready.compact.default.ansi"
+    },
+    {
+      "state": "name.ready",
+      "screen": "greet-name",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/name.ready.wide.default.txt",
+      "svg": "mockups/name.ready.wide.default.svg",
+      "ansi": "mockups/name.ready.wide.default.ansi"
+    },
+    {
+      "state": "name.invalid",
+      "screen": "greet-name",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/name.invalid.compact.default.txt",
+      "svg": "mockups/name.invalid.compact.default.svg",
+      "ansi": "mockups/name.invalid.compact.default.ansi"
+    },
+    {
+      "state": "name.invalid",
+      "screen": "greet-name",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/name.invalid.wide.default.txt",
+      "svg": "mockups/name.invalid.wide.default.svg",
+      "ansi": "mockups/name.invalid.wide.default.ansi"
+    },
+    {
+      "state": "confirm.ready",
+      "screen": "greet-confirm",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/confirm.ready.compact.default.txt",
+      "svg": "mockups/confirm.ready.compact.default.svg",
+      "ansi": "mockups/confirm.ready.compact.default.ansi"
+    },
+    {
+      "state": "confirm.ready",
+      "screen": "greet-confirm",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/confirm.ready.wide.default.txt",
+      "svg": "mockups/confirm.ready.wide.default.svg",
+      "ansi": "mockups/confirm.ready.wide.default.ansi"
+    },
+    {
+      "state": "greet.running",
+      "screen": "greet-output",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/greet.running.compact.default.txt",
+      "svg": "mockups/greet.running.compact.default.svg",
+      "ansi": "mockups/greet.running.compact.default.ansi"
+    },
+    {
+      "state": "greet.running",
+      "screen": "greet-output",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/greet.running.wide.default.txt",
+      "svg": "mockups/greet.running.wide.default.svg",
+      "ansi": "mockups/greet.running.wide.default.ansi"
+    },
+    {
+      "state": "greet.done",
+      "screen": "greet-output",
+      "presentation": "inline",
+      "exit_code": 0,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/greet.done.compact.default.txt",
+      "svg": "mockups/greet.done.compact.default.svg",
+      "ansi": "mockups/greet.done.compact.default.ansi"
+    },
+    {
+      "state": "greet.done",
+      "screen": "greet-output",
+      "presentation": "inline",
+      "exit_code": 0,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/greet.done.wide.default.txt",
+      "svg": "mockups/greet.done.wide.default.svg",
+      "ansi": "mockups/greet.done.wide.default.ansi"
+    },
+    {
+      "state": "greet.declined",
+      "screen": "greet-output",
+      "presentation": "inline",
+      "exit_code": 0,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/greet.declined.compact.default.txt",
+      "svg": "mockups/greet.declined.compact.default.svg",
+      "ansi": "mockups/greet.declined.compact.default.ansi"
+    },
+    {
+      "state": "greet.declined",
+      "screen": "greet-output",
+      "presentation": "inline",
+      "exit_code": 0,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/greet.declined.wide.default.txt",
+      "svg": "mockups/greet.declined.wide.default.svg",
+      "ansi": "mockups/greet.declined.wide.default.ansi"
+    },
+    {
+      "state": "greet.cancelled",
+      "screen": "greet-output",
+      "presentation": "inline",
+      "exit_code": 130,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/greet.cancelled.compact.default.txt",
+      "svg": "mockups/greet.cancelled.compact.default.svg",
+      "ansi": "mockups/greet.cancelled.compact.default.ansi"
+    },
+    {
+      "state": "greet.cancelled",
+      "screen": "greet-output",
+      "presentation": "inline",
+      "exit_code": 130,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/greet.cancelled.wide.default.txt",
+      "svg": "mockups/greet.cancelled.wide.default.svg",
+      "ansi": "mockups/greet.cancelled.wide.default.ansi"
+    },
+    {
+      "state": "greet.failed",
+      "screen": "greet-output",
+      "presentation": "inline",
+      "exit_code": 1,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/greet.failed.compact.default.txt",
+      "svg": "mockups/greet.failed.compact.default.svg",
+      "ansi": "mockups/greet.failed.compact.default.ansi"
+    },
+    {
+      "state": "greet.failed",
+      "screen": "greet-output",
+      "presentation": "inline",
+      "exit_code": 1,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/greet.failed.wide.default.txt",
+      "svg": "mockups/greet.failed.wide.default.svg",
+      "ansi": "mockups/greet.failed.wide.default.ansi"
+    }
+  ],
+  "mapping_warnings": []
+}

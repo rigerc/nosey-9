@@ -1,0 +1,114 @@
+{
+  "schema_version": "1.1.0",
+  "generator": "semantic-tui-mockup-v1.5",
+  "source": "canonical screens.json + machine.json",
+  "note": "Mockups are semantic previews, not termcn runtime captures.",
+  "viewport": {
+    "cols": 80,
+    "rows": 24
+  },
+  "viewports": {
+    "default": {
+      "cols": 80,
+      "rows": 24
+    }
+  },
+  "scenarios": [
+    "default"
+  ],
+  "outputs": [
+    "txt",
+    "svg",
+    "html"
+  ],
+  "theme": "dark",
+  "components_cataloged": 3,
+  "screen_count": 3,
+  "state_count": 9,
+  "variant_count": 9,
+  "transition_count": 21,
+  "items": [
+    {
+      "state": "list.ready",
+      "screen": "task-list",
+      "viewport": "default",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/list.ready.txt",
+      "svg": "mockups/list.ready.svg"
+    },
+    {
+      "state": "detail.loading",
+      "screen": "task-detail",
+      "viewport": "default",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/detail.loading.txt",
+      "svg": "mockups/detail.loading.svg"
+    },
+    {
+      "state": "detail.ready",
+      "screen": "task-detail",
+      "viewport": "default",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/detail.ready.txt",
+      "svg": "mockups/detail.ready.svg"
+    },
+    {
+      "state": "detail.error",
+      "screen": "task-detail",
+      "viewport": "default",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/detail.error.txt",
+      "svg": "mockups/detail.error.svg"
+    },
+    {
+      "state": "create.edit",
+      "screen": "task-create",
+      "viewport": "default",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/create.edit.txt",
+      "svg": "mockups/create.edit.svg"
+    },
+    {
+      "state": "create.invalid",
+      "screen": "task-create",
+      "viewport": "default",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/create.invalid.txt",
+      "svg": "mockups/create.invalid.svg"
+    },
+    {
+      "state": "create.saving",
+      "screen": "task-create",
+      "viewport": "default",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/create.saving.txt",
+      "svg": "mockups/create.saving.svg"
+    },
+    {
+      "state": "create.error",
+      "screen": "task-create",
+      "viewport": "default",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/create.error.txt",
+      "svg": "mockups/create.error.svg"
+    },
+    {
+      "state": "exit.done",
+      "screen": "task-list",
+      "viewport": "default",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/exit.done.txt",
+      "svg": "mockups/exit.done.svg"
+    }
+  ],
+  "mapping_warnings": []
+}

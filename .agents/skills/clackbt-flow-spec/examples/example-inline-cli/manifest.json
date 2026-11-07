@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0.0",
+  "feature_id": "example-inline-cli",
+  "title": "Example inline deployment CLI",
+  "status": "ready",
+  "entry_screen": "deploy-confirm",
+  "source_brief": "Illustrative brief: a non-fullscreen CLI asks for a TTY confirmation, deploys to staging, writes status or error output into scrollback, and returns a meaningful process exit code.",
+  "files": [
+    "CONTRACTS.md",
+    "DECISIONS.md",
+    "FLOWS.md",
+    "SPEC.md",
+    "contracts-viewer.html",
+    "contracts.json",
+    "design.json",
+    "machine.json",
+    "manifest.json",
+    "scenarios.json",
+    "screens.json",
+    "storyboard.html",
+    "validation-report.json"
+  ],
+  "assumptions": [
+    "Illustrative command only; no real deployment is performed.",
+    "TTY-only confirmation (no stdin pipe input in this sample).",
+    "A declined prompt exits with code 130 to demonstrate a nonzero cancel path."
+  ],
+  "open_questions": [],
+  "source_mode": "brief",
+  "artifact_scope": "full"
+}

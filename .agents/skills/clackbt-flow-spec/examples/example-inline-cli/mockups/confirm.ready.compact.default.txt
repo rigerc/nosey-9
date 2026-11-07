@@ -1,0 +1,2 @@
+$ shipctl deploy --env staging
+? Deploy to staging? [y/N] ▌

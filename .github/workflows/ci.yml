@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 7 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Go quality, coverage and build
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Install golangci-lint builder for anti-slop-go
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.15.0
+          install-only: true
+      - name: Verify all application checks
+        run: make check
+
+  dependency_review:
+    name: New dependency vulnerability review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Reject new high-severity advisories
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
+  vulnerability_report:
+    name: Weekly Go vulnerability report
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Scan reachable vulnerabilities
+        id: govulncheck
+        continue-on-error: true
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1
+        with:
+          go-version-file: go.mod
+      - name: Report existing advisories
+        if: steps.govulncheck.outcome == 'failure'
+        run: echo '::warning::govulncheck found advisories or could not complete. Review its output.'
+
+  workflow_security:
+    name: GitHub Actions security
+    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Validate workflows (actionlint)
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color
+      - name: Scan workflows (zizmor)
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          version: v1.32.0
+          advanced-security: false
+          min-severity: medium
+          min-confidence: medium
+
+  ci_result:
+    name: CI result
+    if: always()
+    needs: [quality, dependency_review, vulnerability_report, workflow_security]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require successful applicable checks
+        env:
+          QUALITY: ${{ needs.quality.result }}
+          DEPENDENCY: ${{ needs.dependency_review.result }}
+          VULNERABILITY: ${{ needs.vulnerability_report.result }}
+          WORKFLOWS: ${{ needs.workflow_security.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for result in "$QUALITY" "$DEPENDENCY" "$VULNERABILITY" "$WORKFLOWS"; do
+            case "$result" in
+              success|skipped) ;;
+              *) echo "::error::Applicable CI job finished with $result"; exit 1 ;;
+            esac
+          done
+          echo 'All applicable CI checks passed.'

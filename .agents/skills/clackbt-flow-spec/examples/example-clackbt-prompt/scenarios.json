@@ -1,0 +1,84 @@
+{
+  "schema_version": "1.1.0",
+  "states": {
+    "name.ready": {
+      "focus": "question",
+      "components": {
+        "question": {
+          "value": "Ada"
+        }
+      }
+    },
+    "name.invalid": {
+      "focus": "question",
+      "components": {
+        "question": {
+          "value": "",
+          "text": "A name is required"
+        }
+      }
+    },
+    "confirm.ready": {
+      "focus": "question",
+      "components": {
+        "question": {
+          "value": "Yes",
+          "items": [
+            "Yes",
+            "No"
+          ]
+        }
+      }
+    },
+    "greet.running": {
+      "components": {
+        "stdout": {
+          "hidden": true
+        },
+        "stderr": {
+          "hidden": true
+        }
+      }
+    },
+    "greet.done": {
+      "components": {
+        "stdout": {
+          "text": "Hello, Ada!"
+        },
+        "stderr": {
+          "hidden": true
+        }
+      }
+    },
+    "greet.declined": {
+      "components": {
+        "stdout": {
+          "text": "Cancelled."
+        },
+        "stderr": {
+          "hidden": true
+        }
+      }
+    },
+    "greet.cancelled": {
+      "components": {
+        "stdout": {
+          "hidden": true
+        },
+        "stderr": {
+          "text": "Cancelled with Ctrl+C"
+        }
+      }
+    },
+    "greet.failed": {
+      "components": {
+        "stdout": {
+          "hidden": true
+        },
+        "stderr": {
+          "text": "Cannot write greeting"
+        }
+      }
+    }
+  }
+}

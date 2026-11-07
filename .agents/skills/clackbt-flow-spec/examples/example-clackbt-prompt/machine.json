@@ -1,0 +1,153 @@
+{
+  "schema_version": "1.0.0",
+  "initial": "name.ready",
+  "states": [
+    {
+      "id": "name.ready",
+      "screen": "greet-name",
+      "terminal": false,
+      "description": "Name prompt awaiting input"
+    },
+    {
+      "id": "name.invalid",
+      "screen": "greet-name",
+      "terminal": false,
+      "description": "Name input invalid, allow retry"
+    },
+    {
+      "id": "confirm.ready",
+      "screen": "greet-confirm",
+      "terminal": false,
+      "description": "Confirmation awaiting answer"
+    },
+    {
+      "id": "greet.running",
+      "screen": "greet-output",
+      "terminal": false,
+      "description": "Formatting greeting after confirmed answer"
+    },
+    {
+      "id": "greet.done",
+      "screen": "greet-output",
+      "terminal": true,
+      "description": "Greeting printed to stdout",
+      "exit_code": 0
+    },
+    {
+      "id": "greet.declined",
+      "screen": "greet-output",
+      "terminal": true,
+      "description": "User answered No and command printed Cancelled",
+      "exit_code": 0
+    },
+    {
+      "id": "greet.cancelled",
+      "screen": "greet-output",
+      "terminal": true,
+      "description": "Illustrative Ctrl+C cancellation policy, distinct from No",
+      "exit_code": 130
+    },
+    {
+      "id": "greet.failed",
+      "screen": "greet-output",
+      "terminal": true,
+      "description": "Formatting/output failed and command returned error",
+      "exit_code": 1
+    }
+  ],
+  "guards": [],
+  "transitions": [
+    {
+      "id": "name-invalid",
+      "from": "name.ready",
+      "event": "greet.name.invalid",
+      "to": "name.invalid",
+      "guard": null,
+      "commands": [],
+      "description": "Validation failed"
+    },
+    {
+      "id": "name-retry",
+      "from": "name.invalid",
+      "event": "greet.name.retry",
+      "to": "name.ready",
+      "guard": null,
+      "commands": [],
+      "description": "Retry edited name"
+    },
+    {
+      "id": "name-accept",
+      "from": "name.ready",
+      "event": "greet.name.accept",
+      "to": "confirm.ready",
+      "guard": null,
+      "commands": [],
+      "description": "Name accepted; next prompt"
+    },
+    {
+      "id": "name-abort",
+      "from": "name.ready",
+      "event": "greet.cancel",
+      "to": "greet.cancelled",
+      "guard": null,
+      "commands": [],
+      "description": "Cancel at name"
+    },
+    {
+      "id": "name-invalid-abort",
+      "from": "name.invalid",
+      "event": "greet.cancel",
+      "to": "greet.cancelled",
+      "guard": null,
+      "commands": [],
+      "description": "Cancel after invalid name"
+    },
+    {
+      "id": "confirm-yes",
+      "from": "confirm.ready",
+      "event": "greet.confirm.yes",
+      "to": "greet.running",
+      "guard": null,
+      "commands": [
+        "greet.write"
+      ],
+      "description": "Write greeting"
+    },
+    {
+      "id": "confirm-no",
+      "from": "confirm.ready",
+      "event": "greet.confirm.no",
+      "to": "greet.declined",
+      "guard": null,
+      "commands": [],
+      "description": "No is a legitimate confirmation result"
+    },
+    {
+      "id": "confirm-abort",
+      "from": "confirm.ready",
+      "event": "greet.cancel",
+      "to": "greet.cancelled",
+      "guard": null,
+      "commands": [],
+      "description": "Interrupt workflow"
+    },
+    {
+      "id": "write-ok",
+      "from": "greet.running",
+      "event": "greet.write.ok",
+      "to": "greet.done",
+      "guard": null,
+      "commands": [],
+      "description": "Printed successfully"
+    },
+    {
+      "id": "write-error",
+      "from": "greet.running",
+      "event": "greet.write.fail",
+      "to": "greet.failed",
+      "guard": null,
+      "commands": [],
+      "description": "Write failed"
+    }
+  ]
+}

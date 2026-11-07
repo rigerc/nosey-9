@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0.0",
+  "feature_id": "replace-feature-slug",
+  "title": "Replace with feature title",
+  "status": "draft",
+  "entry_screen": "replace-screen-id",
+  "source_brief": "Replace with original brief",
+  "files": [
+    "SPEC.md",
+    "FLOWS.md",
+    "CONTRACTS.md",
+    "DECISIONS.md",
+    "manifest.json",
+    "screens.json",
+    "machine.json",
+    "contracts.json",
+    "validation-report.json"
+  ],
+  "assumptions": [],
+  "open_questions": [
+    "Replace after completing question gate"
+  ],
+  "source_mode": "brief",
+  "artifact_scope": "full"
+}

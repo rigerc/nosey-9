@@ -1,0 +1,137 @@
+{
+  "schema_version": "1.0.0",
+  "ui": {
+    "components": [
+      {
+        "id": "name-input",
+        "screen": "greet-name",
+        "node_id": "question",
+        "kind": "clack-prompt",
+        "props": [
+          {
+            "name": "message",
+            "type": "string",
+            "required": true,
+            "source": "literal:What should we call you?"
+          }
+        ],
+        "emits": [
+          "greet.name.accept",
+          "greet.name.invalid",
+          "greet.name.retry",
+          "greet.cancel"
+        ]
+      },
+      {
+        "id": "confirmation",
+        "screen": "greet-confirm",
+        "node_id": "question",
+        "kind": "clack-prompt",
+        "props": [
+          {
+            "name": "message",
+            "type": "string",
+            "required": true,
+            "source": "literal:Create the greeting?"
+          }
+        ],
+        "emits": [
+          "greet.confirm.yes",
+          "greet.confirm.no",
+          "greet.cancel"
+        ]
+      }
+    ]
+  },
+  "state": {
+    "fields": [
+      {
+        "name": "name",
+        "type": "string",
+        "initial": "",
+        "scope": "feature",
+        "description": "User-entered name"
+      },
+      {
+        "name": "confirmed",
+        "type": "boolean",
+        "initial": false,
+        "scope": "feature",
+        "description": "User confirmed greeting"
+      }
+    ],
+    "invariants": []
+  },
+  "events": [
+    {
+      "id": "greet.name.invalid",
+      "payload": {},
+      "origin": "ui",
+      "description": "greet name invalid"
+    },
+    {
+      "id": "greet.name.retry",
+      "payload": {},
+      "origin": "ui",
+      "description": "greet name retry"
+    },
+    {
+      "id": "greet.name.accept",
+      "payload": {},
+      "origin": "ui",
+      "description": "greet name accept"
+    },
+    {
+      "id": "greet.cancel",
+      "payload": {},
+      "origin": "ui",
+      "description": "greet cancel"
+    },
+    {
+      "id": "greet.confirm.yes",
+      "payload": {},
+      "origin": "ui",
+      "description": "greet confirm yes"
+    },
+    {
+      "id": "greet.confirm.no",
+      "payload": {},
+      "origin": "ui",
+      "description": "greet confirm no"
+    },
+    {
+      "id": "greet.write.ok",
+      "payload": {},
+      "origin": "command",
+      "description": "greet write ok"
+    },
+    {
+      "id": "greet.write.fail",
+      "payload": {},
+      "origin": "command",
+      "description": "greet write fail"
+    }
+  ],
+  "commands": [
+    {
+      "id": "greet.write",
+      "trigger": "greet.confirm.yes",
+      "input": {
+        "name": "string"
+      },
+      "outcomes": [
+        "greet.write.ok",
+        "greet.write.fail"
+      ],
+      "side_effect": "Write formatted greeting to CLI stdout; do not write until user confirms.",
+      "idempotent": true
+    }
+  ],
+  "data": {
+    "models": [],
+    "sources": []
+  },
+  "validation": {
+    "rules": []
+  }
+}

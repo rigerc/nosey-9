@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0.0",
+  "feature_id": "replace-existing-feature-slug",
+  "title": "Existing application: replace feature title",
+  "status": "draft",
+  "source_mode": "existing-app",
+  "artifact_scope": "contracts-only",
+  "source_brief": "Identify existing TUI app, specific feature/screen(s), and source revision",
+  "files": [
+    "CONTRACTS.md",
+    "DECISIONS.md",
+    "EVIDENCE.md",
+    "manifest.json",
+    "contracts.json",
+    "evidence.json",
+    "validation-report.json"
+  ],
+  "assumptions": [],
+  "open_questions": [
+    "Complete inspection and question gate before marking ready"
+  ]
+}

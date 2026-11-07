@@ -1,0 +1,119 @@
+{
+  "schema_version": "1.0.0",
+  "screens": [
+    {
+      "id": "deploy-confirm",
+      "title": "Confirm deployment",
+      "purpose": "Echo shell command and collect one TTY confirmation without taking over the terminal.",
+      "presentation": "inline",
+      "cli": {
+        "invocation": "shipctl deploy --env staging",
+        "interaction": "prompted",
+        "stdin": "tty"
+      },
+      "min_size": {
+        "cols": 35,
+        "rows": 1
+      },
+      "regions": [
+        {
+          "id": "root",
+          "kind": "container",
+          "orientation": "vertical",
+          "children": [
+            {
+              "id": "invocation",
+              "kind": "command"
+            },
+            {
+              "id": "confirmation",
+              "kind": "prompt",
+              "label": "Deploy to staging? [y/N]",
+              "focusable": true,
+              "on": {
+                "submit": "deploy.confirm",
+                "cancel": "deploy.cancel"
+              }
+            }
+          ]
+        }
+      ],
+      "focus_order": [
+        "confirmation"
+      ],
+      "keybindings": [
+        {
+          "key": "y",
+          "event": "deploy.confirm",
+          "scope": "confirmation"
+        },
+        {
+          "key": "n",
+          "event": "deploy.cancel",
+          "scope": "confirmation"
+        }
+      ],
+      "states": [
+        "confirm.ready"
+      ]
+    },
+    {
+      "id": "deploy-output",
+      "title": "Deployment output",
+      "purpose": "Append progress and final stdout/stderr output in the caller's scrollback.",
+      "presentation": "inline",
+      "cli": {
+        "invocation": "shipctl deploy --env staging",
+        "interaction": "batch",
+        "stdin": "none"
+      },
+      "min_size": {
+        "cols": 35,
+        "rows": 1
+      },
+      "regions": [
+        {
+          "id": "root",
+          "kind": "container",
+          "orientation": "vertical",
+          "children": [
+            {
+              "id": "invocation",
+              "kind": "command"
+            },
+            {
+              "id": "phase",
+              "kind": "spinner",
+              "label": "Deploying"
+            },
+            {
+              "id": "upload",
+              "kind": "progress",
+              "label": "Upload"
+            },
+            {
+              "id": "result",
+              "kind": "output",
+              "label": "Result",
+              "stream": "stdout"
+            },
+            {
+              "id": "error",
+              "kind": "output",
+              "label": "Error",
+              "stream": "stderr"
+            }
+          ]
+        }
+      ],
+      "focus_order": [],
+      "keybindings": [],
+      "states": [
+        "deploy.running",
+        "deploy.done",
+        "deploy.failed",
+        "deploy.cancelled"
+      ]
+    }
+  ]
+}

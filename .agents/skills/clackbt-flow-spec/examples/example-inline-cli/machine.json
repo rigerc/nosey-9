@@ -1,0 +1,80 @@
+{
+  "schema_version": "1.0.0",
+  "initial": "confirm.ready",
+  "states": [
+    {
+      "id": "confirm.ready",
+      "screen": "deploy-confirm",
+      "terminal": false,
+      "description": "User is prompted for confirmation on the TTY."
+    },
+    {
+      "id": "deploy.running",
+      "screen": "deploy-output",
+      "terminal": false,
+      "description": "Deployment command is pending; progress may update the current line."
+    },
+    {
+      "id": "deploy.done",
+      "screen": "deploy-output",
+      "terminal": true,
+      "exit_code": 0,
+      "description": "Publish succeeded; stdout contains the result."
+    },
+    {
+      "id": "deploy.failed",
+      "screen": "deploy-output",
+      "terminal": true,
+      "exit_code": 1,
+      "description": "Publish failed; diagnostics are written to stderr."
+    },
+    {
+      "id": "deploy.cancelled",
+      "screen": "deploy-output",
+      "terminal": true,
+      "exit_code": 130,
+      "description": "User declined; no deployment is started."
+    }
+  ],
+  "guards": [],
+  "transitions": [
+    {
+      "id": "confirm-yes",
+      "from": "confirm.ready",
+      "event": "deploy.confirm",
+      "to": "deploy.running",
+      "guard": null,
+      "commands": [
+        "deploy.start"
+      ],
+      "description": "After y, begin deployment."
+    },
+    {
+      "id": "confirm-no",
+      "from": "confirm.ready",
+      "event": "deploy.cancel",
+      "to": "deploy.cancelled",
+      "guard": null,
+      "commands": [],
+      "description": "After n, abort without network work."
+    },
+    {
+      "id": "deploy-ok",
+      "from": "deploy.running",
+      "event": "deploy.succeeded",
+      "to": "deploy.done",
+      "guard": null,
+      "commands": [],
+      "description": "Show successful response."
+    },
+    {
+      "id": "deploy-error",
+      "from": "deploy.running",
+      "event": "deploy.failed",
+      "to": "deploy.failed",
+      "guard": null,
+      "commands": [],
+      "description": "Show failure details."
+    }
+  ]
+}

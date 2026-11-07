@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tui:scenarios:1.1.0",
+  "title": "Optional TUI mockup scenarios (1.0 and 1.1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version":{"enum":["1.0.0","1.1.0"]},
+    "defaults":{"$ref":"#/$defs/fixture"},
+    "states":{"type":"object","additionalProperties":{"$ref":"#/$defs/fixture"}},
+    "variants":{"type":"object","propertyNames":{"$ref":"#/$defs/name"},"additionalProperties":{"$ref":"#/$defs/fixture"}},
+    "stateVariants":{"type":"object","additionalProperties":{"type":"object","propertyNames":{"$ref":"#/$defs/name"},"additionalProperties":{"$ref":"#/$defs/fixture"}}}
+  },
+  "allOf":[{"if":{"properties":{"schema_version":{"const":"1.0.0"}}},"then":{"not":{"anyOf":[{"required":["variants"]},{"required":["stateVariants"]}]}}}],
+  "$defs":{
+    "name":{"pattern":"^[a-z][a-z0-9-]*$"},
+    "component":{"type":"object","additionalProperties":false,"properties":{"hidden":{"type":"boolean"},"disabled":{"type":"boolean"},"checked":{"type":"boolean"},"value":{"type":["string","number","boolean","null"]},"text":{"type":"string"},"items":{"type":"array","items":{}}}},
+    "fixture":{"type":"object","additionalProperties":false,"properties":{"data":{"type":"object"},"state":{"type":"object"},"components":{"type":"object","additionalProperties":{"$ref":"#/$defs/component"}},"focus":{"type":"string"},"disabled":{"type":"boolean"},"status":{"type":"string"},"selectedIndex":{"type":"integer","minimum":0},"suppressDefaultStatus":{"type":"boolean"},"presentation":{"type":"object","additionalProperties":false,"properties":{"statusType":{"enum":["info","error","success","loading"]},"statusText":{"type":"string"}}}}}
+  }
+}

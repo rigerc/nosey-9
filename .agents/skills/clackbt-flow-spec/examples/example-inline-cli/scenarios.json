@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.1.0",
+  "states": {
+    "confirm.ready": {
+      "focus": "confirmation",
+      "components": {
+        "confirmation": {
+          "value": ""
+        }
+      }
+    },
+    "deploy.running": {
+      "components": {
+        "phase": {
+          "text": "⠋ Uploading release archive…"
+        },
+        "upload": {
+          "value": 37
+        },
+        "result": {
+          "hidden": true
+        },
+        "error": {
+          "hidden": true
+        }
+      }
+    },
+    "deploy.done": {
+      "components": {
+        "phase": {
+          "hidden": true
+        },
+        "upload": {
+          "hidden": true
+        },
+        "result": {
+          "text": "Published release 8f4c2 to staging.\nURL: https://staging.example.test"
+        },
+        "error": {
+          "hidden": true
+        }
+      }
+    },
+    "deploy.failed": {
+      "components": {
+        "phase": {
+          "hidden": true
+        },
+        "upload": {
+          "hidden": true
+        },
+        "result": {
+          "hidden": true
+        },
+        "error": {
+          "text": "Error: deployment API returned 503.\nNo changes were applied."
+        }
+      }
+    },
+    "deploy.cancelled": {
+      "components": {
+        "phase": {
+          "hidden": true
+        },
+        "upload": {
+          "hidden": true
+        },
+        "result": {
+          "hidden": true
+        },
+        "error": {
+          "text": "Cancelled. No deployment was started."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,213 @@
+{
+  "schema_version": "1.0.0",
+  "screens": [
+    {
+      "id": "task-list",
+      "title": "Tasks",
+      "purpose": "Browse tasks, open one, start task creation, or exit.",
+      "min_size": {
+        "cols": 60,
+        "rows": 20
+      },
+      "regions": [
+        {
+          "id": "root",
+          "kind": "container",
+          "orientation": "vertical",
+          "children": [
+            {
+              "id": "header",
+              "kind": "text",
+              "label": "Tasks"
+            },
+            {
+              "id": "tasks-list",
+              "kind": "list",
+              "label": "All tasks",
+              "focusable": true,
+              "data_ref": "tasks",
+              "on": {
+                "activate": "task.open"
+              }
+            },
+            {
+              "id": "new-task-button",
+              "kind": "button",
+              "label": "New task",
+              "focusable": true,
+              "on": {
+                "activate": "task.create.start"
+              }
+            },
+            {
+              "id": "help",
+              "kind": "status",
+              "label": "Enter open | n new | q exit"
+            }
+          ]
+        }
+      ],
+      "focus_order": [
+        "tasks-list",
+        "new-task-button"
+      ],
+      "keybindings": [
+        {
+          "key": "enter",
+          "event": "task.open",
+          "scope": "tasks-list"
+        },
+        {
+          "key": "n",
+          "event": "task.create.start",
+          "scope": "screen"
+        },
+        {
+          "key": "q",
+          "event": "app.exit",
+          "scope": "screen"
+        }
+      ],
+      "states": [
+        "list.ready",
+        "exit.done"
+      ]
+    },
+    {
+      "id": "task-detail",
+      "title": "Task details",
+      "purpose": "Read task content and return to the list.",
+      "min_size": {
+        "cols": 60,
+        "rows": 20
+      },
+      "regions": [
+        {
+          "id": "root",
+          "kind": "container",
+          "orientation": "vertical",
+          "children": [
+            {
+              "id": "detail-heading",
+              "kind": "text",
+              "label": "Task details"
+            },
+            {
+              "id": "detail-body",
+              "kind": "text",
+              "label": "Selected task",
+              "data_ref": "selected-task"
+            },
+            {
+              "id": "detail-status",
+              "kind": "status",
+              "label": "Loading/error state shown in this region"
+            },
+            {
+              "id": "back-button",
+              "kind": "button",
+              "label": "Back",
+              "focusable": true,
+              "on": {
+                "activate": "nav.back"
+              }
+            }
+          ]
+        }
+      ],
+      "focus_order": [
+        "back-button"
+      ],
+      "keybindings": [
+        {
+          "key": "esc",
+          "event": "nav.back",
+          "scope": "screen"
+        }
+      ],
+      "states": [
+        "detail.loading",
+        "detail.ready",
+        "detail.error"
+      ]
+    },
+    {
+      "id": "task-create",
+      "title": "Create task",
+      "purpose": "Capture and save a new task title, or cancel.",
+      "min_size": {
+        "cols": 60,
+        "rows": 20
+      },
+      "regions": [
+        {
+          "id": "root",
+          "kind": "container",
+          "orientation": "vertical",
+          "children": [
+            {
+              "id": "create-heading",
+              "kind": "text",
+              "label": "Create task"
+            },
+            {
+              "id": "title-input",
+              "kind": "input",
+              "label": "Title",
+              "focusable": true,
+              "on": {
+                "change": "form.changed"
+              }
+            },
+            {
+              "id": "error-status",
+              "kind": "status",
+              "label": "Validation or save error"
+            },
+            {
+              "id": "save-button",
+              "kind": "button",
+              "label": "Save",
+              "focusable": true,
+              "on": {
+                "activate": "task.create.submit"
+              }
+            },
+            {
+              "id": "cancel-button",
+              "kind": "button",
+              "label": "Cancel",
+              "focusable": true,
+              "on": {
+                "activate": "nav.back"
+              }
+            }
+          ]
+        }
+      ],
+      "focus_order": [
+        "title-input",
+        "save-button",
+        "cancel-button"
+      ],
+      "keybindings": [
+        {
+          "key": "ctrl+s",
+          "event": "task.create.submit",
+          "scope": "screen"
+        },
+        {
+          "key": "esc",
+          "event": "nav.back",
+          "scope": "screen"
+        }
+      ],
+      "states": [
+        "create.edit",
+        "create.invalid",
+        "create.saving",
+        "create.error"
+      ]
+    }
+  ]
+}

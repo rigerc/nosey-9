@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.1.0",
+  "preview": {
+    "viewports": {
+      "compact": {
+        "cols": 48,
+        "rows": 12
+      },
+      "wide": {
+        "cols": 96,
+        "rows": 24
+      }
+    },
+    "outputs": [
+      "txt",
+      "svg",
+      "ansi",
+      "html"
+    ]
+  }
+}

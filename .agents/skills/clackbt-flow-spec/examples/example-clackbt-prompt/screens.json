@@ -1,0 +1,136 @@
+{
+  "schema_version": "1.0.0",
+  "screens": [
+    {
+      "id": "greet-name",
+      "title": "Name question",
+      "purpose": "Collect required name with inline Clack text model.",
+      "presentation": "inline",
+      "cli": {
+        "invocation": "go-cli-template prompt",
+        "interaction": "prompted",
+        "stdin": "tty"
+      },
+      "min_size": {
+        "cols": 40,
+        "rows": 1
+      },
+      "regions": [
+        {
+          "id": "root",
+          "kind": "container",
+          "orientation": "vertical",
+          "children": [
+            {
+              "id": "question",
+              "kind": "clack-prompt",
+              "label": "What should we call you?",
+              "focusable": true,
+              "on": {
+                "submit": "greet.name.accept",
+                "invalid": "greet.name.invalid",
+                "retry": "greet.name.retry",
+                "cancel": "greet.cancel"
+              }
+            }
+          ]
+        }
+      ],
+      "focus_order": [
+        "question"
+      ],
+      "keybindings": [],
+      "states": [
+        "name.ready",
+        "name.invalid"
+      ]
+    },
+    {
+      "id": "greet-confirm",
+      "title": "Confirmation",
+      "purpose": "Ask for confirmation with native Clack confirmation model.",
+      "presentation": "inline",
+      "cli": {
+        "invocation": "go-cli-template prompt",
+        "interaction": "prompted",
+        "stdin": "tty"
+      },
+      "min_size": {
+        "cols": 40,
+        "rows": 1
+      },
+      "regions": [
+        {
+          "id": "root",
+          "kind": "container",
+          "orientation": "vertical",
+          "children": [
+            {
+              "id": "question",
+              "kind": "clack-prompt",
+              "label": "Create the greeting?",
+              "focusable": true,
+              "on": {
+                "yes": "greet.confirm.yes",
+                "no": "greet.confirm.no",
+                "cancel": "greet.cancel"
+              }
+            }
+          ]
+        }
+      ],
+      "focus_order": [
+        "question"
+      ],
+      "keybindings": [],
+      "states": [
+        "confirm.ready"
+      ]
+    },
+    {
+      "id": "greet-output",
+      "title": "Greeting result",
+      "purpose": "Emit a normal CLI result or diagnostic after the form finishes.",
+      "presentation": "inline",
+      "cli": {
+        "invocation": "go-cli-template prompt",
+        "interaction": "batch",
+        "stdin": "none"
+      },
+      "min_size": {
+        "cols": 40,
+        "rows": 1
+      },
+      "regions": [
+        {
+          "id": "root",
+          "kind": "container",
+          "orientation": "vertical",
+          "children": [
+            {
+              "id": "stdout",
+              "kind": "output",
+              "label": "Result",
+              "stream": "stdout"
+            },
+            {
+              "id": "stderr",
+              "kind": "output",
+              "label": "Error",
+              "stream": "stderr"
+            }
+          ]
+        }
+      ],
+      "focus_order": [],
+      "keybindings": [],
+      "states": [
+        "greet.running",
+        "greet.done",
+        "greet.declined",
+        "greet.cancelled",
+        "greet.failed"
+      ]
+    }
+  ]
+}

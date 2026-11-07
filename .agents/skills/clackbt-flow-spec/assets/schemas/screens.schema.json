@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/tui-spec/1.0.0/screens.schema.json",
+  "title": "screens",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "screens": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/screen"
+      }
+    }
+  },
+  "required": [
+    "schema_version",
+    "screens"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "node": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string"
+        },
+        "orientation": {
+          "enum": [
+            "horizontal",
+            "vertical",
+            "grid",
+            "overlay"
+          ]
+        },
+        "data_ref": {
+          "type": "string",
+          "minLength": 1
+        },
+        "focusable": {
+          "type": "boolean"
+        },
+        "on": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "stream": {
+          "enum": [
+            "stdout",
+            "stderr"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "keybinding": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "event": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "key",
+        "event"
+      ],
+      "additionalProperties": false
+    },
+    "screen": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "min_size": {
+          "type": "object",
+          "properties": {
+            "cols": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "required": [
+            "cols",
+            "rows"
+          ],
+          "additionalProperties": false
+        },
+        "regions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        },
+        "focus_order": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "keybindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/keybinding"
+          }
+        },
+        "states": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "presentation": {
+          "enum": [
+            "fullscreen",
+            "inline"
+          ]
+        },
+        "cli": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "invocation",
+            "interaction",
+            "stdin"
+          ],
+          "properties": {
+            "invocation": {
+              "type": "string",
+              "minLength": 1
+            },
+            "interaction": {
+              "enum": [
+                "batch",
+                "prompted"
+              ]
+            },
+            "stdin": {
+              "enum": [
+                "none",
+                "pipe",
+                "tty"
+              ]
+            }
+          }
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "purpose",
+        "min_size",
+        "regions",
+        "focus_order",
+        "keybindings",
+        "states"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "presentation": {
+                "const": "inline"
+              }
+            },
+            "required": [
+              "presentation"
+            ]
+          },
+          "then": {
+            "required": [
+              "cli"
+            ]
+          }
+        },
+        {
+          "if": {
+            "not": {
+              "properties": {
+                "presentation": {
+                  "const": "inline"
+                }
+              },
+              "required": [
+                "presentation"
+              ]
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "cli"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

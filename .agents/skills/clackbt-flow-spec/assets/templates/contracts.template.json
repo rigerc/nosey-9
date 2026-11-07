@@ -1,0 +1,19 @@
+{
+  "schema_version": "1.0.0",
+  "ui": {
+    "components": []
+  },
+  "state": {
+    "fields": [],
+    "invariants": []
+  },
+  "events": [],
+  "commands": [],
+  "data": {
+    "models": [],
+    "sources": []
+  },
+  "validation": {
+    "rules": []
+  }
+}

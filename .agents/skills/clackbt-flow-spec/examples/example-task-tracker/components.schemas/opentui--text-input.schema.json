@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tui:termcn:opentui:text-input",
+  "title": "Text Input",
+  "description": "OpenTUI single-line text input",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "value": {
+      "type": "string"
+    },
+    "placeholder": {
+      "type": "string"
+    },
+    "mask": {
+      "type": "string"
+    },
+    "showCursor": {
+      "type": "boolean"
+    },
+    "highlightPastedText": {
+      "type": "boolean"
+    },
+    "width": {
+      "type": "number"
+    },
+    "label": {
+      "type": "string"
+    },
+    "autoFocus": {
+      "type": "boolean"
+    },
+    "id": {
+      "type": "string"
+    },
+    "bordered": {
+      "type": "boolean"
+    },
+    "borderStyle": {
+      "enum": [
+        "single",
+        "double",
+        "round",
+        "bold",
+        "singleDouble",
+        "doubleSingle",
+        "classic"
+      ]
+    },
+    "paddingX": {
+      "type": "number"
+    },
+    "cursor": {
+      "type": "string"
+    }
+  },
+  "x-termcn": {
+    "registry_name": "opentui/text-input",
+    "props_interface": "TextInputProps",
+    "callbacks": [
+      {
+        "name": "onChange",
+        "typescript": "(value: string) => void"
+      },
+      {
+        "name": "onSubmit",
+        "typescript": "(value: string) => void"
+      },
+      {
+        "name": "validate",
+        "typescript": "(value: string) => string | null"
+      }
+    ],
+    "unresolved_props": [],
+    "source_sha256": "34e9ab1f88b37b60645d6d28cc5e67c11b072699cc5d0bff6c318d0c0c9e52ab",
+    "source": "local:text-input.json"
+  }
+}

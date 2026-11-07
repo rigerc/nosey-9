@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.1.0",
+  "defaults": {
+    "data": {"tasks": [{"title":"Draft specification"},{"title":"Run tests"}]}
+  },
+  "states": {
+    "create.edit": {"focus": "title-input"}
+  },
+  "variants": {
+    "empty": {"data": {"tasks": []}},
+    "failure": {"presentation": {"statusType": "error", "statusText": "Sample error"}}
+  },
+  "stateVariants": {
+    "create.edit": {
+      "failure": {"components": {"error-status": {"text": "Unable to save"}}}
+    }
+  }
+}

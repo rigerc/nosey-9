@@ -1,0 +1,2 @@
+$ shipctl deploy --env staging
+Cancelled. No deployment was started.

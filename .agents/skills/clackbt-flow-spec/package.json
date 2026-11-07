@@ -1,0 +1,14 @@
+{
+  "name": "clackbt-flow-spec",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "clackbt-native Go/Bubble Tea v2 inline prompt flow specifications and contract previews",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "help": "node scripts/clackbt.mjs help",
+    "test": "node scripts/clackbt.mjs test"
+  }
+}

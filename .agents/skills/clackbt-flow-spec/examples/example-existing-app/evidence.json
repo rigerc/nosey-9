@@ -1,0 +1,201 @@
+{
+  "schema_version": "1.0.0",
+  "claims": [
+    {
+      "ref": "ui.components.task-list-view",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 43,
+          "line_end": 43,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "ui.components.task-delete-action",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 55,
+          "line_end": 55,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "ui.components.task-back-action",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 52,
+          "line_end": 52,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "state.fields.screen",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 38,
+          "line_end": 38,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "state.fields.selected_id",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 39,
+          "line_end": 39,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "state.fields.error_message",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 40,
+          "line_end": 40,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "events.task.open",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 51,
+          "line_end": 51,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "events.task.delete.request",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 55,
+          "line_end": 55,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "events.nav.back",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 54,
+          "line_end": 54,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "events.task.deleted",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 67,
+          "line_end": 67,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "events.task.delete.failed",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 64,
+          "line_end": 64,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "commands.task.delete",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 61,
+          "line_end": 61,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "data.models.Task",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 12,
+          "line_end": 12,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "data.sources.tasks",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 21,
+          "line_end": 21,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    },
+    {
+      "ref": "validation.rules.task-id-required",
+      "classification": "observed",
+      "rationale": "Observed via static inspection of implementation handler, model, or source declaration; IDs are normalized for interoperability.",
+      "sources": [
+        {
+          "path": ".agents/skills/clackbt-flow-spec/tests/fixtures/existing_app.py",
+          "line_start": 25,
+          "line_end": 25,
+          "sha256": "40038a4913a21df3487c47674065cc49af4fbeb3a16f89972e1dc5c03874652d"
+        }
+      ]
+    }
+  ],
+  "gaps": []
+}

@@ -1,0 +1,97 @@
+package prompts
+
+import (
+	"context"
+	"fmt"
+	"os"
+
+	"github.com/go-cli-template/internal/clack/core"
+	"github.com/go-cli-template/internal/clack/core/validator"
+	"github.com/go-cli-template/internal/clack/prompts/theme"
+	"github.com/go-cli-template/internal/clack/third_party/picocolors"
+)
+
+// SelectKeyOption is one key-selected item.
+type SelectKeyOption[TValue comparable] struct {
+	Label string
+	Value TValue
+	Key   string
+}
+
+// SelectKeyParams configures a select-key prompt.
+type SelectKeyParams[TValue comparable] struct {
+	Context context.Context
+	Input   *os.File
+	Output  *os.File
+	Message string
+	Options []SelectKeyOption[TValue]
+}
+
+// SelectKey displays a select-key prompt to the user.
+//
+// The prompt displays a message within their options.
+// The user can select an option by clicking on the related key.
+// The prompt returns the value of the selected option.
+// If the user cancels the prompt, it returns an error.
+// If an error occurs during the prompt, it also returns an error.
+//
+// Parameters:
+//   - Context (context.Context): The context for the prompt (default: context.Background).
+//   - Input (*os.File): The input stream for the prompt (default: OSFileSystem).
+//   - Output (*os.File): The output stream for the prompt (default: OSFileSystem).
+//   - Message (string): The message to display to the user (default: "").
+//   - Options ([]*SelectKeyOption[TValue]): A list of options for the prompt (default: nil).
+//
+// Returns:
+//   - TValue: The value of the selected option.
+//   - error: An error if the user cancels the prompt or if an error occurs.
+
+// SelectKeyModel constructs a composable Bubble Tea model using the exact
+// go-clack themed renderer used by the standalone SelectKey prompt.
+func SelectKeyModel[TValue comparable](params SelectKeyParams[TValue]) *core.SelectKeyPrompt[TValue] {
+	v := validator.NewValidator("SelectKey")
+	v.ValidateOptions(len(params.Options))
+
+	options := make([]*core.SelectKeyOption[TValue], len(params.Options))
+	for i, option := range params.Options {
+		options[i] = &core.SelectKeyOption[TValue]{
+			Label: option.Label,
+			Value: option.Value,
+			Key:   option.Key,
+		}
+	}
+
+	p := core.NewSelectKeyPrompt(core.SelectKeyPromptParams[TValue]{
+		Context: params.Context,
+		Input:   params.Input,
+		Output:  params.Output,
+		Options: options,
+		Render: func(p *core.SelectKeyPrompt[TValue]) string {
+			var value string
+			switch p.State {
+			case core.SubmitState, core.CancelState:
+			default:
+				keyOptions := make([]string, len(params.Options))
+				for i, option := range params.Options {
+					key := picocolors.Cyan("[" + option.Key + "]")
+					label := option.Label
+					keyOptions[i] = fmt.Sprintf("%s %s", key, label)
+				}
+				value = p.LimitLines(keyOptions, 3)
+			}
+
+			return theme.ApplyTheme(theme.Params[TValue]{
+				Context:         p.Prompt,
+				Message:         params.Message,
+				Value:           params.Options[p.CursorIndex].Label,
+				ValueWithCursor: value,
+			})
+		},
+	})
+	return p
+}
+
+// SelectKey runs the styled model as a standalone Bubble Tea program.
+func SelectKey[TValue comparable](params SelectKeyParams[TValue]) (TValue, error) {
+	return SelectKeyModel(params).Run()
+}

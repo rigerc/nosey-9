@@ -1,0 +1,147 @@
+{
+  "schema_version": "1.0.0",
+  "ui": {
+    "components": [
+      {
+        "id": "confirm-prompt",
+        "screen": "deploy-confirm",
+        "node_id": "confirmation",
+        "kind": "prompt",
+        "props": [
+          {
+            "name": "question",
+            "type": "string",
+            "required": true,
+            "source": "literal:SPEC.md confirmation copy"
+          }
+        ],
+        "emits": [
+          "deploy.confirm",
+          "deploy.cancel"
+        ]
+      },
+      {
+        "id": "deployment-stdout",
+        "screen": "deploy-output",
+        "node_id": "result",
+        "kind": "output",
+        "props": [
+          {
+            "name": "stream",
+            "type": "stdout",
+            "required": true,
+            "source": "literal:command deployment result"
+          }
+        ],
+        "emits": []
+      },
+      {
+        "id": "deployment-stderr",
+        "screen": "deploy-output",
+        "node_id": "error",
+        "kind": "output",
+        "props": [
+          {
+            "name": "stream",
+            "type": "stderr",
+            "required": true,
+            "source": "literal:command error details"
+          }
+        ],
+        "emits": []
+      },
+      {
+        "id": "deploy-progress",
+        "screen": "deploy-output",
+        "node_id": "upload",
+        "kind": "progress",
+        "props": [
+          {
+            "name": "percent",
+            "type": "integer",
+            "required": true,
+            "source": "deploy_progress"
+          }
+        ],
+        "emits": []
+      }
+    ]
+  },
+  "state": {
+    "fields": [
+      {
+        "name": "deploy_progress",
+        "type": "integer",
+        "initial": 0,
+        "scope": "feature",
+        "description": "Illustrative percent completed from 0 to 100"
+      },
+      {
+        "name": "error_text",
+        "type": "string",
+        "initial": "",
+        "scope": "feature",
+        "description": "Human-readable diagnostic for stderr on deployment failure"
+      }
+    ],
+    "invariants": [
+      {
+        "id": "progress-bounds",
+        "expression": "0 <= deploy_progress <= 100",
+        "description": "Progress samples are bounded percentages"
+      }
+    ]
+  },
+  "events": [
+    {
+      "id": "deploy.confirm",
+      "payload": {},
+      "origin": "ui",
+      "description": "User answers yes to the confirmation prompt"
+    },
+    {
+      "id": "deploy.cancel",
+      "payload": {},
+      "origin": "ui",
+      "description": "User answers no to the confirmation prompt"
+    },
+    {
+      "id": "deploy.succeeded",
+      "payload": {
+        "deployment_id": "string"
+      },
+      "origin": "command",
+      "description": "Remote deploy finished successfully"
+    },
+    {
+      "id": "deploy.failed",
+      "payload": {
+        "message": "string"
+      },
+      "origin": "command",
+      "description": "Remote deploy failed"
+    }
+  ],
+  "commands": [
+    {
+      "id": "deploy.start",
+      "trigger": "deploy.confirm",
+      "input": {
+        "environment": "string"
+      },
+      "outcomes": [
+        "deploy.succeeded",
+        "deploy.failed"
+      ],
+      "side_effect": "Publish the selected release to the staging environment over the deployment API",
+      "idempotent": false
+    }
+  ],
+  "data": {
+    "models": [],
+    "sources": []
+  },
+  "validation": {
+    "rules": []
+  }
+}

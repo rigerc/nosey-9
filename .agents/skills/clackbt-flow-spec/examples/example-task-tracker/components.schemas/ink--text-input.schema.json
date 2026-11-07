@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:tui:termcn:ink:text-input",
+  "title": "Text Input",
+  "description": "Single-line text input",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "value": {
+      "type": "string"
+    },
+    "defaultValue": {
+      "type": "string"
+    },
+    "placeholder": {
+      "type": "string"
+    },
+    "mask": {
+      "type": "string"
+    },
+    "showCursor": {
+      "type": "boolean"
+    },
+    "highlightPastedText": {
+      "type": "boolean"
+    },
+    "width": {
+      "type": "number"
+    },
+    "label": {
+      "type": "string"
+    },
+    "autoFocus": {
+      "type": "boolean"
+    },
+    "id": {
+      "type": "string"
+    },
+    "isActive": {
+      "type": "boolean"
+    },
+    "disabled": {
+      "type": "boolean"
+    },
+    "readOnly": {
+      "type": "boolean"
+    },
+    "required": {
+      "type": "boolean"
+    },
+    "aria-label": {
+      "type": "string"
+    },
+    "cursorOrigin": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "x",
+        "y"
+      ]
+    },
+    "bordered": {
+      "type": "boolean"
+    },
+    "borderStyle": {
+      "enum": [
+        "single",
+        "double",
+        "round",
+        "bold",
+        "singleDouble",
+        "doubleSingle",
+        "classic"
+      ]
+    },
+    "paddingX": {
+      "type": "number"
+    },
+    "cursor": {
+      "type": "string"
+    }
+  },
+  "x-termcn": {
+    "registry_name": "ink/text-input",
+    "props_interface": "TextInputProps",
+    "callbacks": [
+      {
+        "name": "onValueChange",
+        "typescript": "(value: string) => void"
+      },
+      {
+        "name": "onChange",
+        "typescript": "(value: string) => void"
+      },
+      {
+        "name": "onSubmit",
+        "typescript": "(value: string) => void"
+      },
+      {
+        "name": "validate",
+        "typescript": "(value: string) => string | null"
+      }
+    ],
+    "unresolved_props": [],
+    "source_sha256": "767d6ed7d96da4ab467296d6d8b3abf6514fa2817c637607057228494a2502d9",
+    "source": "local:text-input.json"
+  }
+}

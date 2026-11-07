@@ -1,0 +1,3 @@
+$ shipctl deploy --env staging
+⠋ Uploading release archive…
+Upload [████░░░░░░] 37%

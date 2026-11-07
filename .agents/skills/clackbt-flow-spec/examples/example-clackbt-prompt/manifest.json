@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.0.0",
+  "feature_id": "example-clackbt-prompt",
+  "title": "Clack-style greeting workflow",
+  "status": "draft",
+  "entry_screen": "greet-name",
+  "source_brief": "Illustrative clackbt-native 2-question prompt adapted from the repository example, with explicit input, cancellation, I/O and completion contracts.",
+  "files": [
+    "SPEC.md",
+    "FLOWS.md",
+    "CONTRACTS.md",
+    "DECISIONS.md",
+    "manifest.json",
+    "screens.json",
+    "machine.json",
+    "contracts.json",
+    "clackbt.json",
+    "design.json",
+    "scenarios.json",
+    "validation-report.json",
+    "contracts-viewer.html",
+    "storyboard.html",
+    "clackbt-preview.html",
+    "clackbt-transcript.txt"
+  ],
+  "assumptions": [
+    "The Ctrl+C policy/exit code 130 is a proposed example, not a verified runtime guarantee.",
+    "The greeting output effect is modeled as a command; this is a specification, not byte-exact runtime behavior."
+  ],
+  "open_questions": [
+    "Confirm downstream CLI cancellation exit policy before marking this example ready."
+  ],
+  "source_mode": "brief",
+  "artifact_scope": "full"
+}

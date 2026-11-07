@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "componentProps": {
+    "task-create/title-input": {"placeholder": "Enter task title", "borderStyle": "round", "width": 40}
+  },
+  "componentMappings": {
+    "input": "ink/text-input"
+  },
+  "themes": {
+    "ocean": {
+      "bg": "#0d2028",
+      "panel": "#152e38",
+      "fg": "#e4fcf8",
+      "muted": "#9bc9cb",
+      "accent": "#4fddb7",
+      "border": "#326373",
+      "error": "#ffa8a8"
+    }
+  }
+}

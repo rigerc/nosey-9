@@ -1,0 +1,4 @@
+◆  Create the greeting?
+│  ● Yes
+│  ○ No
+└

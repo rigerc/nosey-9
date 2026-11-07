@@ -1,0 +1,302 @@
+{
+  "schema_version": "1.0.0",
+  "ui": {
+    "components": [
+      {
+        "id": "task-list-view",
+        "screen": "task-list",
+        "node_id": "tasks-list",
+        "kind": "list",
+        "props": [
+          {
+            "name": "items",
+            "type": "Task[]",
+            "required": true,
+            "source": "tasks"
+          }
+        ],
+        "emits": [
+          "task.open"
+        ]
+      },
+      {
+        "id": "create-task-action",
+        "screen": "task-list",
+        "node_id": "new-task-button",
+        "kind": "button",
+        "props": [],
+        "emits": [
+          "task.create.start"
+        ]
+      },
+      {
+        "id": "detail-content",
+        "screen": "task-detail",
+        "node_id": "detail-body",
+        "kind": "text",
+        "props": [
+          {
+            "name": "task",
+            "type": "Task",
+            "required": true,
+            "source": "selected-task"
+          }
+        ],
+        "emits": []
+      },
+      {
+        "id": "detail-back-action",
+        "screen": "task-detail",
+        "node_id": "back-button",
+        "kind": "button",
+        "props": [],
+        "emits": [
+          "nav.back"
+        ]
+      },
+      {
+        "id": "create-title-field",
+        "screen": "task-create",
+        "node_id": "title-input",
+        "kind": "input",
+        "props": [
+          {
+            "name": "value",
+            "type": "string",
+            "required": true,
+            "source": "draft_title"
+          }
+        ],
+        "emits": [
+          "form.changed"
+        ]
+      },
+      {
+        "id": "create-save-action",
+        "screen": "task-create",
+        "node_id": "save-button",
+        "kind": "button",
+        "props": [],
+        "emits": [
+          "task.create.submit"
+        ]
+      },
+      {
+        "id": "create-cancel-action",
+        "screen": "task-create",
+        "node_id": "cancel-button",
+        "kind": "button",
+        "props": [],
+        "emits": [
+          "nav.back"
+        ]
+      }
+    ]
+  },
+  "state": {
+    "fields": [
+      {
+        "name": "selected_task_id",
+        "type": "string|null",
+        "initial": null,
+        "scope": "feature",
+        "description": "Selected task ID for detail loading"
+      },
+      {
+        "name": "draft_title",
+        "type": "string",
+        "initial": "",
+        "scope": "feature",
+        "description": "Draft title as typed"
+      },
+      {
+        "name": "error_message",
+        "type": "string",
+        "initial": "",
+        "scope": "feature",
+        "description": "Last actionable error text"
+      }
+    ],
+    "invariants": [
+      {
+        "id": "selected-id-when-detail",
+        "expression": "screen == \"task-detail\" -> state.selected_task_id != null",
+        "description": "Detail flow only opens from a valid task selection"
+      },
+      {
+        "id": "save-disables-input",
+        "expression": "state_id == \"create.saving\" -> input_enabled == false",
+        "description": "Prevent duplicate submission during persistence"
+      }
+    ]
+  },
+  "events": [
+    {
+      "id": "task.open",
+      "payload": {
+        "task_id": "string"
+      },
+      "origin": "ui",
+      "description": "Request task details for an ID"
+    },
+    {
+      "id": "task.loaded",
+      "payload": {
+        "task": "Task"
+      },
+      "origin": "command",
+      "description": "Task loaded successfully"
+    },
+    {
+      "id": "task.load.failed",
+      "payload": {
+        "message": "string"
+      },
+      "origin": "command",
+      "description": "Task load failed"
+    },
+    {
+      "id": "task.create.start",
+      "payload": {},
+      "origin": "ui",
+      "description": "Open task creation screen"
+    },
+    {
+      "id": "form.changed",
+      "payload": {
+        "title": "string"
+      },
+      "origin": "ui",
+      "description": "Draft title changed"
+    },
+    {
+      "id": "task.create.submit",
+      "payload": {
+        "title": "string"
+      },
+      "origin": "ui",
+      "description": "Attempt task creation"
+    },
+    {
+      "id": "task.created",
+      "payload": {
+        "task": "Task"
+      },
+      "origin": "command",
+      "description": "Task persisted"
+    },
+    {
+      "id": "task.create.failed",
+      "payload": {
+        "message": "string"
+      },
+      "origin": "command",
+      "description": "Task save failed"
+    },
+    {
+      "id": "nav.back",
+      "payload": {},
+      "origin": "ui",
+      "description": "Navigate back to task list"
+    },
+    {
+      "id": "app.exit",
+      "payload": {},
+      "origin": "ui",
+      "description": "Exit feature flow"
+    }
+  ],
+  "commands": [
+    {
+      "id": "task.load",
+      "trigger": "task.open",
+      "input": {
+        "task_id": "string"
+      },
+      "outcomes": [
+        "task.loaded",
+        "task.load.failed"
+      ],
+      "side_effect": "Read a task from the local persistent task repository",
+      "idempotent": true
+    },
+    {
+      "id": "task.create",
+      "trigger": "task.create.submit",
+      "input": {
+        "title": "string"
+      },
+      "outcomes": [
+        "task.created",
+        "task.create.failed"
+      ],
+      "side_effect": "Persist a new task in the local task repository; refresh task-list source on success",
+      "idempotent": false
+    }
+  ],
+  "data": {
+    "models": [
+      {
+        "name": "Task",
+        "fields": [
+          {
+            "name": "id",
+            "type": "string",
+            "required": true,
+            "description": "Stable task identifier"
+          },
+          {
+            "name": "title",
+            "type": "string",
+            "required": true,
+            "description": "User-visible title"
+          },
+          {
+            "name": "completed",
+            "type": "boolean",
+            "required": true,
+            "description": "Completion flag"
+          }
+        ]
+      },
+      {
+        "name": "TaskDraft",
+        "fields": [
+          {
+            "name": "title",
+            "type": "string",
+            "required": true,
+            "description": "Title submitted for creation"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "tasks",
+        "model": "Task",
+        "cardinality": "many",
+        "provider": "Local persistent task repository",
+        "description": "Task collection, refreshed after successful create"
+      },
+      {
+        "id": "selected-task",
+        "model": "Task",
+        "cardinality": "one",
+        "provider": "Local persistent task repository",
+        "description": "Task returned by task.load command"
+      }
+    ]
+  },
+  "validation": {
+    "rules": [
+      {
+        "id": "title-required",
+        "target": "TaskDraft.title",
+        "when": "task.create.submit",
+        "predicate": "trim(title) != \"\"",
+        "message": "Title is required."
+      }
+    ]
+  }
+}

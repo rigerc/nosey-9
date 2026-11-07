@@ -1,0 +1,27 @@
+STAGE 1 — name (TextModel)
+◆  What should we call you?
+│  Ada ▌
+└
+
+STAGE 2 — confirm (ConfirmModel)
+◇  What should we call you?
+│  Ada
+│
+◆  Create the greeting?
+│  ● Yes  ○ No
+└
+
+COMPLETE
+◇  What should we call you?
+│  Ada
+│
+◇  Create the greeting?
+│  Yes
+│
+
+CANCELLATION (illustrative)
+■  What should we call you?
+│  Cancelled
+└
+
+Synthetic transcript only; NOT runtime output, interaction testing, or exact ANSI/byte fidelity.

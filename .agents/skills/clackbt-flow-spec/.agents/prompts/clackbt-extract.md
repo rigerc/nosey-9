@@ -1,0 +1,3 @@
+# clackbt: extract existing implementation contracts
+
+Read `SKILL.md`, source map and `references/existing-app.md`. Inspect actual Go source and tests read-only: Cobra command, `internal/clack/prompts` workflow builders and models, `internal/clack/core` state/cancel handling, TTY gates, side effects, stream output. Record exact repository-relative paths, line ranges and hashes for observed claims. **Before writing**, show a provisional extraction plan, clarify gaps and obtain explicit approval. Default to contracts-only plus `evidence.json`; use full state reconstructions only when explicitly requested. Do not execute code without permission or label inferred behavior as observed.

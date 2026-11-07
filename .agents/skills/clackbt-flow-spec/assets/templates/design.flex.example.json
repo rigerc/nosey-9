@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.1.0",
+  "preview": {
+    "viewports": {
+      "compact": {"cols": 60, "rows": 20},
+      "standard": {"cols": 80, "rows": 24},
+      "wide": {"cols": 120, "rows": 32}
+    },
+    "layouts": {
+      "task-create/root": {
+        "direction": "horizontal", "gap": 1, "padding": 1, "border": "rounded",
+        "byViewport": {"compact": {"direction": "vertical"}}
+      }
+    },
+    "styles": {
+      "task-create/title-input": {
+        "width": "70%", "border": "single", "padding": 1, "wrap": true
+      },
+      "task-list/tasks-list": {"maxItems": 5, "role": "accent"}
+    },
+    "outputs": ["txt", "svg", "ansi", "html"]
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "schema_version": "1.1.0",
+  "preview": {
+    "viewports": {
+      "compact": {
+        "cols": 48,
+        "rows": 12
+      },
+      "wide": {
+        "cols": 96,
+        "rows": 24
+      }
+    },
+    "styles": {
+      "deploy-confirm/invocation": {
+        "wrap": true
+      },
+      "deploy-output/invocation": {
+        "wrap": true
+      },
+      "deploy-output/result": {
+        "wrap": true
+      },
+      "deploy-output/error": {
+        "wrap": true
+      }
+    },
+    "outputs": [
+      "txt",
+      "svg",
+      "ansi",
+      "html"
+    ]
+  }
+}

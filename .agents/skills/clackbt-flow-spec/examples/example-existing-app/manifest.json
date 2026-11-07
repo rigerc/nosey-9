@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0.0",
+  "feature_id": "example-existing-app",
+  "title": "Existing app example: task browser and deletion",
+  "status": "ready",
+  "source_mode": "existing-app",
+  "artifact_scope": "contracts-only",
+  "source_brief": "Illustrative extraction of implemented task list/detail, keyboard actions, and JSON-backed delete operation in the bundled fixture.",
+  "files": [
+    "CONTRACTS.md",
+    "DECISIONS.md",
+    "EVIDENCE.md",
+    "contracts-viewer.html",
+    "contracts.json",
+    "evidence.json",
+    "manifest.json",
+    "validation-report.json"
+  ],
+  "assumptions": [],
+  "open_questions": []
+}

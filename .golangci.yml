@@ -1,0 +1,43 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - antislop
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+    - gosec
+    - revive
+    - nolintlint
+  exclusions:
+    paths:
+      # Vendored agent skill trees are third-party content, not project Go code.
+      - ^\.agents/
+  settings:
+    custom:
+      antislop:
+        type: module
+        description: Reject low-evidence Go patterns.
+        original-url: github.com/JacobJNilsson/anti-slop-go
+        settings:
+          # go-clack's dynamic workflow API assigns struct fields by name.
+          # reflectutil is the single package that imports reflect; every other
+          # package remains subject to the noreflect rule.
+          reflect-allow:
+            - github.com/go-cli-template/internal/clack/reflectutil
+          # Default rules are always on. Additional rules chosen deliberately:
+          enable:
+            - noanyparam
+            - nointerfacereturn
+            - justifypanic
+            - fullstructcomp
+          fullstructcomp-min: 3
+          # errsemantics is left opt-in for projects that adopt error identity
+          # tests throughout; this starter also checks configuration messages.

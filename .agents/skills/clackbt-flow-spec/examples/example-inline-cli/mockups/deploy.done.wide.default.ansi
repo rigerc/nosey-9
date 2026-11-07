@@ -1,0 +1,3 @@
+[38;2;101;232;214m$ shipctl deploy --env staging[38;2;238;244;255m                                                                  [0m
+[38;2;238;244;255mPublished release 8f4c2 to staging.                                                             [0m
+[38;2;238;244;255mURL: https://staging.example.test                                                               [0m

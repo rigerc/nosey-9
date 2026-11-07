@@ -1,0 +1,161 @@
+{
+  "schema_version": "1.1.0",
+  "generator": "semantic-terminal-mockup-v1.6",
+  "source": "canonical screens.json + machine.json",
+  "note": "Mockups are semantic previews, not termcn runtime captures.",
+  "viewport": {
+    "cols": 48,
+    "rows": 12
+  },
+  "viewports": {
+    "compact": {
+      "cols": 48,
+      "rows": 12
+    },
+    "wide": {
+      "cols": 96,
+      "rows": 24
+    }
+  },
+  "scenarios": [
+    "default"
+  ],
+  "outputs": [
+    "txt",
+    "svg",
+    "ansi",
+    "html"
+  ],
+  "theme": "dark",
+  "components_cataloged": 0,
+  "screen_count": 2,
+  "state_count": 5,
+  "variant_count": 10,
+  "transition_count": 4,
+  "presentations": [
+    "inline"
+  ],
+  "items": [
+    {
+      "state": "confirm.ready",
+      "screen": "deploy-confirm",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/confirm.ready.compact.default.txt",
+      "svg": "mockups/confirm.ready.compact.default.svg",
+      "ansi": "mockups/confirm.ready.compact.default.ansi"
+    },
+    {
+      "state": "confirm.ready",
+      "screen": "deploy-confirm",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/confirm.ready.wide.default.txt",
+      "svg": "mockups/confirm.ready.wide.default.svg",
+      "ansi": "mockups/confirm.ready.wide.default.ansi"
+    },
+    {
+      "state": "deploy.running",
+      "screen": "deploy-output",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/deploy.running.compact.default.txt",
+      "svg": "mockups/deploy.running.compact.default.svg",
+      "ansi": "mockups/deploy.running.compact.default.ansi"
+    },
+    {
+      "state": "deploy.running",
+      "screen": "deploy-output",
+      "presentation": "inline",
+      "exit_code": null,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/deploy.running.wide.default.txt",
+      "svg": "mockups/deploy.running.wide.default.svg",
+      "ansi": "mockups/deploy.running.wide.default.ansi"
+    },
+    {
+      "state": "deploy.done",
+      "screen": "deploy-output",
+      "presentation": "inline",
+      "exit_code": 0,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/deploy.done.compact.default.txt",
+      "svg": "mockups/deploy.done.compact.default.svg",
+      "ansi": "mockups/deploy.done.compact.default.ansi"
+    },
+    {
+      "state": "deploy.done",
+      "screen": "deploy-output",
+      "presentation": "inline",
+      "exit_code": 0,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/deploy.done.wide.default.txt",
+      "svg": "mockups/deploy.done.wide.default.svg",
+      "ansi": "mockups/deploy.done.wide.default.ansi"
+    },
+    {
+      "state": "deploy.failed",
+      "screen": "deploy-output",
+      "presentation": "inline",
+      "exit_code": 1,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/deploy.failed.compact.default.txt",
+      "svg": "mockups/deploy.failed.compact.default.svg",
+      "ansi": "mockups/deploy.failed.compact.default.ansi"
+    },
+    {
+      "state": "deploy.failed",
+      "screen": "deploy-output",
+      "presentation": "inline",
+      "exit_code": 1,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/deploy.failed.wide.default.txt",
+      "svg": "mockups/deploy.failed.wide.default.svg",
+      "ansi": "mockups/deploy.failed.wide.default.ansi"
+    },
+    {
+      "state": "deploy.cancelled",
+      "screen": "deploy-output",
+      "presentation": "inline",
+      "exit_code": 130,
+      "viewport": "compact",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/deploy.cancelled.compact.default.txt",
+      "svg": "mockups/deploy.cancelled.compact.default.svg",
+      "ansi": "mockups/deploy.cancelled.compact.default.ansi"
+    },
+    {
+      "state": "deploy.cancelled",
+      "screen": "deploy-output",
+      "presentation": "inline",
+      "exit_code": 130,
+      "viewport": "wide",
+      "scenario": "default",
+      "warnings": [],
+      "text": "mockups/deploy.cancelled.wide.default.txt",
+      "svg": "mockups/deploy.cancelled.wide.default.svg",
+      "ansi": "mockups/deploy.cancelled.wide.default.ansi"
+    }
+  ],
+  "mapping_warnings": []
+}

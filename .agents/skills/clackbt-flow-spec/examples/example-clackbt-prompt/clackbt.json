@@ -1,0 +1,72 @@
+{
+  "schema_version": "1.0.0",
+  "backend": "clackbt-go",
+  "go_module": "github.com/go-cli-template",
+  "command": "go-cli-template prompt",
+  "presentation": "inline",
+  "interaction": "native-workflow",
+  "implementation": {
+    "runner": "RunNative",
+    "allow_legacy_steps": false
+  },
+  "tty": {
+    "required": true,
+    "on_missing": "error"
+  },
+  "io": {
+    "stdout": "human",
+    "stderr": "diagnostics"
+  },
+  "cancellation": {
+    "error": "core.ErrCancelPrompt",
+    "handler": "prompts.IsCancel",
+    "on_interrupt": "propagate a cancellation error to Cobra; explicit No returns normally",
+    "exit_code": 130
+  },
+  "terminal": {
+    "success_exit_code": 0
+  },
+  "result_struct": {
+    "Name": "string",
+    "Confirm": "bool"
+  },
+  "steps": [
+    {
+      "id": "name",
+      "field": "Name",
+      "screen_id": "greet-name",
+      "states": [
+        "name.ready",
+        "name.invalid"
+      ],
+      "api": "TextModel",
+      "params": {
+        "Message": "What should we call you?",
+        "Placeholder": "Ada",
+        "Required": true
+      },
+      "preview": {
+        "placeholder": "Ada",
+        "answer": "Ada",
+        "input": "",
+        "error": "Name is required"
+      }
+    },
+    {
+      "id": "confirm",
+      "field": "Confirm",
+      "screen_id": "greet-confirm",
+      "states": [
+        "confirm.ready"
+      ],
+      "api": "ConfirmModel",
+      "params": {
+        "Message": "Create the greeting?",
+        "InitialValue": true
+      },
+      "preview": {
+        "answer": "Yes"
+      }
+    }
+  ]
+}
