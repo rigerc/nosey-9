@@ -134,3 +134,12 @@ jobs:
             dist/*
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+  site:
+    name: Publish registry site
+    needs: publish
+    uses: ./.github/workflows/pages.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
