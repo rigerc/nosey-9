@@ -1,13 +1,11 @@
-# Quality checks from go-agentic-template, adapted to the larger CLI codebase.
+# Quality checks for the nosey CLI.
 GO ?= go
 BIN := dist/nosey
 LINTER_BIN := ./custom-gcl
-COVERAGE_FILE := coverage.out
 COVERAGE_MIN ?= 80
-# Generated CLI agent skills belong to each downstream app, not the template.
+# Name of the generated agent skill for this CLI.
 SKILL_NAME ?= $(notdir $(BIN))
 # Core services have a shared coverage gate; CLI/TUI tests exercise the same services.
-RUNTIME_PACKAGES := ./internal/runtimeconfig/... ./internal/logging/... ./internal/greeting/...
 CORE_PACKAGES := ./internal/app ./internal/catalog ./internal/registrygen ./internal/contracts ./internal/detection ./internal/installation ./internal/process ./internal/registry ./internal/settings ./internal/storage
 empty :=
 space := $(empty) $(empty)
@@ -56,10 +54,6 @@ test:
 
 test-coverage:
 	$(GO) test -race ./...
-	$(GO) test -race -covermode=atomic -coverprofile=$(COVERAGE_FILE) $(RUNTIME_PACKAGES)
-	@$(GO) tool cover -func=$(COVERAGE_FILE) | awk -v min=$(COVERAGE_MIN) \
-	  '/^total:/ { gsub(/%/, "", $$3); printf "Runtime coverage: %.1f%% (minimum: %s%%)\n", $$3, min; found = 1; if ($$3 + 0 < min) exit 1 } \
-	   END { if (!found) { print "No coverage total found" > "/dev/stderr"; exit 1 } }'
 	$(GO) test -race -covermode=atomic -coverpkg=$(CORE_COVERPKG) -coverprofile=core-coverage.out ./cmd/nosey ./internal/ui $(CORE_PACKAGES)
 	@$(GO) tool cover -func=core-coverage.out | awk -v min=$(COVERAGE_MIN) \
 	  '/^total:/ { gsub(/%/, "", $$3); printf "Core coverage: %.1f%% (minimum: %s%%)\n", $$3, min; found=1; if ($$3 + 0 < min) exit 1 } END { if (!found) exit 1 }'
@@ -118,4 +112,4 @@ hooks-install:
 	git config --local core.hooksPath .githooks
 
 clean:
-	rm -rf dist $(COVERAGE_FILE) core-coverage.out $(LINTER_BIN)
+	rm -rf dist core-coverage.out $(LINTER_BIN)
