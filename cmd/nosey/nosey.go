@@ -318,6 +318,9 @@ func installCommand(o *cliOptions) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		if !cmd.Flags().Changed("verbose") {
+			verbose = s.Resolved.Settings.Installation.Verbose
+		}
 		opts.IDs = args
 		if copyMode {
 			opts.Method = "copy"
@@ -812,5 +815,9 @@ func runNoseyUI(cmd *cobra.Command, o *cliOptions) error {
 	if err != nil {
 		return err
 	}
-	return ui.RunNosey(cmd.Context(), store.Workspace, o.config)
+	resolved, err := store.Resolve()
+	if err != nil {
+		return err
+	}
+	return ui.RunNosey(cmd.Context(), store.Workspace, o.config, resolved.Settings.UI.Mode)
 }

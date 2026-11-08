@@ -192,3 +192,49 @@ func TestRegistryEditsStayUserScopedAndTrustCanBeRevoked(t *testing.T) {
 		}
 	}
 }
+
+func TestDisplayModeSettingsPreserveLegacyFilesUntilExplicitSave(t *testing.T) {
+	s := testStore(t)
+	legacy := []byte(`{"schemaVersion":1,"installation":{"agents":["codex"]}}`)
+	if err := storage.Write(s.UserPath, legacy); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.Resolve()
+	if err != nil || r.Settings.UI.Mode != "fullscreen" || r.Settings.Version != 2 {
+		t.Fatal("legacy settings did not receive defaults", r, err)
+	}
+	before, err := os.ReadFile(s.UserPath)
+	if err != nil || string(before) != string(legacy) {
+		t.Fatal("reading legacy settings rewrote them", err)
+	}
+	if err = s.Set("ui.mode", []byte(`"invalid"`), false); err == nil {
+		t.Fatal("invalid display mode accepted")
+	}
+	if err = s.Set("ui.mode", []byte(`true`), false); err == nil {
+		t.Fatal("wrong display mode type accepted")
+	}
+	if err = s.Set("ui.mode", []byte(`"inline"`), false); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := os.ReadFile(s.UserPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var header struct {
+		Version int `json:"schemaVersion"`
+	}
+	if json.Unmarshal(saved, &header) != nil || header.Version != 2 {
+		t.Fatal("new preference did not use settings v2")
+	}
+	r, err = s.Resolve()
+	if err != nil || r.Settings.UI.Mode != "inline" || len(r.Settings.Installation.Agents) != 1 {
+		t.Fatal("display save lost other settings", r, err)
+	}
+	if err = s.Set("updates.ttlHours", []byte(`12`), false); err != nil {
+		t.Fatal(err)
+	}
+	r, err = s.Resolve()
+	if err != nil || r.Settings.UI.Mode != "inline" {
+		t.Fatal("later save lost display preference", err)
+	}
+}

@@ -1,6 +1,8 @@
 package ui
 
-import tea "charm.land/bubbletea/v2"
+import (
+	tea "charm.land/bubbletea/v2"
+)
 
 type sortOption struct{ id, label string }
 
@@ -26,7 +28,7 @@ func (m *noseyModel) openSort() {
 	}
 }
 func (m noseyModel) updateSort(key tea.KeyPressMsg) (noseyModel, tea.Cmd) {
-	options := sortChoices(m.sortTarget)
+	options := m.selectChoices()
 	switch key.String() {
 	case "up", "k", "shift+tab":
 		m.sortChoice = (m.sortChoice + len(options) - 1) % len(options)
@@ -37,8 +39,12 @@ func (m noseyModel) updateSort(key tea.KeyPressMsg) (noseyModel, tea.Cmd) {
 	case "end":
 		m.sortChoice = len(options) - 1
 	case "enter":
-		m.sort[m.sortTarget] = options[m.sortChoice].id
+		value := options[m.sortChoice].id
+		m.sort[m.sortTarget] = value
 		m.modal = ""
 	}
 	return m, nil
 }
+
+func (m noseyModel) selectChoices() []sortOption { return sortChoices(m.sortTarget) }
+func (m noseyModel) selectValue() string         { return m.sort[m.sortTarget] }

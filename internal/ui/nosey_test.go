@@ -36,7 +36,7 @@ func TestNoseyTabsExitSearchAndPreserveSelection(t *testing.T) {
 	m.query.Focus()
 	m.selected["s"] = true
 	m = productUpdate(t, m, keypress(tea.KeyTab))
-	if m.tab != 1 || m.search || !m.selected["s"] {
+	if m.tab != 1 || !m.search || !m.selected["s"] {
 		t.Fatal("tab/search/selection contract broken")
 	}
 	for i := 0; i < 3; i++ {
@@ -61,6 +61,7 @@ func TestNoseyModalTrapsTabAndEscapeCancels(t *testing.T) {
 func TestNoseyExploreDuplicateRowsShareSelectionAndHiddenSelectionPersists(t *testing.T) {
 	m := productModel()
 	m.tab = 1
+	m.filters[2].Query = "Shared"
 	rows := m.rows()
 	count := 0
 	for i, row := range rows {
@@ -80,9 +81,10 @@ func TestNoseyExploreDuplicateRowsShareSelectionAndHiddenSelectionPersists(t *te
 	if len(m.selected) != 1 {
 		t.Fatal("filter cleared hidden selection")
 	}
+	m.session.Resolved.Settings.Installation.Agents = []string{"codex"}
 	m = productUpdate(t, m, keypress('i'))
-	if m.modal != "form" || m.form.kind != "install" {
-		t.Fatal("hidden selection cannot be reviewed")
+	if m.modal != "" || !m.loading {
+		t.Fatal("hidden selection did not go directly to planning")
 	}
 }
 func TestNoseyScanFocusTargetsIndependentFilterState(t *testing.T) {
@@ -107,6 +109,7 @@ func TestLoadingAllowsNavigationQuitAndIgnoresStaleInventory(t *testing.T) {
 	if m.tab != 1 {
 		t.Fatal("loading swallowed tab navigation")
 	}
+	m = productUpdate(t, m, keypress(tea.KeyEsc))
 	_, cmd := m.Update(keypress('q'))
 	if cmd == nil {
 		t.Fatal("loading swallowed quit")
@@ -138,6 +141,7 @@ func TestSharedResultTreeShowsBadgesAndKeepsEvidenceInDetails(t *testing.T) {
 	m.scan.Technologies[0].Evidence[0].Path = "private-evidence/package.json"
 	for _, tab := range []int{0, 1} {
 		m.tab = tab
+		m.filters[2].Query = "Shared"
 		m.rowCache = nil
 		rows := m.rows()
 		foundRepo, foundSkill := false, false
@@ -176,6 +180,7 @@ func TestSharedResultTreeShowsBadgesAndKeepsEvidenceInDetails(t *testing.T) {
 func TestLargeResultWindowBoundsRenderingAndRetainsFocus(t *testing.T) {
 	m := productModel()
 	m.tab = 1
+	m.filters[2].Query = "skill"
 	for i := 0; i < 2000; i++ {
 		id := fmt.Sprintf("skill-%04d", i)
 		m.session.Catalog.Skills[id] = domain.Skill{ID: id, Name: id, Technologies: []string{"a"}, RepositoryID: "repo"}
@@ -199,6 +204,7 @@ func TestLargeResultWindowBoundsRenderingAndRetainsFocus(t *testing.T) {
 func BenchmarkNoseyLargeResultView(b *testing.B) {
 	m := productModel()
 	m.tab = 1
+	m.filters[2].Query = "skill"
 	for i := 0; i < 2000; i++ {
 		id := fmt.Sprintf("skill-%04d", i)
 		m.session.Catalog.Skills[id] = domain.Skill{ID: id, Name: id, Technologies: []string{"a"}, RepositoryID: "repo"}
@@ -234,6 +240,7 @@ func TestSpacedFormsKeepLastFieldVisibleAndNoColorIsRespected(t *testing.T) {
 func TestGroupSelectionIncludesCollapsedChildrenAndSkipsInstalled(t *testing.T) {
 	m := productModel()
 	m.tab = 1
+	m.filters[2].Query = "Alpha"
 	m.session.Catalog.Skills["t"] = domain.Skill{ID: "t", Name: "Second", Technologies: []string{"a"}, RepositoryID: "other"}
 	m.session.Catalog.Skills["installed"] = domain.Skill{ID: "installed", Name: "Installed", Technologies: []string{"a"}, RepositoryID: "other"}
 	m.session.Catalog.InstallStatus = map[string]string{"installed": "installed"}
@@ -312,6 +319,7 @@ func TestSortSelectAppliesValidChoicesAndEscapeCancels(t *testing.T) {
 		m.section = target
 		if target == 2 {
 			m.tab = 1
+			m.filters[2].Query = "Shared"
 		}
 		original := m.sort[target]
 		m = productUpdate(t, m, keypress('s'))

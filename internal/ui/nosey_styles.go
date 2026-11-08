@@ -29,7 +29,7 @@ func (s noseyStyles) row(row noseyRow, focused bool, width int) string {
 	switch {
 	case row.kind == "group" && strings.HasPrefix(row.id, "repo:"):
 		label = s.repo.Render(label)
-	case row.kind == "group" || row.kind == "heading" || row.kind == "technology":
+	case row.kind == "group" || row.kind == "heading" || row.kind == "technology" || row.kind == "registry-overview":
 		label = s.heading.Render(label)
 	case row.kind == "notice":
 		label = s.muted.Render(label)
@@ -73,7 +73,7 @@ func (s noseyStyles) row(row noseyRow, focused bool, width int) string {
 func resultSlots(rows []noseyRow) ([]int, []int) {
 	slots, positions := []int{}, make([]int, len(rows))
 	for i, row := range rows {
-		if i > 0 && (row.kind == "heading" || row.kind == "group" || row.kind == "setting" || row.kind == "registry" || row.kind == "pending") {
+		if i > 0 && (row.kind == "heading" || row.kind == "group" || row.kind == "setting" || row.kind == "registry" || row.kind == "pending" || row.kind == "registry-overview") {
 			slots = append(slots, -1)
 		}
 		if i > 0 && row.kind == "group" && strings.HasPrefix(row.id, "tech:") {
@@ -174,4 +174,10 @@ func technologyStrip(rows []noseyRow, cursor, width int, styles noseyStyles) []s
 		border = border.UnsetBorderForeground()
 	}
 	return append([]string{styles.heading.Render(title)}, strings.Split(border.Render(line), "\n")...)
+}
+
+func (s noseyStyles) footer(summary, bindings string, width int) string {
+	contentWidth := max(1, width-4)
+	text := ansi.Truncate(summary, contentWidth, "…") + "\n" + ansi.Truncate(bindings, contentWidth, "…")
+	return s.muted.Border(lipgloss.RoundedBorder()).Padding(0, 1).Width(max(1, width-2)).Render(text)
 }

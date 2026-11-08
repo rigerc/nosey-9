@@ -31,7 +31,10 @@ type Adapter struct {
 type Settings struct {
 	Version    int                  `json:"schemaVersion"`
 	Registries []domain.RegistryRef `json:"registries"`
-	Updates    struct {
+	UI         struct {
+		Mode string `json:"mode"`
+	} `json:"ui"`
+	Updates struct {
 		TTL int `json:"ttlHours"`
 	} `json:"updates"`
 	Installation struct {
@@ -105,7 +108,8 @@ func New(workspace, userPath string) (Store, error) {
 // Defaults provides the schema-valid initial product configuration.
 func Defaults() Settings {
 	var s Settings
-	s.Version = 1
+	s.Version = 2
+	s.UI.Mode = "fullscreen"
 	s.Registries = []domain.RegistryRef{{ID: "nosey:official", Source: domain.RegistrySource{Kind: "git", URI: OfficialURL}, Enabled: true, Priority: 0}}
 	s.Updates.TTL = 24
 	s.Installation.Agents = []string{}
@@ -134,12 +138,25 @@ func decodeSettings(data []byte, err error, path string) (document, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = contracts.Validate("settings.schema.json", data); err != nil {
+	if err = validateSettings(data); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	var doc document
 	err = json.Unmarshal(data, &doc)
 	return doc, err
+}
+
+func validateSettings(data []byte) error {
+	var header struct {
+		Version int `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal(data, &header); err != nil {
+		return err
+	}
+	if header.Version == 2 {
+		return contracts.Validate("settings.v2.schema.json", data)
+	}
+	return contracts.Validate("settings.schema.json", data)
 }
 
 // Resolve layers user/project settings while gating workspace registries on trust.
@@ -229,11 +246,12 @@ func (s Store) Resolve() (Resolved, error) {
 			return result, err
 		}
 	}
+	base["schemaVersion"] = json.RawMessage("2")
 	bytes, err := json.Marshal(base)
 	if err != nil {
 		return result, err
 	}
-	if err = contracts.Validate("settings.schema.json", bytes); err != nil {
+	if err = validateSettings(bytes); err != nil {
 		return result, err
 	}
 	err = json.Unmarshal(bytes, &result.Settings)
@@ -317,7 +335,7 @@ func merge(base, layer document) error {
 			base[key] = data
 			continue
 		}
-		if key == "installation" || key == "detection" || key == "updates" {
+		if key == "installation" || key == "detection" || key == "updates" || key == "ui" {
 			var a, b document
 			if err := json.Unmarshal(base[key], &a); err != nil {
 				return err
@@ -403,7 +421,12 @@ func (s Store) Set(key string, value []byte, project bool) error {
 	if err != nil {
 		return err
 	}
-	doc["schemaVersion"] = json.RawMessage("1")
+	if _, ok := doc["schemaVersion"]; !ok {
+		doc["schemaVersion"] = json.RawMessage("1")
+	}
+	if key == "ui" || strings.HasPrefix(key, "ui.") {
+		doc["schemaVersion"] = json.RawMessage("2")
+	}
 	if !json.Valid(value) {
 		return fmt.Errorf("value must be JSON")
 	}
@@ -431,7 +454,7 @@ func (s Store) Set(key string, value []byte, project bool) error {
 	if err != nil {
 		return err
 	}
-	if err = contracts.Validate("settings.schema.json", data); err != nil {
+	if err = validateSettings(data); err != nil {
 		return err
 	}
 	if project {

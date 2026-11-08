@@ -44,10 +44,13 @@ type noseyOperation struct {
 }
 type noseyRow struct{ kind, id, label string }
 type noseyForm struct {
-	kind   string
-	labels []string
-	inputs []textinput.Model
-	index  int
+	kind        string
+	labels      []string
+	inputs      []textinput.Model
+	index       int
+	choices     map[int][]sortOption
+	choiceIndex map[int]int
+	multiple    map[int]bool
 }
 type noseyModel struct {
 	ctx                         context.Context
@@ -81,13 +84,19 @@ type noseyModel struct {
 	sortTarget                  int
 	copyReady                   bool
 	styles                      noseyStyles
+	displayMode                 string
+	settingsAnchor              string
 }
 
 // RunNosey opens the single-column four-tab product interface.
-func RunNosey(ctx context.Context, cwd, config string) error {
+func RunNosey(ctx context.Context, cwd, config, mode string) error {
+	if mode != "inline" && mode != "fullscreen" {
+		return fmt.Errorf("invalid UI display mode")
+	}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	model := newNoseyModel(ctx, cwd, config)
+	model.displayMode = mode
 	_, err := tea.NewProgram(model, tea.WithContext(ctx)).Run()
 	return err
 }
@@ -95,8 +104,9 @@ func newNoseyModel(ctx context.Context, cwd, config string) noseyModel {
 	input := textinput.New()
 	input.Prompt = "Search: "
 	input.CharLimit = 200
-	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(18))
+	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(14))
 	m := noseyModel{ctx: ctx, cwd: cwd, config: config, width: 80, height: 24, loading: true, generation: 1, selected: map[string]bool{}, collapsed: map[string]bool{}, query: input, viewport: vp}
+	m.displayMode = "fullscreen"
 	m.styles = newNoseyStyles()
 	m.busy = spinner.New(spinner.WithSpinner(spinner.Dot))
 	for i := range m.filters {
@@ -155,6 +165,9 @@ func (m noseyModel) rows() []noseyRow {
 			rows = append(rows, noseyRow{"notice", "", "All recommendations are hidden. Press x to clear filters."})
 		}
 	case 1:
+		if strings.TrimSpace(m.filters[2].Query) == "" {
+			return m.registryOverview()
+		}
 		result := catalog.Search(m.session.Catalog, m.filters[2], m.sort[2])
 		rows = append(rows, resultRows(searchResultGroups(m.session.Catalog, result), m.collapsed, m.selected)...)
 		if len(rows) == 0 {
@@ -172,6 +185,7 @@ func (m noseyModel) rows() []noseyRow {
 			rows = append(rows, noseyRow{"notice", "", "No project inventory loaded. Press r to read installed skills."})
 		}
 	case 3:
+		rows = append(rows, noseyRow{"setting", "display", "Display mode: " + m.session.Resolved.Settings.UI.Mode + " (next launch)"})
 		rows = append(rows, noseyRow{"setting", "agents", "Target agents: " + strings.Join(m.session.Resolved.Settings.Installation.Agents, ", ")}, noseyRow{"setting", "method", "Install method: " + m.session.Resolved.Settings.Installation.Method}, noseyRow{"setting", "ttl", fmt.Sprintf("Refresh interval: %d hours", m.session.Resolved.Settings.Updates.TTL)}, noseyRow{"setting", "mcp", fmt.Sprintf("MCP inspection: %t", m.session.Resolved.Settings.Detection.MCP)})
 		rows = append(rows,
 			noseyRow{"setting", "mode", "Default install action: " + m.session.Resolved.Settings.Installation.Mode},
@@ -235,8 +249,11 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = value.Width
 		m.height = value.Height
+		if m.displayMode == "inline" {
+			m.height = min(24, value.Height)
+		}
 		m.viewport.SetWidth(max(10, value.Width-2))
-		m.viewport.SetHeight(max(1, value.Height-7))
+		m.viewport.SetHeight(max(1, m.height-10))
 		return m, nil
 	case noseyLoaded:
 		if value.generation != m.generation {
@@ -306,7 +323,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 		if key == "q" && !m.search && m.modal == "" {
 			return m, tea.Quit
 		}
-		if m.loading && (m.modal != "" || key == "i" || key == "r" || key == "enter" || key == "a" || key == "n") {
+		if m.loading && (m.modal != "" || !m.search && (key == "i" || key == "r" || key == "enter" || key == "a" || key == "n")) {
 			return m, nil
 		}
 		if m.session.Store.UserPath == "" && m.err != nil && key != "q" && key != "r" {
@@ -323,12 +340,29 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 				delta = 3
 			}
 			m.tab = (m.tab + delta) % 4
+			if m.tab == 1 {
+				m.query.SetValue(m.filters[2].Query)
+				m.search = true
+				return m, m.query.Focus()
+			}
 			if m.tab == 2 && m.session.Store.Workspace != "" {
 				return m, m.readInventory()
 			}
 			return m, nil
 		}
 		if m.search {
+			if m.tab == 1 && (key == "enter" || key == "down") {
+				m.search = false
+				m.query.Blur()
+				m.cursor[1] = 0
+				for i, row := range m.rows() {
+					if row.kind == "group" || row.kind == "skill" || row.kind == "registry-overview" {
+						m.cursor[1] = i
+						break
+					}
+				}
+				return m, nil
+			}
 			if key == "esc" {
 				m.search = false
 				m.query.Blur()
@@ -445,8 +479,8 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 				m.openSort()
 			}
 		case "i":
-			if len(m.selected) > 0 {
-				m.openForm("install", []string{"Agent IDs (comma separated)", "Method: symlink or copy", "Action: execute or print"}, []string{strings.Join(m.session.Resolved.Settings.Installation.Agents, ","), m.session.Resolved.Settings.Installation.Method, m.session.Resolved.Settings.Installation.Mode})
+			if m.tab < 2 && len(m.selected) > 0 {
+				return m.installFromSettings()
 			}
 		case "n":
 			if m.tab == 3 {
@@ -474,6 +508,9 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			case "skill":
 				s := m.session.Catalog.Skills[row.id]
 				m.details = s.Name + "\n" + s.Description + "\nSource: " + s.Source.URI + s.Source.Path + "\nSkill name: " + s.Source.SkillName + "\nRegistry: " + s.RegistryID
+				m.modal = "details"
+			case "registry-overview":
+				m.details = m.registryOverviewDetails(row.id)
 				m.modal = "details"
 			case "inventory":
 				for _, item := range m.inventory.Skills {
@@ -518,6 +555,7 @@ func (m *noseyModel) openForm(kind string, labels, values []string) {
 		}
 		m.form.inputs = append(m.form.inputs, input)
 	}
+	m.configureFormChoices()
 }
 func (m noseyModel) updateModal(key tea.KeyPressMsg) (noseyModel, tea.Cmd) {
 	if key.String() == "esc" {
@@ -591,6 +629,9 @@ func (m noseyModel) updateModal(key tea.KeyPressMsg) (noseyModel, tea.Cmd) {
 	case "enter", "ctrl+s":
 		return m.submitForm()
 	default:
+		if len(m.form.choices[m.form.index]) > 0 {
+			return m.updateChoiceField(key)
+		}
 		var cmd tea.Cmd
 		m.form.inputs[m.form.index], cmd = m.form.inputs[m.form.index].Update(key)
 		return m, cmd
@@ -701,30 +742,13 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 		}
 		m.filters[m.activeFilter()] = f
 		m.modal = ""
-	case "install":
-		ids := []string{}
-		for id := range m.selected {
-			ids = append(ids, id)
-		}
-		if values[2] != "execute" && values[2] != "print" {
-			m.err = fmt.Errorf("action must be execute or print")
-			return m, nil
-		}
-		m.action = values[2]
-		opts := installation.Options{IDs: ids, Agents: csv(values[0]), Method: values[1]}
-		m.modal = ""
-		m.loading = true
-		return m, func() tea.Msg {
-			p, err := m.session.Installer.Plan(m.ctx, m.session.Catalog, m.recs, opts)
-			return noseyPlan{p, err}
-		}
 	case "setting":
 		key := m.form.labels[0]
 		data := []byte(values[0])
 		switch key {
 		case "installation.agents":
 			data, _ = json.Marshal(csv(values[0]))
-		case "installation.method", "installation.defaultMode", "installation.upstreamTelemetry":
+		case "installation.method", "installation.defaultMode", "installation.upstreamTelemetry", "ui.mode":
 			data, _ = json.Marshal(values[0])
 		case "detection.exclude":
 			data, _ = json.Marshal(csv(values[0]))
@@ -732,6 +756,12 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 		err := m.session.Store.Set(key, data, false)
 		if err != nil {
 			m.err = err
+			return m, nil
+		}
+		if key == "ui.mode" {
+			m.session.Resolved.Settings.UI.Mode = values[0]
+			m.modal = ""
+			m.message = "Display mode saved; applies next launch."
 			return m, nil
 		}
 		m.modal = ""
@@ -789,7 +819,10 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 	return m, nil
 }
 func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
+	m.settingsAnchor = row.id
 	switch row.id {
+	case "display":
+		m.openDisplaySelect()
 	case "agents":
 		m.openForm("setting", []string{"installation.agents"}, []string{strings.Join(m.session.Resolved.Settings.Installation.Agents, ",")})
 	case "method":
@@ -842,87 +875,110 @@ func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
 	return m, nil
 }
 func (m noseyModel) View() tea.View {
-	if m.height < 8 || m.width < 24 {
+	if m.height < 9 || m.width < 24 {
 		v := tea.NewView(ansi.Truncate("Nosey: enlarge terminal (q quits)", max(1, m.width), ""))
-		v.AltScreen = true
+		v.AltScreen = m.displayMode != "inline"
 		return v
 	}
-	header := m.styles.title.Render("NOSEY") + "  " + m.styles.muted.Render(storage.Safe(m.cwd))
+	brand := m.styles.title.Render(":^) nosey")
 	tabs := []string{"Scan", "Explore", "Manage", "Settings"}
 	for i := range tabs {
 		if i == m.tab {
 			tabs[i] = m.styles.accent.Render("[" + tabs[i] + "]")
 		}
 	}
-	header += "\n" + strings.Join(tabs, "   ")
+	menu := strings.Join(tabs, "   ")
+	if ansi.StringWidth(brand)+2+ansi.StringWidth(menu) > m.width {
+		menu = strings.Join(tabs, " ")
+	}
+	if ansi.StringWidth(brand)+2+ansi.StringWidth(menu) > m.width {
+		menu = tabs[m.tab]
+	}
+	header := brand + "  " + menu + "\n" + m.styles.muted.Render(storage.Safe(m.cwd))
 	lines := []string{}
 	if m.loading {
 		lines = append(lines, m.busy.View()+" Loading workspace…  ·  q Quit")
 	}
-	if m.search {
+	if m.err != nil && m.modal == "" {
+		lines = append(lines, m.styles.warn.Render("Error: "+storage.Safe(m.err.Error())))
+	}
+	if m.tab == 1 {
+		query := m.query
+		if query.Value() != m.filters[2].Query {
+			query.SetValue(m.filters[2].Query)
+		}
+		lines = append(lines, ansi.Truncate(query.View(), m.width-2, "…"), "")
+	} else if m.search {
 		lines = append(lines, m.query.View())
 	}
-	switch m.modal {
-	case "sort":
-		lines = append(lines, m.styles.heading.Render("Sort results"), "")
-		for i, choice := range sortChoices(m.sortTarget) {
-			mark := "  ○ "
-			label := choice.label
-			if choice.id == m.sort[m.sortTarget] {
-				label += "  (current)"
+	settingsFocus := 0
+	settingsEditing := m.tab == 3 && m.modal != ""
+	if settingsEditing {
+		lines, settingsFocus = m.settingsPage()
+	} else {
+		switch m.modal {
+		case "sort":
+			title := "Sort results"
+			lines = append(lines, m.styles.heading.Render(title), "")
+			for i, choice := range m.selectChoices() {
+				mark := "  ○ "
+				label := choice.label
+				if choice.id == m.selectValue() {
+					label += "  (current)"
+				}
+				if i == m.sortChoice {
+					mark = "› ● "
+					label = m.styles.accent.Render(label)
+				}
+				lines = append(lines, ansi.Truncate(mark+label, m.width-2, "…"))
 			}
-			if i == m.sortChoice {
-				mark = "› ● "
-				label = m.styles.accent.Render(label)
+		case "form":
+			lines = append(lines, m.details)
+			for i, label := range m.form.labels {
+				mark := "  "
+				if i == m.form.index {
+					mark = "> "
+				}
+				lines = append(lines, mark+m.styles.heading.Render(label)+": "+m.form.inputs[i].View(), "")
 			}
-			lines = append(lines, ansi.Truncate(mark+label, m.width-2, "…"))
-		}
-	case "form":
-		lines = append(lines, m.details)
-		for i, label := range m.form.labels {
-			mark := "  "
-			if i == m.form.index {
-				mark = "> "
+			lines = append(lines, "Enter Apply  ·  Tab Next field  ·  Esc Cancel")
+		case "details":
+			lines = append(lines, m.details)
+		case "plan":
+			lines = append(lines, fmt.Sprintf("Review all %d selected skills (includes selections hidden by filters)", len(m.selected)))
+			for _, cmd := range m.plan.Commands {
+				lines = append(lines, installation.CommandText(cmd.Argv))
 			}
-			lines = append(lines, mark+m.styles.heading.Render(label)+": "+m.form.inputs[i].View(), "")
-		}
-		lines = append(lines, "Enter Apply  ·  Tab Next field  ·  Esc Cancel")
-	case "details":
-		lines = append(lines, m.details)
-	case "plan":
-		lines = append(lines, fmt.Sprintf("Review all %d selected skills (includes selections hidden by filters)", len(m.selected)))
-		for _, cmd := range m.plan.Commands {
-			lines = append(lines, installation.CommandText(cmd.Argv))
-		}
-		if m.plan.Approval.Digest != nil {
-			lines = append(lines, "Digest: "+*m.plan.Approval.Digest)
-		}
-		if m.plan.Approval.Required {
-			lines = append(lines, fmt.Sprintf("Additional source approval: %t — press a to approve", m.extraApproved))
-		}
-		switch {
-		case m.action == "print":
-			lines = append(lines, "Print mode: review commands above · c Copy prepared commands · Esc Close")
-		case m.copyReady:
-			lines = append(lines, "Enter Execute  ·  c Copy commands  ·  Esc Cancel")
+			if m.plan.Approval.Digest != nil {
+				lines = append(lines, "Digest: "+*m.plan.Approval.Digest)
+			}
+			if m.plan.Approval.Required {
+				lines = append(lines, fmt.Sprintf("Additional source approval: %t — press a to approve", m.extraApproved))
+			}
+			switch {
+			case m.action == "print":
+				lines = append(lines, "Print mode: review commands above · c Copy prepared commands · Esc Close")
+			case m.copyReady:
+				lines = append(lines, "Enter Execute  ·  c Copy commands  ·  Esc Cancel")
+			default:
+				lines = append(lines, "Enter Execute  ·  Esc Cancel  ·  Copy unavailable until local sources are prepared")
+			}
 		default:
-			lines = append(lines, "Enter Execute  ·  Esc Cancel  ·  Copy unavailable until local sources are prepared")
-		}
-	default:
-		rows := m.rows()
-		cursor := m.cursor[m.tab]
-		if m.tab == 0 {
-			lines = append(lines, technologyStrip(rows, cursor, m.width-2, m.styles)...)
-			start := 0
-			for start < len(rows) && (rows[start].kind == "technology" || rows[start].kind == "heading" && rows[start].id == "technologies") {
-				start++
+			rows := m.rows()
+			cursor := m.cursor[m.tab]
+			if m.tab == 0 {
+				lines = append(lines, technologyStrip(rows, cursor, m.width-2, m.styles)...)
+				start := 0
+				for start < len(rows) && (rows[start].kind == "technology" || rows[start].kind == "heading" && rows[start].id == "technologies") {
+					start++
+				}
+				rows = rows[start:]
+				cursor -= start
 			}
-			rows = rows[start:]
-			cursor -= start
+			lines = append(lines, resultWindow(rows, cursor, 0, max(1, m.viewport.Height()-len(lines)), m.width-2, m.styles)...)
 		}
-		lines = append(lines, resultWindow(rows, cursor, 0, max(1, m.viewport.Height()-len(lines)), m.width-2, m.styles)...)
 	}
-	if m.err != nil {
+	if m.err != nil && m.modal != "" && !settingsEditing {
 		lines = append(lines, m.styles.warn.Render("Error: "+storage.Safe(m.err.Error())))
 	}
 	if m.message != "" {
@@ -931,17 +987,25 @@ func (m noseyModel) View() tea.View {
 	body := strings.Join(lines, "\n")
 	vp := m.viewport
 	vp.SetContent(body)
-	switch m.modal {
-	case "sort":
+	switch {
+	case settingsEditing:
+		vp.SetYOffset(max(0, settingsFocus-max(3, vp.Height()/2)))
+	case m.modal == "sort":
 		vp.SetYOffset(max(0, m.sortChoice+3-vp.Height()))
-	case "form":
+	case m.modal == "form":
 		vp.SetYOffset(max(0, m.form.index*2+2-vp.Height()+3))
-	case "details":
+	case m.modal == "details":
 		vp.SetYOffset(m.modalOffset)
 	default:
 		vp.SetYOffset(0)
 	}
 	footer := "↑↓ Move · Space Select · f Filter · s Sort · i Install · Tab Section"
+	if m.tab == 1 {
+		footer = "/ Search · ↑↓ Browse · Enter Details · Tab Section · q Quit"
+		if m.search {
+			footer = "Type Search · Enter Browse · Esc Unfocus · Tab Section"
+		}
+	}
 	if m.tab == 2 {
 		footer = "↑↓ Move · r Refresh inventory · ? Help · Tab Section · q Quit"
 	}
@@ -949,9 +1013,18 @@ func (m noseyModel) View() tea.View {
 		footer = "↑↓ Move · Enter Edit · a Add existing · n New registry · Tab Section · q Quit"
 	}
 	if m.modal != "" {
-		footer = "Tab Next control · Enter Apply · Esc Cancel"
+		footer = "Tab Next field · ↑↓ Choose · Space Toggle · Enter Save · Esc Cancel"
 		if m.modal == "sort" {
 			footer = "↑↓ Choose · Enter Apply · Esc Cancel"
+		}
+		if m.modal == "plan" {
+			footer = "c Copy prepared commands · Esc Close"
+			if m.action != "print" {
+				footer = "Enter Execute · c Copy commands · Esc Cancel"
+				if m.plan.Approval.Required {
+					footer = "a Approve source · Enter Execute · c Copy commands · Esc Cancel"
+				}
+			}
 		}
 	}
 	visibleIDs := map[string]bool{}
@@ -969,10 +1042,10 @@ func (m noseyModel) View() tea.View {
 	if m.width < 80 && m.modal == "" {
 		footer = "↑↓ Move · ? Help · Tab Section · q Quit"
 	}
-	footer = m.styles.muted.Render(ansi.Truncate(footer, m.width, "…"))
-	content := header + "\n\n" + vp.View() + "\n" + fmt.Sprintf("%d selected total · %d selected visible", len(m.selected), visible) + "\n" + footer
+	footer = m.styles.footer(fmt.Sprintf("%d selected total · %d selected visible", len(m.selected), visible), footer, m.width)
+	content := header + "\n\n" + vp.View() + "\n\n" + footer
 	v := tea.NewView(content)
-	v.AltScreen = true
+	v.AltScreen = m.displayMode != "inline"
 	v.WindowTitle = "Nosey"
 	return v
 }

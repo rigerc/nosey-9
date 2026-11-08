@@ -1,5 +1,7 @@
 package installation
 
+import "maps"
+
 // Agent display names and project paths from skills@1.7.6 (vercel-labs/skills, MIT).
 var agents = map[string]string{
 	"aider-desk":      "AiderDesk",
@@ -164,3 +166,6 @@ var agentPaths = map[string]string{
 	"adal":            ".adal/skills",
 	"universal":       ".agents/skills",
 }
+
+// AgentNames returns the pinned installer agent IDs and their display names.
+func AgentNames() map[string]string { return maps.Clone(agents) }
