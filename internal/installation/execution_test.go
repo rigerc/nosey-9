@@ -3,15 +3,18 @@ package installation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/settings"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
 
@@ -150,5 +153,135 @@ func TestNodeVersionRequirementAndUnknownInventory(t *testing.T) {
 	}
 	if normalizeSource("https://github.com/Owner/Repo.git", "/") != "owner/repo" || !strings.HasSuffix(normalizeSource("./skill", s.Store.Workspace), "skill") {
 		t.Fatal("logical source normalization failed")
+	}
+}
+
+func TestStaleProjectLockIsReclaimedButFreshLockBlocks(t *testing.T) {
+	root := t.TempDir()
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	if err = r.MkdirAll(".nosey", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	release, err := acquireProjectLock(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = acquireProjectLock(r); err == nil {
+		t.Fatal("fresh lock was reclaimed")
+	}
+	old := time.Now().Add(-2 * staleLockAge)
+	if err = os.Chtimes(filepath.Join(root, ".nosey/operation.lock"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	second, err := acquireProjectLock(r)
+	if err != nil {
+		t.Fatal("stale lock not reclaimed", err)
+	}
+	second()
+	release()
+}
+
+func TestExecutionFailsClosedWithoutRegistryRootAndReportsPartialProgress(t *testing.T) {
+	s, p, _ := localPlan(t)
+	s.Runner = &proofRunner{workspace: s.Store.Workspace, mode: "success"}
+	roots := p.registryRoots
+	p.registryRoots = nil
+	if err := s.Execute(context.Background(), p, *p.Approval.Digest, true); err == nil {
+		t.Fatal("unverifiable registry accepted")
+	}
+	p.registryRoots = roots
+	// Duplicate the item so the second install fails after the first is verified.
+	p.Commands = append(p.Commands, p.Commands[0])
+	p.Items = append(p.Items, p.Items[0])
+	p.Items[1].SkillName = "other"
+	p.Commands[1].SkillNames = []string{"other"}
+	digest, err := Digest(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.Execute(context.Background(), p, digest, true)
+	if err == nil || !strings.Contains(err.Error(), "already installed and verified: fixture") {
+		t.Fatal("partial progress not reported:", err)
+	}
+}
+
+func TestInstallMethodAndSourceURLComeFromProjectLock(t *testing.T) {
+	if (lockEntry{}).method() != "symlink" || (lockEntry{InstallMode: "copy"}).method() != "copy" {
+		t.Fatal("lock install mode misread")
+	}
+	if !sourceMatches("/", "git@host:o/r.git", "o/r", "git@host:o/r.git") || sourceMatches("/", "o/other", "o/r", "") {
+		t.Fatal("sourceUrl fallback failed")
+	}
+	s, p, _ := localPlan(t)
+	runner := &proofRunner{workspace: s.Store.Workspace, mode: "success"}
+	s.Runner = runner
+	if err := s.Execute(context.Background(), p, *p.Approval.Digest, true); err != nil {
+		t.Fatal(err)
+	}
+	records, _ := s.read(context.Background())
+	locked, _ := s.readLock()
+	item := p.Items[0]
+	if !s.alreadyInstalled(item, records, locked) {
+		t.Fatal("verified symlink install not recognised")
+	}
+	item.Method = "copy"
+	if s.alreadyInstalled(item, records, locked) {
+		t.Fatal("install with a different method treated as current")
+	}
+}
+
+func TestLockErrorsNameTheirCauseAndSkillPathIsConfined(t *testing.T) {
+	s, _, _ := localPlan(t)
+	write := func(data string) {
+		t.Helper()
+		if err := storage.Write(filepath.Join(s.Store.Workspace, "skills-lock.json"), []byte(data)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for want, data := range map[string]string{
+		"merge conflict": "<<<<<<< HEAD\n{}\n=======\n{}\n>>>>>>> x",
+		"not valid JSON": "{",
+		"version 2":      `{"version":2,"skills":{}}`,
+		`"skills" map`:   `{"version":1}`,
+	} {
+		write(data)
+		_, err := s.readLock()
+		var lockErr LockError
+		if !errors.As(err, &lockErr) || !strings.Contains(err.Error(), want) {
+			t.Fatal(want, err)
+		}
+	}
+	if err := os.Remove(filepath.Join(s.Store.Workspace, "skills-lock.json")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.readLock(); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatal(err)
+	}
+	for path, ok := range map[string]bool{"": true, "skills/x/SKILL.md": true, "SKILL.md": true, "../x/SKILL.md": false, "/abs/SKILL.md": false, "skills/x/other.md": false, `a\SKILL.md`: false} {
+		if validSkillPath(path) != ok {
+			t.Fatal("skillPath", path)
+		}
+	}
+}
+
+// TestPinnedSkillsVersionIsInSync guards the three places that carry the upstream pin; Dependabot bumps the first.
+func TestPinnedSkillsVersionIsInSync(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "tools", "skills", "package.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest struct {
+		DevDependencies map[string]string `json:"devDependencies"`
+	}
+	if err = json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.DevDependencies["skills"] != Version || settings.Defaults().Installation.Version != Version {
+		t.Fatalf("skills pin out of sync: package.json=%q installation.Version=%q settings default=%q",
+			manifest.DevDependencies["skills"], Version, settings.Defaults().Installation.Version)
 	}
 }

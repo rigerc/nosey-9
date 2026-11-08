@@ -1,0 +1,71 @@
+name: Sync skills CLI pin
+
+# Dependabot bumps tools/skills/package.json when a new upstream `skills` CLI is
+# released. This copies that version into the Go constants (and a guard test
+# fails if the three ever disagree) and pushes the result to the PR branch.
+#
+# pull_request_target is required: Dependabot-triggered pull_request runs get a
+# read-only token. It is safe here because the job is limited to Dependabot's
+# own PRs and only edits two files with sed; it never builds or runs PR code.
+on:
+  pull_request_target:
+    branches: [main]
+    paths:
+      - tools/skills/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-skills-pin-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    if: >-
+      github.repository == 'rigerc/nosey-9' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BRANCH: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - name: Checkout the Dependabot branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+      - name: Copy the pinned version into the Go constants
+        id: sync
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.devDependencies.skills' tools/skills/package.json)"
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Refusing non-exact skills version: $version" >&2
+            exit 1
+          fi
+          sed -i -E "s/^(const Version = )\"[^\"]*\"/\1\"$version\"/" internal/installation/installation.go
+          sed -i -E "s/(s\.Installation\.Version = )\"[^\"]*\"/\1\"$version\"/" internal/settings/settings.go
+          if git diff --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Commit, push and re-run CI
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.sync.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -am "chore: pin skills CLI $VERSION in Go constants"
+          git push origin "HEAD:$BRANCH"
+          # Pushes made with GITHUB_TOKEN do not start pull_request workflows;
+          # workflow_dispatch is the exception, and its checks attach to the commit.
+          gh workflow run ci.yml --ref "$BRANCH"

@@ -1,10 +1,10 @@
 package installation
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/rigerc/nosey-9/internal/contracts"
 	"github.com/rigerc/nosey-9/internal/domain"
@@ -13,35 +13,70 @@ import (
 	"golang.org/x/text/language"
 	"gopkg.in/yaml.v3"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 )
 
+// lockEntry mirrors the project-scoped skills-lock.json entry (LocalSkillLockEntry in skills@1.7.6
+// src/local-lock.ts). The global ~/.agents/.skill-lock.json (skill-lock.ts) is never read: Nosey is project-only.
 type lockEntry struct {
-	Source string `json:"source"`
-	Type   string `json:"sourceType"`
-	Ref    string `json:"ref"`
-	Hash   string `json:"computedHash"`
+	Source      string `json:"source"`
+	SourceURL   string `json:"sourceUrl"`
+	Type        string `json:"sourceType"`
+	Ref         string `json:"ref"`
+	SkillPath   string `json:"skillPath"`
+	Hash        string `json:"computedHash"`
+	InstallMode string `json:"installMode"`
 }
+
+// method reports the install method the lock recorded; upstream omits installMode for symlink installs.
+func (e lockEntry) method() string {
+	if e.InstallMode == "copy" {
+		return "copy"
+	}
+	return "symlink"
+}
+
 type projectLock struct {
 	Version int                  `json:"version"`
 	Skills  map[string]lockEntry `json:"skills"`
 }
 
+// LockError describes why skills-lock.json cannot be used; Reason is safe to show to users.
+type LockError struct{ Reason string }
+
+func (e LockError) Error() string { return "skills-lock.json " + e.Reason }
+
 func (s Service) readLock() (projectLock, error) {
 	var lock projectLock
 	data, err := storage.Read(s.Store.Workspace, "skills-lock.json", 16<<20)
+	if errors.Is(err, os.ErrNotExist) {
+		return lock, LockError{"is missing"}
+	}
 	if err != nil {
-		return lock, err
+		return lock, LockError{"cannot be read: " + err.Error()}
 	}
 	if err = json.Unmarshal(data, &lock); err != nil {
-		return lock, err
+		reason := "is not valid JSON"
+		if strings.Contains(string(data), "<<<<<<<") {
+			reason += " (unresolved merge conflict markers)"
+		}
+		return projectLock{}, LockError{reason}
 	}
-	if lock.Version != 1 || lock.Skills == nil {
-		return lock, fmt.Errorf("unsupported upstream project lock format")
+	if lock.Version != 1 {
+		return projectLock{}, LockError{fmt.Sprintf("has unsupported version %d (expected 1)", lock.Version)}
+	}
+	if lock.Skills == nil {
+		return projectLock{}, LockError{`has no "skills" map`}
 	}
 	return lock, nil
+}
+
+// validSkillPath accepts the upstream-recorded SKILL.md location: empty (local paths) or a relative path to SKILL.md.
+func validSkillPath(path string) bool {
+	return path == "" || filepath.IsLocal(path) && !strings.Contains(path, "\\") && filepath.Base(path) == "SKILL.md"
 }
 func (s Service) readReceipts() []receipt {
 	data, err := storage.Read(s.Store.Workspace, ".nosey/install-origins.json", 4<<20)
@@ -67,6 +102,12 @@ func normalizeSource(value, workspace string) string {
 	value = strings.TrimSuffix(value, ".git")
 	return strings.ToLower(strings.Split(value, "#")[0])
 }
+
+// sourceMatches compares an upstream-reported source (and optional original URL) with the wanted source.
+func sourceMatches(workspace, wanted, source, sourceURL string) bool {
+	want := normalizeSource(wanted, workspace)
+	return normalizeSource(source, workspace) == want || sourceURL != "" && normalizeSource(sourceURL, workspace) == want
+}
 func skillName(data []byte) (string, error) {
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	if !strings.HasPrefix(text, "---\n") {
@@ -89,7 +130,11 @@ func skillName(data []byte) (string, error) {
 }
 func (s Service) verifiedRecord(item upstreamItem, lock projectLock) bool {
 	entry, ok := lock.Skills[item.Name]
-	if !ok || entry.Hash == "" || item.Scope != "project" || normalizeSource(entry.Source, s.Store.Workspace) != normalizeSource(item.Source, s.Store.Workspace) {
+	itemURL := ""
+	if item.SourceURL != nil {
+		itemURL = *item.SourceURL
+	}
+	if !ok || entry.Hash == "" || !validSkillPath(entry.SkillPath) || item.Scope != "project" || !sourceMatches(s.Store.Workspace, item.Source, entry.Source, entry.SourceURL) && !sourceMatches(s.Store.Workspace, entry.Source, item.Source, itemURL) {
 		return false
 	}
 	rel, err := filepath.Rel(s.Store.Workspace, item.Path)
@@ -209,18 +254,11 @@ func (s Service) catalogIdentity(item upstreamItem, lock lockEntry, c domain.Cat
 	return &id, &logical, ref
 }
 
-func (s Service) alreadyInstalled(ctx context.Context, item Item) bool {
-	records, err := s.read(ctx)
-	if err != nil {
-		return false
-	}
-	locked, err := s.readLock()
-	if err != nil {
-		return false
-	}
+// alreadyInstalled reports whether a verified install with the same source, revision, agents and method exists.
+func (s Service) alreadyInstalled(item Item, records []upstreamItem, locked projectLock) bool {
 	for _, record := range records {
 		entry := locked.Skills[record.Name]
-		if record.Name != item.SkillName || !agentEvidence(record.Agents, item.Agents) || normalizeSource(record.Source, s.Store.Workspace) != normalizeSource(item.Source, s.Store.Workspace) {
+		if record.Name != item.SkillName || !agentEvidence(record.Agents, item.Agents) || entry.method() != item.Method || !s.sourceMatchesItem(record, item.Source) {
 			continue
 		}
 		if item.Revision != nil && !filepath.IsAbs(item.Source) && entry.Ref != *item.Revision {
@@ -231,6 +269,15 @@ func (s Service) alreadyInstalled(ctx context.Context, item Item) bool {
 		}
 	}
 	return false
+}
+
+// sourceMatchesItem compares an upstream record's source or sourceUrl with a planned execution source.
+func (s Service) sourceMatchesItem(record upstreamItem, source string) bool {
+	url := ""
+	if record.SourceURL != nil {
+		url = *record.SourceURL
+	}
+	return sourceMatches(s.Store.Workspace, source, record.Source, url)
 }
 
 // diskInstalled corroborates known conflicts without invoking upstream during a preview.
