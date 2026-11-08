@@ -8,7 +8,7 @@ name: Sync skills CLI pin
 # read-only token. It is safe here because the job is limited to Dependabot's
 # own PRs and only edits two files with sed; it never builds or runs PR code.
 on:
-  pull_request_target:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] -- reviewed above; Dependabot-only, same-repo, never runs PR code
     branches: [main]
     paths:
       - tools/skills/**
