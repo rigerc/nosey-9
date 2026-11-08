@@ -20,7 +20,8 @@ const fixture = () => ({
 test('merges every document into list and detail records', () => {
   const { index, details } = buildData(fixture(), { commit: 'c1' });
   assert.equal(index.registry.counts.skills, 1);
-  assert.deepEqual(index.skills[0], { id: 'o:r:s', name: 's', repo: 'o:r', techs: ['t'], quality: 'good', score: 72, status: 'pass', errors: 0, warnings: 2, jev: 3.6 });
+  assert.deepEqual(index.skills[0], { id: 'o:r:s', name: 's', repo: 'o:r', techs: ['t'], quality: 'good', score: 72, status: 'pass', errors: 0, warnings: 2, jev: 3.6, dims: { safety: 4 }, tokens: null, otherTokens: null, words: null, contamination: null });
+  assert.deepEqual(index.technologies.find((t) => t.id === 't').ruleKinds, ['file']);
   assert.equal(index.technologies.find((t) => t.id === 't').skills, 1);
   assert.equal(index.technologies.find((t) => t.id === 'u').metadataOnly, true);
   assert.equal(index.repositories[0].averageScore, 80);

@@ -9,10 +9,12 @@ const JEV_LABELS = {
   safety: 'Safety',
   context_efficiency: 'Context efficiency',
 };
+const LEVEL_RANK = { error: 3, warning: 2, info: 1 };
 
 let data;
 let detailsPromise;
-const view = { skills: { q: '', quality: '', status: '', sort: 'score', shown: PAGE }, techs: { q: '', category: '', shown: PAGE }, repos: { q: '', shown: PAGE } };
+// List state survives navigation, so filters are still there after going back.
+const view = {};
 
 const h = (tag, attrs, ...kids) => {
   const el = document.createElement(tag);
@@ -26,7 +28,7 @@ const h = (tag, attrs, ...kids) => {
   return el;
 };
 // replaceChildren stringifies null, so drop empty slots first.
-const fill = (el, ...kids) => el.replaceChildren(...kids.filter(Boolean));
+const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter(Boolean));
 const link = (href, text, cls) => h('a', { href, class: cls }, text);
 const enc = encodeURIComponent;
 const skillHref = (id) => `#/skill/${enc(id)}`;
@@ -34,9 +36,13 @@ const techHref = (id) => `#/tech/${enc(id)}`;
 const repoHref = (id) => `#/repo/${enc(id)}`;
 const fmtDate = (s) => (s ? new Date(s).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—');
 const num = (n) => new Intl.NumberFormat().format(n);
+const plural = (noun, n) => (n === 1 ? noun : noun.endsWith('y') ? `${noun.slice(0, -1)}ies` : `${noun}s`);
+const cap = (s) => `${s[0].toUpperCase()}${s.slice(1)}`;
 const badge = (cls, text) => h('span', { class: `badge ${cls}` }, text);
 const ring = (score, quality, large) => h('div', { class: `ring ${quality ?? ''} ${large ? 'lg' : ''}`, style: `--v:${score ?? 0}`, role: 'img', 'aria-label': `Score ${score ?? 'n/a'} out of 100` }, h('span', null, score ?? '–'));
 const short = (s) => (s ? s.slice(0, 7) : '—');
+const qualityOf = (score) => (score >= 85 ? 'excellent' : score >= 70 ? 'good' : score >= 50 ? 'fair' : 'poor');
+const avg = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
 async function loadDetails() {
   detailsPromise ??= fetch('details.json').then((r) => {
@@ -51,25 +57,246 @@ function mount(...nodes) {
   window.scrollTo(0, 0);
 }
 
-/* ---------- shared pieces ---------- */
-function searchBox(state, placeholder, rerender) {
-  const input = h('input', { class: 'search', type: 'search', placeholder, 'aria-label': placeholder, value: state.q, autocomplete: 'off', enterkeyhint: 'search' });
-  input.addEventListener('input', () => {
-    state.q = input.value;
+/* ---------- derived data ---------- */
+const repoIndex = () => (data._repos ??= new Map(data.repositories.map((r) => [r.id, r])));
+const techIndex = () => (data._techs ??= new Map(data.technologies.map((t) => [t.id, t])));
+const repoName = (id) => repoIndex().get(id)?.name ?? id;
+const techName = (id) => techIndex().get(id)?.name ?? id;
+const owner = (repo) => repo.name.split('/')[0];
+
+function prepare() {
+  const techs = techIndex();
+  const repos = repoIndex();
+  for (const t of data.technologies) Object.assign(t, { _scores: [], _issues: 0 });
+  for (const r of data.repositories) Object.assign(r, { _q: Object.fromEntries(QUALITIES.map((q) => [q, 0])), _errors: 0, _warnings: 0, owner: owner(r) });
+  for (const s of data.skills) {
+    s.categories = [...new Set(s.techs.map((t) => techs.get(t)?.category).filter(Boolean))];
+    for (const id of s.techs) {
+      const t = techs.get(id);
+      if (t) {
+        t._scores.push(s.score);
+        t._issues += s.errors;
+      }
+    }
+    const r = repos.get(s.repo);
+    if (r) {
+      r._q[s.quality] += 1;
+      r._errors += s.errors;
+      r._warnings += s.warnings;
+    }
+  }
+  for (const t of data.technologies) t.avgScore = avg(t._scores);
+}
+
+/* ---------- generic browser: search + filters + sort + paging ---------- */
+// cfg: items, state, noun, placeholder, searchText(item), sorts{key:{label,val,desc}},
+//      filters[{key,label,type:'chips'|'pick'|'min',options?,match(item,value),max?,step?,unit?}],
+//      render(slice) -> Node, empty, inline (filters shown in-line instead of a sheet)
+const newState = (sort) => ({ q: '', sort, dir: null, sel: {}, shown: PAGE });
+
+function compareBy(sort, dir) {
+  return (a, b) => {
+    const x = sort.val(a);
+    const y = sort.val(b);
+    const tie = () => String(a.name ?? a.id ?? '').localeCompare(String(b.name ?? b.id ?? ''));
+    if (x == null && y == null) return tie();
+    if (x == null) return 1;
+    if (y == null) return -1;
+    const c = typeof x === 'string' ? x.localeCompare(y) : x - y;
+    return c ? c * dir : tie();
+  };
+}
+
+function browser(cfg) {
+  const { items, state, noun = 'item', sorts, searchText, render, empty = 'Nothing matches these filters.', inline = false } = cfg;
+  const sortKeys = Object.keys(sorts);
+  if (!sorts[state.sort]) state.sort = sortKeys[0];
+  state.dir ??= sorts[state.sort].desc ? -1 : 1;
+
+  // Resolve options once; facets with a single choice are not worth showing.
+  const filters = (cfg.filters ?? [])
+    .map((f) => ({ ...f, opts: f.type === 'min' ? [] : f.options().map(([value, label]) => ({ value, label, count: items.filter((it) => f.match(it, value)).length })) }))
+    .filter((f) => f.type === 'min' || f.opts.length > 1);
+  const textCache = new Map();
+  const textOf = (it) => {
+    let t = textCache.get(it);
+    if (t == null) textCache.set(it, (t = searchText(it).toLowerCase()));
+    return t;
+  };
+
+  const root = h('div');
+  const body = h('div');
+  const count = h('span', { 'aria-live': 'polite' });
+  const activeBox = h('div', { class: 'active' });
+  const filterBtn = h('button', { class: 'btn-tool', type: 'button', onclick: () => openSheet() });
+  const dirBtn = h('button', { class: 'btn-tool dir', type: 'button', onclick: () => { state.dir = -state.dir; changed(); } });
+  const sortSel = h('select', { 'aria-label': `Sort ${plural(noun, 2)}`, onchange: (e) => { state.sort = e.target.value; state.dir = sorts[state.sort].desc ? -1 : 1; changed(); } },
+    sortKeys.map((k) => h('option', { value: k }, sorts[k].label)));
+  const inlineBox = h('div', { class: 'inline-filters' });
+  const input = h('input', { class: 'search', type: 'search', placeholder: cfg.placeholder ?? `Search ${plural(noun, 2)}…`, 'aria-label': cfg.placeholder ?? `Search ${plural(noun, 2)}`, value: state.q, autocomplete: 'off', enterkeyhint: 'search' });
+  input.addEventListener('input', () => { state.q = input.value; changed(); });
+
+  const isSet = (f) => (f.type === 'min' ? (state.sel[f.key] ?? 0) > 0 : (state.sel[f.key]?.size ?? 0) > 0);
+  const activeCount = () => filters.filter(isSet).length;
+
+  function visible() {
+    const words = state.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const out = items.filter((it) => (!words.length || words.every((w) => textOf(it).includes(w)))
+      && filters.every((f) => !isSet(f) || (f.type === 'min' ? f.match(it, state.sel[f.key]) : [...state.sel[f.key]].some((v) => f.match(it, v)))));
+    return out.sort(compareBy(sorts[state.sort], state.dir));
+  }
+
+  const toggle = (f, value) => {
+    const set = (state.sel[f.key] ??= new Set());
+    if (set.has(value)) set.delete(value);
+    else set.add(value);
+    changed();
+  };
+  const clearAll = () => { state.sel = {}; changed(); };
+
+  function chipGroup(f) {
+    return h('div', { class: 'chips', role: 'group', 'aria-label': f.label }, f.opts.map((o) =>
+      h('button', { class: 'chip', type: 'button', 'aria-pressed': String(Boolean(state.sel[f.key]?.has(o.value))), onclick: () => toggle(f, o.value) }, `${o.label} · ${o.count}`)));
+  }
+  function pickGroup(f) {
+    const filterIn = h('input', { class: 'mini-search', type: 'search', placeholder: `Find ${f.label.toLowerCase()}…`, 'aria-label': `Find ${f.label}` });
+    const list = h('div', { class: 'pick-list' });
+    const drawList = () => {
+      const q = filterIn.value.trim().toLowerCase();
+      const sel = state.sel[f.key] ?? new Set();
+      const opts = f.opts.filter((o) => !q || o.label.toLowerCase().includes(q)).sort((a, b) => (sel.has(b.value) - sel.has(a.value)) || b.count - a.count || a.label.localeCompare(b.label)).slice(0, 80);
+      fill(list, opts.length ? opts.map((o) => h('label', { class: 'pick' },
+        h('input', { type: 'checkbox', checked: sel.has(o.value), onchange: () => { toggleQuiet(f, o.value); } }), h('span', null, o.label), h('small', null, String(o.count)))) : h('p', { class: 'note' }, 'No matches.'));
+    };
+    filterIn.addEventListener('input', drawList);
+    drawList();
+    return h('div', null, filterIn, list);
+  }
+  // Toggling inside a pick list keeps the list (and its scroll position) in place.
+  const toggleQuiet = (f, value) => {
+    const set = (state.sel[f.key] ??= new Set());
+    if (set.has(value)) set.delete(value);
+    else set.add(value);
     state.shown = PAGE;
-    rerender();
-  });
-  return input;
+    refreshList();
+    refreshSummary();
+  };
+  function minGroup(f) {
+    const out = h('output', null, `${state.sel[f.key] ?? 0}${f.unit ?? ''}`);
+    const range = h('input', { type: 'range', min: 0, max: f.max, step: f.step ?? 1, value: state.sel[f.key] ?? 0, 'aria-label': f.label });
+    range.addEventListener('input', () => { state.sel[f.key] = Number(range.value); out.textContent = `${range.value}${f.unit ?? ''}`; state.shown = PAGE; refreshList(); refreshSummary(); });
+    return h('div', { class: 'range' }, range, out);
+  }
+  const groupFor = (f) => (f.type === 'pick' ? pickGroup(f) : f.type === 'min' ? minGroup(f) : chipGroup(f));
+
+  function activeChips() {
+    const chips = [];
+    for (const f of filters) {
+      if (!isSet(f)) continue;
+      if (f.type === 'min') chips.push(h('button', { class: 'chip active-chip', type: 'button', onclick: () => { delete state.sel[f.key]; changed(); } }, `${f.label} ≥ ${state.sel[f.key]}${f.unit ?? ''} ×`));
+      else for (const v of state.sel[f.key]) chips.push(h('button', { class: 'chip active-chip', type: 'button', onclick: () => toggle(f, v) }, `${f.label}: ${f.opts.find((o) => o.value === v)?.label ?? v} ×`));
+    }
+    if (chips.length) chips.push(h('button', { class: 'linklike', type: 'button', onclick: clearAll }, 'Clear all'));
+    return chips;
+  }
+
+  function refreshSummary() {
+    const n = activeCount();
+    filterBtn.textContent = n ? `Filters · ${n}` : 'Filters';
+    filterBtn.classList.toggle('on', n > 0);
+    dirBtn.textContent = state.dir > 0 ? '↑' : '↓';
+    dirBtn.setAttribute('aria-label', state.dir > 0 ? 'Ascending, tap to reverse' : 'Descending, tap to reverse');
+    sortSel.value = state.sort;
+    if (!inline) fill(activeBox, activeChips());
+  }
+
+  let last = [];
+  function refreshList() {
+    last = visible();
+    count.textContent = `${num(last.length)} of ${num(items.length)} ${plural(noun, items.length)}`;
+    const slice = last.slice(0, state.shown);
+    fill(body, slice.length ? render(slice) : h('p', { class: 'empty' }, empty),
+      last.length > state.shown && h('button', { class: 'more', type: 'button', onclick: () => { state.shown += PAGE * 2; refreshList(); } }, `Show more (${num(last.length - state.shown)} left)`));
+    if (sheet) fill(sheetDone, `Show ${num(last.length)} result${last.length === 1 ? '' : 's'}`);
+  }
+  function changed() {
+    state.shown = PAGE;
+    refreshSummary();
+    if (inline) drawInline();
+    if (sheet) drawSheet();
+    refreshList();
+  }
+
+  function drawInline() {
+    fill(inlineBox, filters.map((f) => (f.type === 'chips' ? h('div', { class: 'inline-group' }, h('span', { class: 'inline-label' }, f.label), chipGroup(f)) : h('div', { class: 'inline-group' }, h('span', { class: 'inline-label' }, f.label), groupFor(f)))));
+  }
+
+  // Filter sheet (bottom sheet on phones, dialog on desktop).
+  let sheet = null;
+  let sheetBody;
+  let sheetDone;
+  function drawSheet() {
+    const scroll = sheetBody.scrollTop;
+    fill(sheetBody, filters.map((f) => h('fieldset', { class: 'facet' }, h('legend', null, f.label), groupFor(f))));
+    sheetBody.scrollTop = scroll;
+  }
+  function openSheet() {
+    sheetBody = h('div', { class: 'sheet-body' });
+    sheetDone = h('button', { class: 'btn', type: 'button', onclick: () => sheet.close() });
+    sheet = h('dialog', { class: 'sheet', 'aria-label': 'Filters' },
+      h('div', { class: 'sheet-inner' },
+        h('div', { class: 'sheet-head' }, h('h2', null, `Filter ${plural(noun, 2)}`), h('button', { class: 'linklike', type: 'button', onclick: clearAll }, 'Clear all')),
+        sheetBody,
+        h('div', { class: 'sheet-foot' }, sheetDone)));
+    sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.close(); });
+    sheet.addEventListener('close', () => { sheet.remove(); sheet = null; });
+    document.body.append(sheet);
+    drawSheet();
+    refreshList();
+    sheet.showModal();
+  }
+
+  const tools = inline
+    ? h('div', { class: 'tools' }, input, h('div', { class: 'sortrow' }, sortSel, dirBtn))
+    : h('div', { class: 'tools' }, input, h('div', { class: 'sortrow' }, filters.length ? filterBtn : null, sortSel, dirBtn));
+  root.append(h('div', { class: inline ? 'controls inline' : 'controls' }, tools), inline ? inlineBox : activeBox, h('div', { class: 'row-tools' }, count), body);
+  refreshSummary();
+  if (inline) drawInline();
+  refreshList();
+  return root;
 }
 
-function chipRow(options, current, onPick, label) {
-  return h('div', { class: 'chips', role: 'group', 'aria-label': label },
-    options.map(([value, text]) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(current === value), onclick: () => onPick(current === value ? '' : value) }, text)));
-}
+const state = (key, sort) => (view[key] ??= newState(sort));
+const fresh = (sort) => newState(sort);
 
-function showMore(state, total, rerender) {
-  if (state.shown >= total) return null;
-  return h('button', { class: 'more', type: 'button', onclick: () => { state.shown += PAGE * 2; rerender(); } }, `Show more (${num(total - state.shown)} left)`);
+/* ---------- skills ---------- */
+const skillSorts = () => ({
+  score: { label: 'Score', val: (s) => s.score, desc: true },
+  jev: { label: 'Open JEV overall', val: (s) => s.jev, desc: true },
+  name: { label: 'Name', val: (s) => s.name.toLowerCase() },
+  repo: { label: 'Repository', val: (s) => repoName(s.repo).toLowerCase() },
+  errors: { label: 'Validator errors', val: (s) => s.errors, desc: true },
+  warnings: { label: 'Validator warnings', val: (s) => s.warnings, desc: true },
+  tokens: { label: 'SKILL.md tokens', val: (s) => s.tokens, desc: true },
+  other: { label: 'Other-file tokens', val: (s) => s.otherTokens, desc: true },
+  words: { label: 'Word count', val: (s) => s.words, desc: true },
+  techs: { label: 'Technology count', val: (s) => s.techs.length, desc: true },
+  ...Object.fromEntries(Object.entries(JEV_LABELS).map(([k, label]) => [`dim_${k}`, { label: `JEV · ${label}`, val: (s) => s.dims?.[k], desc: true }])),
+});
+
+function skillFilters(skip = []) {
+  const withSkills = () => data.technologies.filter((t) => t.skills > 0).sort((a, b) => a.name.localeCompare(b.name));
+  const all = [
+    { key: 'quality', label: 'Quality', type: 'chips', options: () => QUALITIES.map((q) => [q, cap(q)]), match: (s, v) => s.quality === v },
+    { key: 'status', label: 'Validator', type: 'chips', options: () => ['pass', 'warn', 'fail'].map((v) => [v, cap(v)]), match: (s, v) => s.status === v },
+    { key: 'contamination', label: 'Contamination', type: 'chips', options: () => ['none', 'low', 'medium', 'high'].filter((l) => data.skills.some((s) => s.contamination === l)).map((l) => [l, cap(l)]), match: (s, v) => s.contamination === v },
+    { key: 'minScore', label: 'Min score', type: 'min', max: 100, step: 5, match: (s, n) => s.score >= n },
+    { key: 'minJev', label: 'Min Open JEV', type: 'min', max: 5, step: 0.5, match: (s, n) => (s.jev ?? 0) >= n },
+    { key: 'category', label: 'Category', type: 'pick', options: () => [...new Set(data.technologies.map((t) => t.category))].sort().map((c) => [c, c]), match: (s, v) => s.categories.includes(v) },
+    { key: 'tech', label: 'Technology', type: 'pick', options: () => withSkills().map((t) => [t.id, t.name]), match: (s, v) => s.techs.includes(v) },
+    { key: 'repo', label: 'Repository', type: 'pick', options: () => data.repositories.map((r) => [r.id, r.name]), match: (s, v) => s.repo === v },
+  ];
+  return all.filter((f) => !skip.includes(f.key));
 }
 
 function skillCard(s) {
@@ -84,112 +311,147 @@ function skillCard(s) {
       s.techs.length > 4 && h('span', { class: 'tag' }, `+${s.techs.length - 4}`))));
 }
 
-const repoIndex = () => (data._repos ??= new Map(data.repositories.map((r) => [r.id, r])));
-const techIndex = () => (data._techs ??= new Map(data.technologies.map((t) => [t.id, t])));
-const repoName = (id) => repoIndex().get(id)?.name ?? id;
-const techName = (id) => techIndex().get(id)?.name ?? id;
-
-function skillMatches(s, q) {
-  if (!q) return true;
-  const hay = `${s.name} ${s.id} ${repoName(s.repo)} ${s.techs.map(techName).join(' ')}`.toLowerCase();
-  return q.toLowerCase().split(/\s+/).every((w) => hay.includes(w));
+// Used on the home page and, scoped, on technology and repository pages.
+function skillBrowser(items, st, skip = []) {
+  return browser({
+    items,
+    state: st,
+    noun: 'skill',
+    placeholder: 'Search skills, repos, technologies…',
+    searchText: (s) => `${s.name} ${s.id} ${repoName(s.repo)} ${s.techs.map(techName).join(' ')} ${s.categories.join(' ')}`,
+    sorts: skillSorts(),
+    filters: skillFilters(skip),
+    render: (slice) => h('ul', { class: 'list cols' }, slice.map(skillCard)),
+    empty: 'No skills match these filters.',
+  });
 }
 
-function skillList(items, state, empty) {
-  const box = h('div');
-  const draw = () => {
-    const shown = items.slice(0, state.shown);
-    fill(box, 
-      shown.length ? h('ul', { class: 'list cols' }, shown.map(skillCard)) : h('p', { class: 'empty' }, empty),
-      showMore(state, items.length, draw));
-  };
-  draw();
-  return box;
-}
-
-/* ---------- pages ---------- */
 function skillsPage() {
-  const st = view.skills;
   const c = data.registry.counts;
-  const list = h('div');
-  const count = h('span');
-  const draw = () => {
-    const items = data.skills.filter((s) => (!st.quality || s.quality === st.quality) && (!st.status || s.status === st.status) && skillMatches(s, st.q));
-    items.sort(sorters[st.sort]);
-    count.textContent = `${num(items.length)} skill${items.length === 1 ? '' : 's'}`;
-    fill(list, skillList(items, st, 'No skills match these filters.'));
-  };
-  const sorters = {
-    score: (a, b) => b.score - a.score || a.name.localeCompare(b.name),
-    name: (a, b) => a.name.localeCompare(b.name),
-    issues: (a, b) => b.errors - a.errors || b.warnings - a.warnings,
-  };
-  const sortSel = h('select', { 'aria-label': 'Sort skills', onchange: (e) => { st.sort = e.target.value; draw(); } },
-    [['score', 'Highest score'], ['name', 'Name A–Z'], ['issues', 'Most validator issues']].map(([v, t]) => h('option', { value: v, selected: st.sort === v }, t)));
-  const chips = h('div');
-  const drawChips = () => fill(chips, 
-    chipRow(QUALITIES.map((q) => [q, `${q[0].toUpperCase()}${q.slice(1)} · ${data.registry.quality[q]}`]), st.quality, (v) => { st.quality = v; st.shown = PAGE; drawChips(); draw(); }, 'Filter by quality'),
-    chipRow([['pass', 'Validator pass'], ['warn', 'Validator warn'], ['fail', 'Validator fail']], st.status, (v) => { st.status = v; st.shown = PAGE; drawChips(); draw(); }, 'Filter by validator status'));
-  drawChips();
-  draw();
   return [
     h('section', { class: 'hero' }, h('h1', null, data.registry.name), h('p', null, 'Every skill, technology and quality signal in the official registry.')),
-    h('div', { class: 'stats' },
-      stat(c.skills, 'skills'), stat(c.technologies, 'technologies'), stat(c.repositories, 'repositories'), stat(c.mappings, 'mappings')),
-    h('div', { class: 'controls' }, searchBox(st, 'Search skills, repos, technologies…', draw), chips),
-    h('div', { class: 'row-tools' }, count, sortSel),
-    list,
+    h('div', { class: 'stats' }, stat(c.skills, 'skills'), stat(c.technologies, 'technologies'), stat(c.repositories, 'repositories'), stat(c.mappings, 'mappings')),
+    skillBrowser(data.skills, state('skills', 'score')),
   ];
 }
 const stat = (n, label) => h('div', { class: 'stat' }, h('b', null, num(n)), h('span', null, label));
 
+/* ---------- technologies ---------- */
 function technologiesPage() {
-  const st = view.techs;
-  const cats = [...new Set(data.technologies.map((t) => t.category))].sort();
-  const list = h('div');
-  const count = h('span');
-  const draw = () => {
-    const q = st.q.toLowerCase();
-    const items = data.technologies
-      .filter((t) => (!st.category || t.category === st.category) && (!q || `${t.name} ${t.id} ${t.category}`.toLowerCase().includes(q)))
-      .sort((a, b) => b.skills - a.skills || a.name.localeCompare(b.name));
-    count.textContent = `${num(items.length)} technologies`;
-    const shown = items.slice(0, st.shown);
-    fill(list, 
-      shown.length ? h('ul', { class: 'list cols' }, shown.map((t) => h('li', null, h('a', { class: 'card', href: techHref(t.id) },
-        h('div', { class: 'card-head' }, h('div', null, h('h3', null, t.name), h('div', { class: 'sub' }, t.id)), h('span', { class: 'tag' }, t.category)),
-        h('div', { class: 'tags' }, badge(t.skills ? 'q-good' : 'q-fair', `${t.skills} skill${t.skills === 1 ? '' : 's'}`), h('span', { class: 'tag' }, `${t.rules} detection rule${t.rules === 1 ? '' : 's'}`)))))) : h('p', { class: 'empty' }, 'No technologies match.'),
-      showMore(st, items.length, draw));
-  };
-  const chips = h('div');
-  const drawChips = () => fill(chips, chipRow(cats.map((c) => [c, c]), st.category, (v) => { st.category = v; st.shown = PAGE; drawChips(); draw(); }, 'Filter by category'));
-  drawChips();
-  draw();
-  return [h('h1', null, 'Technologies'), h('div', { class: 'controls' }, searchBox(st, 'Search technologies…', draw), chips), h('div', { class: 'row-tools' }, count), list];
+  const kinds = [...new Set(data.technologies.flatMap((t) => t.ruleKinds))].sort();
+  return [h('h1', null, 'Technologies'), browser({
+    items: data.technologies,
+    state: state('techs', 'skills'),
+    noun: 'technology',
+    placeholder: 'Search technologies…',
+    searchText: (t) => `${t.name} ${t.id} ${t.category} ${t.ruleKinds.join(' ')}`,
+    sorts: {
+      skills: { label: 'Skill count', val: (t) => t.skills, desc: true },
+      name: { label: 'Name', val: (t) => t.name.toLowerCase() },
+      category: { label: 'Category', val: (t) => t.category },
+      rules: { label: 'Detection rules', val: (t) => t.rules, desc: true },
+      avg: { label: 'Average skill score', val: (t) => t.avgScore, desc: true },
+      issues: { label: 'Skill validator errors', val: (t) => t._issues, desc: true },
+    },
+    filters: [
+      { key: 'has', label: 'Skills', type: 'chips', options: () => [['with', 'With skills'], ['without', 'Without skills']], match: (t, v) => (v === 'with') === t.skills > 0 },
+      { key: 'category', label: 'Category', type: 'pick', options: () => [...new Set(data.technologies.map((t) => t.category))].sort().map((c) => [c, c]), match: (t, v) => t.category === v },
+      { key: 'kind', label: 'Detection rule', type: 'chips', options: () => kinds.map((k) => [k, k]), match: (t, v) => t.ruleKinds.includes(v) },
+      { key: 'meta', label: 'Type', type: 'chips', options: () => [['detect', 'Detectable'], ['meta', 'Metadata only']], match: (t, v) => (v === 'meta') === t.metadataOnly },
+      { key: 'minSkills', label: 'Min skills', type: 'min', max: 30, match: (t, n) => t.skills >= n },
+      { key: 'minAvg', label: 'Min avg score', type: 'min', max: 100, step: 5, match: (t, n) => (t.avgScore ?? 0) >= n },
+    ],
+    render: (slice) => h('ul', { class: 'list cols' }, slice.map((t) => h('li', null, h('a', { class: 'card', href: techHref(t.id) },
+      h('div', { class: 'card-head' }, h('div', null, h('h3', null, t.name), h('div', { class: 'sub' }, t.id)), t.avgScore != null ? ring(Math.round(t.avgScore), qualityOf(t.avgScore)) : h('span', { class: 'tag' }, t.category)),
+      h('div', { class: 'tags' }, badge(t.skills ? 'q-good' : 'q-fair', `${t.skills} skill${t.skills === 1 ? '' : 's'}`), h('span', { class: 'tag' }, t.category), h('span', { class: 'tag' }, `${t.rules} rule${t.rules === 1 ? '' : 's'}`)))))),
+    empty: 'No technologies match these filters.',
+  })];
 }
 
-function repositoriesPage() {
-  const st = view.repos;
-  const list = h('div');
-  const draw = () => {
-    const q = st.q.toLowerCase();
-    const items = data.repositories.filter((r) => !q || `${r.name} ${r.id}`.toLowerCase().includes(q)).sort((a, b) => (b.averageScore ?? -1) - (a.averageScore ?? -1) || b.skills - a.skills);
-    const shown = items.slice(0, st.shown);
-    fill(list, 
-      shown.length ? h('ul', { class: 'list cols' }, shown.map((r) => h('li', null, h('a', { class: 'card', href: repoHref(r.id) },
-        h('div', { class: 'card-head' }, h('div', null, h('h3', null, r.name), h('div', { class: 'sub' }, `${r.skills} skill${r.skills === 1 ? '' : 's'}`)), r.averageScore != null && ring(Math.round(r.averageScore), qualityOf(r.averageScore))))))) : h('p', { class: 'empty' }, 'No repositories match.'),
-      showMore(st, items.length, draw));
-  };
-  draw();
-  return [h('h1', null, 'Repositories'), h('div', { class: 'controls' }, searchBox(st, 'Search repositories…', draw)), list];
+async function techPage(id) {
+  const t = techIndex().get(id);
+  if (!t) return notFound('technology');
+  const d = (await loadDetails()).technologies[id];
+  const skills = data.skills.filter((s) => s.techs.includes(id));
+  const skillById = new Map(data.skills.map((s) => [s.id, s]));
+  const keys = [...new Set(d.rules.flatMap((r) => Object.keys(r)).filter((k) => k !== 'id' && k !== 'kind'))];
+  const cell = (v) => (v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v));
+  const recs = d.recommendations.map((r) => ({ ...r, id: r.skillId, name: skillById.get(r.skillId)?.name ?? r.skillId }));
+  return [
+    crumb('#/technologies', 'Technologies'),
+    h('div', { class: 'detail-head' }, h('h1', null, t.name), t.avgScore != null && ring(Math.round(t.avgScore), qualityOf(t.avgScore), true)),
+    h('div', { class: 'tags' }, h('span', { class: 'tag' }, t.category), t.metadataOnly && h('span', { class: 'tag' }, 'metadata only'), h('span', { class: 'tag' }, h('code', null, t.id))),
+    h('h2', { style: 'margin-top:20px' }, `Skills (${skills.length})`),
+    skills.length ? skillBrowser(skills, fresh('score'), ['tech']) : h('p', { class: 'empty' }, 'No skills are tagged with this technology.'),
+    recs.length ? h('div', { class: 'panel' }, h('h2', null, `Recommended skills (${recs.length})`), browser({
+      items: recs,
+      state: fresh('name'),
+      noun: 'recommendation',
+      inline: true,
+      searchText: (r) => `${r.name} ${r.skillId} ${r.reason} ${r.priority}`,
+      sorts: {
+        name: { label: 'Skill name', val: (r) => r.name.toLowerCase() },
+        score: { label: 'Skill score', val: (r) => skillById.get(r.skillId)?.score, desc: true },
+        priority: { label: 'Priority', val: (r) => r.priority },
+      },
+      filters: [
+        { key: 'priority', label: 'Priority', type: 'chips', options: () => [...new Set(recs.map((r) => r.priority))].map((p) => [p, p]), match: (r, v) => r.priority === v },
+        { key: 'cond', label: 'Condition', type: 'chips', options: () => [['yes', 'Conditional'], ['no', 'Always']], match: (r, v) => (v === 'yes') === Boolean(r.when) },
+      ],
+      render: (slice) => h('ul', { class: 'findings' }, slice.map((r) => h('li', null,
+        h('span', null, skillById.has(r.skillId) ? link(skillHref(r.skillId), r.name) : r.skillId, ` · ${r.priority}`),
+        h('span', { class: 'sub' }, r.reason), r.when && h('span', { class: 'sub' }, `when: ${JSON.stringify(r.when)}`)))),
+    })) : null,
+    h('div', { class: 'panel' }, h('h2', null, `Detection rules (${d.rules.length})`),
+      d.rules.length ? browser({
+        items: d.rules,
+        state: fresh('kind'),
+        noun: 'rule',
+        inline: true,
+        searchText: (r) => `${r.kind} ${keys.map((k) => cell(r[k])).join(' ')}`,
+        sorts: { kind: { label: 'Kind', val: (r) => r.kind }, ...Object.fromEntries(keys.map((k) => [k, { label: cap(k), val: (r) => (r[k] == null ? null : cell(r[k]).toLowerCase()) }])) },
+        filters: [{ key: 'kind', label: 'Kind', type: 'chips', options: () => [...new Set(d.rules.map((r) => r.kind))].map((k) => [k, k]), match: (r, v) => r.kind === v }],
+        render: (slice) => h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, h('th', null, 'Kind'), keys.map((k) => h('th', null, k)))),
+          h('tbody', null, slice.map((r) => h('tr', null, h('td', null, r.kind), keys.map((k) => h('td', null, cell(r[k])))))))),
+      }) : h('p', { class: 'note' }, 'No rules; this technology is metadata only.')),
+    h('details', { class: 'panel raw' }, h('summary', null, 'All raw data'), h('pre', null, JSON.stringify(d, null, 2))),
+  ];
 }
-const qualityOf = (score) => (score >= 85 ? 'excellent' : score >= 70 ? 'good' : score >= 50 ? 'fair' : 'poor');
+
+/* ---------- repositories ---------- */
+function repositoriesPage() {
+  return [h('h1', null, 'Repositories'), browser({
+    items: data.repositories,
+    state: state('repos', 'avg'),
+    noun: 'repository',
+    placeholder: 'Search repositories…',
+    searchText: (r) => `${r.name} ${r.id} ${r.owner}`,
+    sorts: {
+      avg: { label: 'Average score', val: (r) => r.averageScore, desc: true },
+      skills: { label: 'Skill count', val: (r) => r.skills, desc: true },
+      name: { label: 'Name', val: (r) => r.name.toLowerCase() },
+      owner: { label: 'Owner', val: (r) => r.owner.toLowerCase() },
+      excellent: { label: 'Excellent skills', val: (r) => r._q.excellent, desc: true },
+      poor: { label: 'Poor skills', val: (r) => r._q.poor, desc: true },
+      errors: { label: 'Validator errors', val: (r) => r._errors, desc: true },
+    },
+    filters: [
+      { key: 'has', label: 'Contains', type: 'chips', options: () => QUALITIES.map((q) => [q, `${cap(q)} skills`]), match: (r, v) => r._q[v] > 0 },
+      { key: 'owner', label: 'Owner', type: 'pick', options: () => [...new Set(data.repositories.map((r) => r.owner))].sort().map((o) => [o, o]), match: (r, v) => r.owner === v },
+      { key: 'minAvg', label: 'Min avg score', type: 'min', max: 100, step: 5, match: (r, n) => (r.averageScore ?? 0) >= n },
+      { key: 'minSkills', label: 'Min skills', type: 'min', max: 50, match: (r, n) => r.skills >= n },
+    ],
+    render: (slice) => h('ul', { class: 'list cols' }, slice.map((r) => h('li', null, h('a', { class: 'card', href: repoHref(r.id) },
+      h('div', { class: 'card-head' }, h('div', null, h('h3', null, r.name), h('div', { class: 'sub' }, `${r.skills} skill${r.skills === 1 ? '' : 's'}`)), r.averageScore != null && ring(Math.round(r.averageScore), qualityOf(r.averageScore))),
+      h('div', { class: 'tags' }, QUALITIES.filter((q) => r._q[q]).map((q) => badge(`q-${q}`, `${r._q[q]} ${q}`))))))),
+    empty: 'No repositories match these filters.',
+  })];
+}
 
 function repositoryPage(id) {
   const r = repoIndex().get(id);
   if (!r) return notFound('repository');
-  const st = { shown: PAGE };
-  const skills = data.skills.filter((s) => s.repo === id).sort((a, b) => b.score - a.score);
+  const skills = data.skills.filter((s) => s.repo === id);
   return [
     crumb('#/repositories', 'Repositories'),
     h('div', { class: 'detail-head' }, h('h1', null, r.name), r.averageScore != null && ring(Math.round(r.averageScore), qualityOf(r.averageScore), true)),
@@ -200,7 +462,7 @@ function repositoryPage(id) {
       h('dt', null, 'Skills'), h('dd', null, String(r.skills)),
       h('dt', null, 'Average score'), h('dd', null, r.averageScore != null ? String(r.averageScore) : '—'))),
     h('h2', null, 'Skills'),
-    skillList(skills, st, 'No skills.'),
+    skillBrowser(skills, fresh('score'), ['repo']),
   ];
 }
 
@@ -210,11 +472,11 @@ function safeLink(url, text) {
 const crumb = (href, text) => h('a', { class: 'crumb', href }, `← ${text}`);
 const notFound = (what) => [h('p', { class: 'empty' }, `That ${what} is not in this registry.`), link('#/', 'Back to skills', 'btn')];
 
+/* ---------- skill detail ---------- */
 async function skillPage(id) {
   const s = data.skills.find((x) => x.id === id);
   if (!s) return notFound('skill');
-  const details = (await loadDetails()).skills[id];
-  const d = details ?? {};
+  const d = (await loadDetails()).skills[id] ?? {};
   const out = [
     crumb('#/', 'Skills'),
     h('div', { class: 'detail-head' }, h('div', null, h('h1', null, s.name), h('div', { class: 'sub' }, h('a', { href: repoHref(s.repo) }, repoName(s.repo)))), ring(s.score, s.quality, true)),
@@ -233,9 +495,20 @@ async function skillPage(id) {
   if (d.jev) out.push(jevPanel(d.jev));
   if (d.validator) out.push(validatorPanel(d.validator));
   if (d.recommendedFor?.length) {
-    out.push(h('div', { class: 'panel' }, h('h2', null, 'Recommended for'), h('ul', { class: 'findings' },
-      d.recommendedFor.map((r) => h('li', null, h('span', null, link(techHref(r.technologyId), techName(r.technologyId)), ` · ${r.priority}`), h('span', { class: 'sub' }, r.reason),
-        r.when && h('span', { class: 'sub' }, `when: ${JSON.stringify(r.when)}`))))));
+    out.push(h('div', { class: 'panel' }, h('h2', null, `Recommended for (${d.recommendedFor.length})`), browser({
+      items: d.recommendedFor.map((r) => ({ ...r, id: r.mappingId, name: techName(r.technologyId) })),
+      state: fresh('name'),
+      noun: 'recommendation',
+      inline: true,
+      searchText: (r) => `${r.name} ${r.reason} ${r.priority}`,
+      sorts: { name: { label: 'Technology', val: (r) => r.name.toLowerCase() }, priority: { label: 'Priority', val: (r) => r.priority } },
+      filters: [
+        { key: 'priority', label: 'Priority', type: 'chips', options: () => [...new Set(d.recommendedFor.map((r) => r.priority))].map((p) => [p, p]), match: (r, v) => r.priority === v },
+        { key: 'cond', label: 'Condition', type: 'chips', options: () => [['yes', 'Conditional'], ['no', 'Always']], match: (r, v) => (v === 'yes') === Boolean(r.when) },
+      ],
+      render: (slice) => h('ul', { class: 'findings' }, slice.map((r) => h('li', null, h('span', null, link(techHref(r.technologyId), r.name), ` · ${r.priority}`), h('span', { class: 'sub' }, r.reason),
+        r.when && h('span', { class: 'sub' }, `when: ${JSON.stringify(r.when)}`)))),
+    })));
   }
   out.push(h('details', { class: 'panel raw' }, h('summary', null, 'All raw data'), h('pre', null, JSON.stringify({ summary: s, ...d }, null, 2))));
   return out;
@@ -269,32 +542,25 @@ function validatorPanel(v) {
   add('Primary category', m.contamination?.primary_category);
   add('Checks', v.checks?.join(', '));
   add('Validator', `${v.version ?? ''} · ${fmtDate(v.evaluatedAt)}`);
-  return h('div', { class: 'panel' }, h('h2', null, 'Validator'), h('dl', { class: 'kv' }, kv),
-    v.findings?.length ? h('ul', { class: 'findings' }, v.findings.map((f) => h('li', { class: f.level }, h('small', null, `${f.level} · ${f.category}`), h('span', null, f.message)))) : h('p', { class: 'note' }, 'No findings.'));
-}
-
-async function techPage(id) {
-  const t = techIndex().get(id);
-  if (!t) return notFound('technology');
-  const d = (await loadDetails()).technologies[id];
-  const skills = data.skills.filter((s) => s.techs.includes(id)).sort((a, b) => b.score - a.score);
-  const recs = new Map();
-  for (const r of d.recommendations) recs.set(r.skillId, r);
-  const skillById = new Map(data.skills.map((s) => [s.id, s]));
-  const keys = [...new Set(d.rules.flatMap((r) => Object.keys(r)).filter((k) => k !== 'id' && k !== 'kind'))];
-  return [
-    crumb('#/technologies', 'Technologies'),
-    h('h1', null, t.name),
-    h('div', { class: 'tags' }, h('span', { class: 'tag' }, t.category), t.metadataOnly && h('span', { class: 'tag' }, 'metadata only'), h('span', { class: 'tag' }, h('code', null, t.id))),
-    h('h2', { style: 'margin-top:20px' }, `Skills (${skills.length})`),
-    skillList(skills, { shown: PAGE }, 'No skills are tagged with this technology.'),
-    recs.size ? h('div', { class: 'panel' }, h('h2', null, `Recommended skills (${recs.size})`), h('ul', { class: 'findings' },
-      [...recs.values()].map((r) => h('li', null, h('span', null, skillById.has(r.skillId) ? link(skillHref(r.skillId), skillById.get(r.skillId).name) : r.skillId, ` · ${r.priority}`), h('span', { class: 'sub' }, r.reason), r.when && h('span', { class: 'sub' }, `when: ${JSON.stringify(r.when)}`))))) : null,
-    h('div', { class: 'panel' }, h('h2', null, `Detection rules (${d.rules.length})`),
-      d.rules.length ? h('div', { class: 'table-wrap' }, h('table', null, h('thead', null, h('tr', null, h('th', null, 'Kind'), keys.map((k) => h('th', null, k)))),
-        h('tbody', null, d.rules.map((r) => h('tr', null, h('td', null, r.kind), keys.map((k) => h('td', null, r[k] == null ? '' : typeof r[k] === 'object' ? JSON.stringify(r[k]) : String(r[k])))))))) : h('p', { class: 'note' }, 'No rules; this technology is metadata only.')),
-    h('details', { class: 'panel raw' }, h('summary', null, 'All raw data'), h('pre', null, JSON.stringify(d, null, 2))),
-  ];
+  const findings = (v.findings ?? []).map((f, i) => ({ ...f, id: String(i), name: f.message }));
+  return h('div', { class: 'panel' }, h('h2', null, `Validator · ${findings.length} finding${findings.length === 1 ? '' : 's'}`), h('dl', { class: 'kv' }, kv),
+    findings.length ? browser({
+      items: findings,
+      state: fresh('severity'),
+      noun: 'finding',
+      inline: true,
+      searchText: (f) => `${f.level} ${f.category} ${f.message}`,
+      sorts: {
+        severity: { label: 'Severity', val: (f) => LEVEL_RANK[f.level] ?? 0, desc: true },
+        category: { label: 'Category', val: (f) => f.category },
+        length: { label: 'Message length', val: (f) => f.message.length, desc: true },
+      },
+      filters: [
+        { key: 'level', label: 'Level', type: 'chips', options: () => ['error', 'warning', 'info'].filter((l) => findings.some((f) => f.level === l)).map((l) => [l, cap(l)]), match: (f, val) => f.level === val },
+        { key: 'category', label: 'Category', type: 'chips', options: () => [...new Set(findings.map((f) => f.category))].sort().map((c) => [c, c]), match: (f, val) => f.category === val },
+      ],
+      render: (slice) => h('ul', { class: 'findings' }, slice.map((f) => h('li', { class: f.level }, h('small', null, `${f.level} · ${f.category}`), h('span', null, f.message)))),
+    }) : h('p', { class: 'note' }, 'No findings.'));
 }
 
 function aboutPage() {
@@ -350,6 +616,7 @@ async function route() {
 
 try {
   data = await (await fetch('data.json')).json();
+  prepare();
   addEventListener('hashchange', route);
   await route();
 } catch (err) {

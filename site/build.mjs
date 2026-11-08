@@ -87,6 +87,11 @@ export function buildData(reg, meta = {}) {
       errors: q?.counts?.errors ?? 0,
       warnings: q?.counts?.warnings ?? 0,
       jev: j?.overall_score ?? null,
+      dims: Object.fromEntries(Object.entries(j?.evaluation?.scores ?? {}).map(([k, v]) => [k, v.score])),
+      tokens: q?.metrics?.tokens?.skill_md ?? null,
+      otherTokens: q?.metrics?.tokens?.other ?? null,
+      words: q?.metrics?.content?.word_count ?? null,
+      contamination: q?.metrics?.contamination?.level ?? null,
     };
   });
 
@@ -97,6 +102,7 @@ export function buildData(reg, meta = {}) {
     metadataOnly: Boolean(t.metadataOnly),
     skills: techCount.get(t.id) ?? 0,
     rules: t.rules.length,
+    ruleKinds: [...new Set(t.rules.map((r) => r.kind))].sort(),
   }));
 
   const techDetails = Object.fromEntries(
