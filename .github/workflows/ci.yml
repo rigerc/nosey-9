@@ -52,9 +52,41 @@ jobs:
       - name: Check formatting, go.mod/go.sum tidiness and lint
         run: make format-check tidy-check lint
 
+  changes:
+    name: Detect Go-relevant changes
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.scope.outputs.go }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Check whether tests can be affected
+        id: scope
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # Code, dependencies, the registry the tests read, and the build/CI
+          # definitions that decide how tests run. Docs-only PRs skip the suite.
+          pattern='^(cmd|internal|scripts|tests|examples|third_party|registries)/|^go\.(mod|sum)$|^Makefile$|^\.golangci\.yml$|^\.custom-gcl\.yml$|^\.github/workflows/ci\.yml$'
+          if git diff --name-only "origin/$BASE_REF...HEAD" | grep -Eq "$pattern"; then
+            echo 'go=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'go=false' >> "$GITHUB_OUTPUT"
+            echo 'No Go-relevant changes; skipping the test suite.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   test:
     name: Tests and coverage
-    if: github.event_name != 'schedule'
+    # Always runs on pushes to main, releases (workflow_call) and
+    # manual runs; on pull requests only when the change can affect tests.
+    needs: changes
+    if: ${{ always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.changes.outputs.go == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -206,7 +238,7 @@ jobs:
   ci_result:
     name: CI result
     if: always()
-    needs: [lint, test, registry, build, dependency_review, vulnerability, workflow_security]
+    needs: [lint, changes, test, registry, build, dependency_review, vulnerability, workflow_security]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
