@@ -4,11 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/process"
-	"github.com/rigerc/nosey-9/internal/registrygen"
-	"github.com/rigerc/nosey-9/internal/settings"
-	"github.com/rigerc/nosey-9/internal/storage"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +11,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/registrygen"
+	"github.com/rigerc/nosey-9/internal/settings"
+	"github.com/rigerc/nosey-9/internal/storage"
 )
 
 func fixtureRegistry(t *testing.T, tech, skills, mappings string) string {

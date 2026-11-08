@@ -1,9 +1,10 @@
 package registry
 
 import (
+	"slices"
+
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/storage"
-	"slices"
 )
 
 func semanticSkills(c *domain.Catalog) {
