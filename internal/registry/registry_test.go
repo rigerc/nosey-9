@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/registrygen"
 	"github.com/rigerc/nosey-9/internal/settings"
 	"github.com/rigerc/nosey-9/internal/storage"
 	"os"
@@ -69,14 +70,14 @@ func TestInitUsesExternalTemplateAndRejectsCollision(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(t.TempDir(), "created")
-	result, err := service.Init(context.Background(), c, InitOptions{Path: target, Template: "empty", Version: "0.1.0"})
+	result, err := service.Init(context.Background(), c, InitOptions{Path: target, Version: "0.1.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !result.Valid || result.Revision != nil || result.RegistryID != "local:created" {
 		t.Fatal(result)
 	}
-	if _, err = service.Init(context.Background(), c, InitOptions{Path: target, Template: "empty", Version: "0.1.0"}); err == nil {
+	if _, err = service.Init(context.Background(), c, InitOptions{Path: target, Version: "0.1.0"}); err == nil {
 		t.Fatal("collision overwritten")
 	}
 }
@@ -142,7 +143,7 @@ func TestFailedAndInvalidRefreshPreserveValidatedSnapshot(t *testing.T) {
 	}
 }
 
-func TestWorkspaceSeedClosesReferencesWithoutVendoringSkills(t *testing.T) {
+func TestInitCreatesEmptyRegistryAndOptionalCI(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", "registries", "default"))
 	if err != nil {
 		t.Fatal(err)
@@ -154,35 +155,45 @@ func TestWorkspaceSeedClosesReferencesWithoutVendoringSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := filepath.Join(t.TempDir(), "workspace")
-	r, err := service.Init(context.Background(), c, InitOptions{Path: target, Template: "workspace", Include: []string{"nextjs"}, Version: "test"})
+	target := filepath.Join(t.TempDir(), "empty")
+	r, err := service.Init(context.Background(), c, InitOptions{Path: target, Version: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.Valid || r.TemplateID != "empty" {
+		t.Fatal(r)
+	}
+	for _, name := range []string{"nosey.registry.config.json", "nosey.registry.json", "nosey.registry.lock.json", "technologies.json", "skills.json", "mappings.json", "repositories.json"} {
+		if _, err = os.Stat(filepath.Join(target, name)); err != nil {
+			t.Fatal(name, err)
+		}
+	}
+	if _, err = os.Stat(filepath.Join(target, ".github", "workflows", "registry.yml")); !os.IsNotExist(err) {
+		t.Fatal("CI workflow created without --ci")
+	}
+	if _, err = registrygen.Run(target, registrygen.Options{Check: true}); err != nil {
+		t.Fatal("generated registry drifted immediately:", err)
+	}
+	withCI := filepath.Join(t.TempDir(), "with-ci")
+	r, err = service.Init(context.Background(), c, InitOptions{Path: withCI, GitHub: true, Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !r.Valid {
 		t.Fatal(r)
 	}
-	cfg.Registries = []domain.RegistryRef{{ID: r.RegistryID, Source: domain.RegistrySource{Kind: "local", Path: target}, Enabled: true}}
-	seeded, err := service.Load(context.Background(), settings.Resolved{Settings: cfg}, false)
-	if err != nil || len(seeded.Skills) == 0 || len(seeded.Repositories) == 0 {
-		t.Fatal("workspace references lost", err)
+	if _, err = os.Stat(filepath.Join(withCI, ".github", "workflows", "registry.yml")); err != nil {
+		t.Fatal("CI workflow missing:", err)
 	}
-	for _, d := range seeded.Diagnostics {
-		if d.Severity == "error" {
-			t.Fatal(d)
-		}
+	var scaffold struct {
+		CI []string `json:"ci"`
 	}
-	for _, s := range seeded.Skills {
-		if s.Source.Kind != "git" {
-			t.Fatal("external skill payload vendored", s)
-		}
+	data, err := storage.Read(withCI, "nosey.scaffold.json", 1<<20)
+	if err != nil {
+		t.Fatal(err)
 	}
-	invalid := filepath.Join(t.TempDir(), "invalid")
-	if _, err := service.Init(context.Background(), c, InitOptions{Path: invalid, Template: "workspace", Include: []string{"not-a-tech"}, Version: "test"}); err == nil {
-		t.Fatal("invalid reference generated")
-	}
-	if _, err := os.Stat(invalid); !os.IsNotExist(err) {
-		t.Fatal("failed seed left destination", err)
+	if err = json.Unmarshal(data, &scaffold); err != nil || len(scaffold.CI) != 1 || scaffold.CI[0] != "github" {
+		t.Fatal("scaffold CI provenance missing", err, scaffold)
 	}
 }
 
@@ -252,7 +263,7 @@ func TestInitOptionalActionsRegisterOnlyGeneratedDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(t.TempDir(), "registered")
-	result, err := service.Init(context.Background(), c, InitOptions{Path: target, Template: "empty", Git: true, Register: true, Version: "test"})
+	result, err := service.Init(context.Background(), c, InitOptions{Path: target, Git: true, Register: true, Version: "test"})
 	if err != nil || !result.Valid {
 		t.Fatal(result, err)
 	}

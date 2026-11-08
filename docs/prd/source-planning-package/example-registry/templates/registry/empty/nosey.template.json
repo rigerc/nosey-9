@@ -6,6 +6,10 @@
   "description": "Empty registry scaffold",
   "files": [
     {
+      "source": "files/nosey.registry.config.json",
+      "destination": "nosey.registry.config.json"
+    },
+    {
       "source": "files/nosey.registry.json",
       "destination": "nosey.registry.json"
     },

@@ -46,17 +46,11 @@ func (m *noseyModel) configureFormChoices() {
 		m.form.choices[1] = boolean
 		m.form.choices[3] = []sortOption{{"", "Keep registry"}, {"REMOVE", "Remove registry from user settings"}}
 	case "new":
-		m.form.choices[1] = []sortOption{{"empty", "Empty registry"}, {"workspace", "Seed from workspace technologies"}}
 		for id := range m.session.Catalog.Roots {
-			m.form.choices[2] = append(m.form.choices[2], sortOption{id, id})
+			m.form.choices[1] = append(m.form.choices[1], sortOption{id, id})
 		}
-		slices.SortFunc(m.form.choices[2], func(a, b sortOption) int { return strings.Compare(a.id, b.id) })
-		m.form.multiple[3] = true
-		for id, tech := range m.session.Catalog.Technologies {
-			m.form.choices[3] = append(m.form.choices[3], sortOption{id, tech.Name})
-		}
-		slices.SortFunc(m.form.choices[3], func(a, b sortOption) int { return strings.Compare(a.label+a.id, b.label+b.id) })
-		m.form.choices[4], m.form.choices[5] = boolean, boolean
+		slices.SortFunc(m.form.choices[1], func(a, b sortOption) int { return strings.Compare(a.id, b.id) })
+		m.form.choices[2], m.form.choices[3], m.form.choices[4] = boolean, boolean, boolean
 	}
 	for field, options := range m.form.choices {
 		if m.form.multiple[field] {
@@ -123,7 +117,7 @@ func (m noseyModel) updateChoiceField(key tea.KeyPressMsg) (noseyModel, tea.Cmd)
 func settingFieldLabel(label string) string {
 	names := map[string]string{
 		"ui.mode": "Display mode (next launch)", "installation.agents": "Target agents", "installation.method": "Install method", "installation.defaultMode": "Default install action", "installation.upstreamTelemetry": "Upstream telemetry", "installation.verbose": "Verbose installation", "detection.enableMcpPackage": "MCP inspection", "updates.ttlHours": "Refresh interval (hours)", "detection.maxFileBytes": "Maximum inspected file (bytes)", "detection.exclude": "Excluded paths (comma separated)",
-		"Enabled: true or false": "Enabled", "Remove: type REMOVE": "Action", "Template: empty or workspace": "Template", "Template registry ID": "Template registry", "Include technology IDs (comma separated)": "Technologies to include", "Initialize Git: true or false": "Initialize Git", "Register for this user: true or false": "Register for this user",
+		"Enabled: true or false": "Enabled", "Remove: type REMOVE": "Action", "Template registry ID": "Template registry", "GitHub CI: true or false": "GitHub CI", "Initialize Git: true or false": "Initialize Git", "Register for this user: true or false": "Register for this user",
 	}
 	if name, ok := names[label]; ok {
 		return name

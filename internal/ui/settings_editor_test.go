@@ -103,7 +103,7 @@ func TestSettingsRetainFreeformInputsAndTemplateChoices(t *testing.T) {
 		}
 	}
 	m, _ = m.setting(noseyRow{kind: "setting", id: "new"})
-	for _, field := range []int{1, 4, 5} {
+	for _, field := range []int{2, 3, 4} {
 		if len(m.form.choices[field]) != 2 {
 			t.Fatal("template/boolean field remained freeform", field)
 		}

@@ -689,13 +689,12 @@ func registryCommand(o *cliOptions) *cobra.Command {
 	}}
 	validate.Flags().BoolVar(&standalone, "standalone", false, "require references to resolve without the official registry")
 	root.AddCommand(validate)
-	opts := registry.InitOptions{Template: "workspace", Version: resolvedVersion()}
-	yes, jsonInit, fromScan := false, false, false
-	initCmd := &cobra.Command{Use: "init PATH", Short: "Create a registry from an external validated template", Args: cobra.ExactArgs(1)}
-	initCmd.Flags().StringVar(&opts.Template, "template", "workspace", "empty or workspace")
+	opts := registry.InitOptions{Version: resolvedVersion()}
+	yes, jsonInit := false, false
+	ci := ""
+	initCmd := &cobra.Command{Use: "init PATH", Short: "Create an empty registry from the published template", Args: cobra.ExactArgs(1)}
 	initCmd.Flags().StringVar(&opts.RegistryID, "template-registry", "", "configured template provider ID (official by default)")
-	initCmd.Flags().BoolVar(&fromScan, "from-scan", false, "seed detected technology definitions/references")
-	initCmd.Flags().StringSliceVar(&opts.Include, "include-tech", nil, "explicit technology IDs to seed")
+	initCmd.Flags().StringVar(&ci, "ci", "", "include a CI workflow (github)")
 	initCmd.Flags().BoolVar(&opts.Git, "git", false, "initialize Git after successful creation")
 	initCmd.Flags().BoolVar(&opts.Register, "register", false, "register the local result in user settings")
 	initCmd.Flags().BoolVar(&yes, "yes", false, "confirm registry file creation")
@@ -713,23 +712,15 @@ func registryCommand(o *cliOptions) *cobra.Command {
 				return nil
 			}
 		}
-		if !term.IsTerminal(int(os.Stdin.Fd())) && !fromScan && !cmd.Flags().Changed("template") {
-			return fmt.Errorf("noninteractive init requires --template or --from-scan")
+		if ci != "" && ci != "github" {
+			return fmt.Errorf("unsupported CI provider %q (supported: github)", ci)
 		}
+		opts.GitHub = ci == "github"
 		s, err := o.session(cmd.Context(), false)
 		if err != nil {
 			return err
 		}
 		opts.Path = args[0]
-		if fromScan && len(opts.Include) == 0 {
-			scan, _, err := s.Scan(cmd.Context(), domain.DefaultFilters(), domain.Sort{Technologies: "name-asc", Skills: "priority-desc"}, false)
-			if err != nil {
-				return err
-			}
-			for _, t := range scan.Technologies {
-				opts.Include = append(opts.Include, t.ID)
-			}
-		}
 		result, err := s.Registry.Init(cmd.Context(), s.Catalog, opts)
 		if err != nil {
 			return err
@@ -741,6 +732,7 @@ func registryCommand(o *cliOptions) *cobra.Command {
 		return nil
 	}
 	root.AddCommand(initCmd)
+	root.AddCommand(generateCommand(), refreshCommand())
 	return root
 }
 

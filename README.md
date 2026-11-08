@@ -50,8 +50,10 @@ nosey config set installation.upstreamTelemetry '"disabled"'
 nosey config get
 nosey registry add /absolute/path/to/registry --id user:local
 nosey registry list --json
-nosey registry init /absolute/path/to/new-registry --template empty --yes
+nosey registry init /absolute/path/to/new-registry --ci github --yes
 ```
+
+`registry init` creates an empty, regenerable registry from the template provider's `empty` template; `--ci github` adds a validation/regeneration workflow. Run `nosey registry generate PATH` after editing its JSON files (`--check` verifies without writing; `nosey registry refresh PATH` updates files that declare an upstream).
 
 Project-proposed registries require user-owned trust approval. `nosey trust` displays the workspace, proposals and fingerprint for interactive review; `nosey trust --yes` explicitly approves the current proposals noninteractively. Use `nosey trust --revoke` to revoke approval. Changes revoke that approval. Registry trust and installation-plan approval are separate decisions. MCP inspection is opt-in; dotenv evidence includes key names only.
 
@@ -67,10 +69,14 @@ NOSEY_UPSTREAM_INTEGRATION=1 go test ./internal/installation -run TestPinnedUpst
 
 `make check` runs formatting, vet/custom lint, race tests, coverage and build. The integration test invokes the real pinned upstream CLI in a disposable project and needs Node/npm and package access. Ordinary tests use local fixtures and fake installers.
 
-Registry import inputs and explicit ID conversions are in `registry-import/`; regenerate with `go run ./scripts/catalog-import --help`. Keep the reviewed external registry commit and `registries/default` gitlink aligned when publishing data updates.
+Official registry data lives in `registries/default/`. Edit the root JSON documents, then run `nosey registry generate registries/default` to canonicalize them and refresh `nosey.registry.json` and `nosey.registry.lock.json`. `make registry-check` verifies the committed output.
 
 Platform runtime verification and the PRD's human usefulness studies remain release gates; cross-compilation alone does not establish terminal or installer support. See [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) for development guidance.
 
+## License
+
+Nosey's code is MIT-licensed ([LICENSE](LICENSE)). The registry data in `rigerc/nosey-registry` is attributed separately; this license covers the application code only.
+
 ## Attribution
 
-Built from [go-cli-template](https://github.com/imdevan/go-cli-template) and [ClackBT](https://github.com/rigerc/clackbt). Preserve [LICENSE](LICENSE) and notices in `internal/clack/`, `third_party/` and `.agents/skills/`. Imported registry provenance and source attributions are retained in the official registry's authoring data.
+Built from [go-cli-template](https://github.com/imdevan/go-cli-template) and [ClackBT](https://github.com/rigerc/clackbt). Preserve [LICENSE](LICENSE) and notices in `internal/clack/`, `third_party/` and `.agents/skills/`. Imported registry provenance and source attributions are retained in the official registry's data.

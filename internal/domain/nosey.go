@@ -146,12 +146,13 @@ type Template struct {
 
 // Manifest declares versioned source documents and template descriptors.
 type Manifest struct {
-	Version   int                        `json:"schemaVersion"`
-	ID        string                     `json:"id"`
-	Name      string                     `json:"name"`
-	Files     map[string]string          `json:"files"`
-	Templates []Template                 `json:"templates,omitempty"`
-	Scores    map[string]RepositoryScore `json:"repositoryScores,omitempty"`
+	Version     int                        `json:"schemaVersion"`
+	ID          string                     `json:"id"`
+	Name        string                     `json:"name"`
+	Description string                     `json:"description,omitempty"`
+	Files       map[string]string          `json:"files"`
+	Templates   []Template                 `json:"templates,omitempty"`
+	Scores      map[string]RepositoryScore `json:"repositoryScores,omitempty"`
 }
 
 // Catalog holds an immutable effective generation with provenance and diagnostics.

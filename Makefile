@@ -8,7 +8,7 @@ COVERAGE_MIN ?= 80
 SKILL_NAME ?= $(notdir $(BIN))
 # Core services have a shared coverage gate; CLI/TUI tests exercise the same services.
 RUNTIME_PACKAGES := ./internal/runtimeconfig/... ./internal/logging/... ./internal/greeting/...
-CORE_PACKAGES := ./internal/app ./internal/catalog ./internal/catalogimport ./internal/contracts ./internal/detection ./internal/installation ./internal/process ./internal/registry ./internal/settings ./internal/storage
+CORE_PACKAGES := ./internal/app ./internal/catalog ./internal/registrygen ./internal/contracts ./internal/detection ./internal/installation ./internal/process ./internal/registry ./internal/settings ./internal/storage
 empty :=
 space := $(empty) $(empty)
 CORE_COVERPKG = $(subst $(space),$(comma),$(strip $(CORE_PACKAGES)))
@@ -19,7 +19,7 @@ comma := ,
 check: format-check lint registry-check test-coverage build
 
 registry-check:
-	$(GO) run ./scripts/catalog-import --check
+	$(GO) run ./cmd/nosey registry generate registries/default --check
 
 fix: format
 

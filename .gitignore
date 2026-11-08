@@ -20,3 +20,6 @@ __pycache__/
 /custom-gcl
 
 /core-coverage.out
+
+# Serena local state
+/.serena/

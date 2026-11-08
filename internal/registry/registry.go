@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/rigerc/nosey-9/internal/contracts"
 	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/gitpolicy"
 	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/settings"
 	"github.com/rigerc/nosey-9/internal/storage"
@@ -60,19 +61,8 @@ func acquire(ctx context.Context, path string) (lock, error) {
 }
 func (l lock) close() { _ = os.Remove(l.path) }
 
-var refPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*$`)
-var gitURI = regexp.MustCompile(`^(https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+|ssh://([A-Za-z0-9._-]+@)?[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+|git@[A-Za-z0-9.-]+:[A-Za-z0-9._/-]+|[A-Za-z0-9._-]+/[A-Za-z0-9._/-]+)$`)
-
 // ValidateGit rejects unsupported URI/ref forms before argv construction.
-func ValidateGit(uri, ref string) error {
-	if !gitURI.MatchString(uri) || strings.Contains(uri, "..") || strings.HasPrefix(uri, "-") {
-		return fmt.Errorf("unsafe Git URI")
-	}
-	if ref != "" && (!refPattern.MatchString(ref) || strings.Contains(ref, "..") || strings.HasSuffix(ref, "/") || strings.Contains(ref, "//")) {
-		return fmt.Errorf("unsafe Git ref")
-	}
-	return nil
-}
+func ValidateGit(uri, ref string) error { return gitpolicy.Validate(uri, ref) }
 
 // Resolve loads local data or promotes a validated immutable Git snapshot.
 func (s Service) Resolve(ctx context.Context, ref domain.RegistryRef, ttl int, refresh bool) (Snapshot, error) {

@@ -1,6 +1,6 @@
 # Skills and mappings import plan
 
-Status: implemented locally. The Go importer is in `scripts/catalog-import/` with conversion logic in `internal/catalogimport/`; generated official registry data is in `registries/default/`. The user confirms the supplied skill sources are already verified. Reuse that verification; do not repeat source audits, license reviews or installation tests as import prerequisites. Ignore frontend bonus data entirely.
+Status: imported and now maintained as native registry data. `registries/default/` is authoritative; the one-time importer and its inputs were removed. The user confirms the supplied skill sources are already verified. Reuse that verification; do not repeat source audits, license reviews or installation tests as import prerequisites. Ignore frontend bonus data entirely.
 
 ## Inputs and result
 
@@ -62,4 +62,4 @@ Future imports use the same ID maps and show skill/source/mapping changes agains
 
 The official registry contains the supplied verified skill catalog and its updated technology/combination mappings in Nosey's supported formats, with valid references and stable IDs. Repository destination details still need concrete values before writing to a remote. The local import produced 877 skills, 131 repository identities, 898 technologies (894 preserved plus four metadata-only additions), and 258 mappings including all 35 combinations. No remote registry publication or Git submodule creation has been performed.
 
-Run `go run ./scripts/catalog-import --check` from the application root to verify reproducibility against the generated directory. Generate another copy with `--out NEW_DIRECTORY`; existing destinations are never overwritten. Inputs, the explicit technology map and generated skill map preserve the import identity decisions. The supplemental pinned `registry-import/inputs/catalog.json` supplies existing installation names absent from the ledger; the ledger's 12 explicit overrides take precedence.
+Verify committed output with `make registry-check` (`nosey registry generate registries/default --check`). New changes are normal edits to the root data documents followed by `registry generate`; there is no bulk re-import or migration command.

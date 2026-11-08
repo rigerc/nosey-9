@@ -5,22 +5,24 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/rigerc/nosey-9/internal/contracts"
-	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/settings"
-	"github.com/rigerc/nosey-9/internal/storage"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/rigerc/nosey-9/internal/contracts"
+	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/registrygen"
+	"github.com/rigerc/nosey-9/internal/settings"
+	"github.com/rigerc/nosey-9/internal/storage"
 )
 
-// InitOptions selects an external template and explicit output actions.
+// InitOptions selects the published empty template and explicit output actions.
 type InitOptions struct {
-	Path, Template, RegistryID, Version string
-	Include                             []string
-	Register, Git                       bool
+	Path, RegistryID, Version string
+	GitHub                    bool
+	Register, Git             bool
 }
 
 // InitResult is the versioned registry-generation envelope.
@@ -37,9 +39,23 @@ type InitResult struct {
 	CreatedBy        string              `json:"createdBy"`
 }
 
+type templateDescriptor struct {
+	Generator string `json:"generator"`
+	Files     []struct {
+		Source      string `json:"source"`
+		Destination string `json:"destination"`
+	} `json:"files"`
+	CI []struct {
+		Provider    string `json:"provider"`
+		Source      string `json:"source"`
+		Destination string `json:"destination"`
+	} `json:"ci"`
+}
+
 // Init stages and validates data-only template output before publication.
 func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (InitResult, error) {
-	result := InitResult{Version: 2, Diagnostics: []domain.Diagnostic{}, Files: []string{}, TemplateID: opts.Template, SourceRegistryID: opts.RegistryID, CreatedBy: opts.Version}
+	const templateID = "empty"
+	result := InitResult{Version: 2, Diagnostics: []domain.Diagnostic{}, Files: []string{}, TemplateID: templateID, SourceRegistryID: opts.RegistryID, CreatedBy: opts.Version}
 	if result.SourceRegistryID == "" {
 		result.SourceRegistryID = "nosey:official"
 	}
@@ -52,9 +68,9 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 		return result, err
 	}
 	result.Revision = c.Revisions[result.SourceRegistryID]
-	index := slices.IndexFunc(manifest.Templates, func(t domain.Template) bool { return t.ID == opts.Template && t.Kind == "registry" })
+	index := slices.IndexFunc(manifest.Templates, func(t domain.Template) bool { return t.ID == templateID && t.Kind == "registry" })
 	if index < 0 {
-		return result, fmt.Errorf("template %s not published by registry %s", opts.Template, result.SourceRegistryID)
+		return result, fmt.Errorf("template %s not published by registry %s", templateID, result.SourceRegistryID)
 	}
 	descriptor := manifest.Templates[index].Descriptor
 	bytes, err := storage.Read(root, descriptor, 1<<20)
@@ -64,13 +80,7 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 	if err = contracts.Validate("template.schema.json", bytes); err != nil {
 		return result, err
 	}
-	var template struct {
-		Generator string `json:"generator"`
-		Files     []struct {
-			Source      string `json:"source"`
-			Destination string `json:"destination"`
-		} `json:"files"`
-	}
+	var template templateDescriptor
 	if err = json.Unmarshal(bytes, &template); err != nil {
 		return result, err
 	}
@@ -94,48 +104,63 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 		return result, err
 	}
 	defer func() { _ = os.RemoveAll(stage) }()
+	base := filepath.Dir(descriptor)
 	seen := map[string]bool{}
 	total := 0
-	for _, f := range template.Files {
-		if !filepath.IsLocal(f.Destination) || !filepath.IsLocal(f.Source) || seen[f.Destination] || strings.Contains(f.Destination, "\\") || strings.Contains(f.Source, "\\") {
-			return result, fmt.Errorf("unsafe or duplicate template path")
+	copyFile := func(source, destination string) error {
+		if !filepath.IsLocal(destination) || !filepath.IsLocal(source) || seen[destination] || strings.Contains(destination, "\\") || strings.Contains(source, "\\") {
+			return fmt.Errorf("unsafe or duplicate template path")
 		}
-		seen[f.Destination] = true
-		bytes, err = storage.Read(root, filepath.Join(filepath.Dir(descriptor), f.Source), 1<<20)
+		seen[destination] = true
+		bytes, err := storage.Read(root, filepath.Join(base, source), 1<<20)
 		if err != nil {
-			return result, err
+			return err
 		}
 		total += len(bytes)
 		if total > 8<<20 || len(seen) > 100 {
-			return result, fmt.Errorf("template resource limit exceeded")
+			return fmt.Errorf("template resource limit exceeded")
 		}
-		if err = storage.Write(filepath.Join(stage, f.Destination), bytes); err != nil {
+		return storage.Write(filepath.Join(stage, destination), bytes)
+	}
+	for _, file := range template.Files {
+		if err = copyFile(file.Source, file.Destination); err != nil {
 			return result, err
 		}
-		result.Files = append(result.Files, f.Destination)
+		result.Files = append(result.Files, file.Destination)
+	}
+	ciProviders := []string{}
+	if opts.GitHub {
+		for _, ci := range template.CI {
+			if ci.Provider != "github" {
+				return result, fmt.Errorf("unsupported CI provider %s", ci.Provider)
+			}
+			if err = copyFile(ci.Source, ci.Destination); err != nil {
+				return result, err
+			}
+			result.Files = append(result.Files, ci.Destination)
+			ciProviders = append(ciProviders, ci.Provider)
+		}
+	}
+	id := "local:" + regexp.MustCompile(`[^A-Za-z0-9._:-]+`).ReplaceAllString(filepath.Base(target), "-")
+	if err = rewriteConfig(stage, id, filepath.Base(target)); err != nil {
+		return result, err
+	}
+	result.RegistryID = id
+	if _, err = registrygen.Run(stage, registrygen.Options{Command: "generate"}); err != nil {
+		return result, err
 	}
 	generated, err := readManifest(stage)
 	if err != nil {
 		return result, err
 	}
-	generated.ID = "local:" + regexp.MustCompile(`[^A-Za-z0-9._:-]+`).ReplaceAllString(filepath.Base(target), "-")
-	generated.Name = filepath.Base(target)
-	if err = storage.JSON(filepath.Join(stage, "nosey.registry.json"), generated); err != nil {
-		return result, err
-	}
-	result.RegistryID = generated.ID
-	if opts.Template == "workspace" && len(opts.Include) > 0 {
-		if err = seedWorkspace(stage, generated, c, opts.Include); err != nil {
-			return result, err
-		}
-	}
 	scaffold := struct {
-		Version   int     `json:"schemaVersion"`
-		Template  string  `json:"templateId"`
-		Source    string  `json:"sourceRegistryId"`
-		Revision  *string `json:"sourceRevision"`
-		CreatedBy string  `json:"createdBy"`
-	}{1, opts.Template, result.SourceRegistryID, result.Revision, opts.Version}
+		Version   int      `json:"schemaVersion"`
+		Template  string   `json:"templateId"`
+		Source    string   `json:"sourceRegistryId"`
+		Revision  *string  `json:"sourceRevision"`
+		CreatedBy string   `json:"createdBy"`
+		CI        []string `json:"ci,omitempty"`
+	}{1, templateID, result.SourceRegistryID, result.Revision, opts.Version, ciProviders}
 	if err = storage.JSON(filepath.Join(stage, "nosey.scaffold.json"), scaffold); err != nil {
 		return result, err
 	}
@@ -176,4 +201,21 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 		}
 	}
 	return result, nil
+}
+
+// rewriteConfig sets the staged registry identity and removes any seed source.
+func rewriteConfig(stage, id, name string) error {
+	data, err := storage.Read(stage, registrygen.ConfigName, 1<<20)
+	if err != nil {
+		return err
+	}
+	var config registrygen.Config
+	if err = json.Unmarshal(data, &config); err != nil {
+		return err
+	}
+	config.Registry.ID = id
+	config.Registry.Name = name
+	config.Registry.Description = ""
+	config.Source = nil
+	return storage.JSON(filepath.Join(stage, registrygen.ConfigName), config)
 }

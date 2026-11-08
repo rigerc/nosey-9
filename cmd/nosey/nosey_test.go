@@ -65,7 +65,7 @@ func TestMachineCommandsAndNonTTYContracts(t *testing.T) {
 		name    string
 		args    []string
 		version int
-	}{{"scan", []string{"scan", "--json"}, 2}, {"search", []string{"search", "next", "--json"}, 2}, {"plan", []string{"install", "local:workspace-style", "--agent", "codex", "--dry-run", "--json"}, 3}, {"list", []string{"list", "--json"}, 1}, {"registry-list", []string{"registry", "list", "--json"}, 1}, {"doctor", []string{"doctor", "--json"}, 1}, {"registry-init", []string{"registry", "init", filepath.Join(t.TempDir(), "new-registry"), "--template", "empty", "--yes", "--json"}, 2}} {
+	}{{"scan", []string{"scan", "--json"}, 2}, {"search", []string{"search", "next", "--json"}, 2}, {"plan", []string{"install", "local:workspace-style", "--agent", "codex", "--dry-run", "--json"}, 3}, {"list", []string{"list", "--json"}, 1}, {"registry-list", []string{"registry", "list", "--json"}, 1}, {"doctor", []string{"doctor", "--json"}, 1}, {"registry-init", []string{"registry", "init", filepath.Join(t.TempDir(), "new-registry"), "--yes", "--json"}, 2}} {
 		t.Run(test.name, func(t *testing.T) {
 			cmd := newCommandTree(open)
 			var out, stderr bytes.Buffer

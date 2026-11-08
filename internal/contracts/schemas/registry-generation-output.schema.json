@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/nosey/schemas/registry-generation-output.schema.json",
+  "title": "Nosey registry generation output v1",
+  "description": "Normative output for `nosey registry generate` and `nosey registry refresh`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "outputVersion",
+    "command",
+    "path",
+    "changedFiles",
+    "removedFiles",
+    "inputs",
+    "summary",
+    "diagnostics"
+  ],
+  "properties": {
+    "outputVersion": {
+      "const": 1
+    },
+    "command": {
+      "enum": [
+        "generate",
+        "refresh"
+      ]
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "changedFiles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      },
+      "uniqueItems": true
+    },
+    "removedFiles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096
+      },
+      "uniqueItems": true
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "revision"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "revision": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{40}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "skills",
+        "technologies",
+        "mappings"
+      ],
+      "properties": {
+        "skills": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "technologies": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mappings": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

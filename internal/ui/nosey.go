@@ -484,7 +484,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 		case "n":
 			if m.tab == 3 {
-				m.openForm("new", []string{"New absolute registry path", "Template: empty or workspace", "Template registry ID", "Include technology IDs (comma separated)", "Initialize Git: true or false", "Register for this user: true or false"}, []string{"", "workspace", "nosey:official", "", "false", "false"})
+				m.openForm("new", []string{"New absolute registry path", "Template registry ID", "GitHub CI: true or false", "Initialize Git: true or false", "Register for this user: true or false"}, []string{"", "nosey:official", "false", "false", "false"})
 			}
 		case "?":
 			m.modal = "details"
@@ -792,21 +792,21 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 		m.loading = true
 		return m, m.load()
 	case "new":
-		opts := registry.InitOptions{Path: values[0], Template: values[1], RegistryID: values[2], Version: "0.1.0"}
-		opts.Include = csv(values[3])
+		opts := registry.InitOptions{Path: values[0], RegistryID: values[1], Version: "0.1.0"}
 		var err error
-		opts.Git, err = strconv.ParseBool(values[4])
+		opts.GitHub, err = strconv.ParseBool(values[2])
 		if err != nil {
 			m.err = err
 			return m, nil
 		}
-		opts.Register, err = strconv.ParseBool(values[5])
+		opts.Git, err = strconv.ParseBool(values[3])
 		if err != nil {
 			m.err = err
 			return m, nil
 		}
-		if opts.Template == "workspace" && len(opts.Include) == 0 {
-			m.err = fmt.Errorf("select technology IDs to seed, or choose the empty template")
+		opts.Register, err = strconv.ParseBool(values[4])
+		if err != nil {
+			m.err = err
 			return m, nil
 		}
 		m.modal = ""
@@ -852,7 +852,7 @@ func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
 			return m, m.load()
 		}
 	case "new":
-		m.openForm("new", []string{"New absolute registry path", "Template: empty or workspace", "Template registry ID", "Include technology IDs (comma separated)", "Initialize Git: true or false", "Register for this user: true or false"}, []string{"", "workspace", "nosey:official", "", "false", "false"})
+		m.openForm("new", []string{"New absolute registry path", "Template registry ID", "GitHub CI: true or false", "Initialize Git: true or false", "Register for this user: true or false"}, []string{"", "nosey:official", "false", "false", "false"})
 	case "add":
 		m.openForm("add", []string{"Registry ID", "Absolute local path or Git URL"}, []string{"", ""})
 	default:
