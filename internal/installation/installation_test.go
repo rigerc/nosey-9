@@ -222,12 +222,12 @@ type sourceGitRunner struct {
 	fail           bool
 }
 
-func (r *sourceGitRunner) Run(_ context.Context, dir string, _ []string, _ string, args ...string) (process.Output, error) {
+func (r *sourceGitRunner) Run(_ context.Context, _ string, _ []string, _ string, args ...string) (process.Output, error) {
 	if r.fail {
 		return process.Output{}, fmt.Errorf("source unavailable")
 	}
 	if slices.Contains(args, "clone") {
-		dir = args[len(args)-1]
+		dir := args[len(args)-1]
 		if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o700); err != nil {
 			return process.Output{}, err
 		}
