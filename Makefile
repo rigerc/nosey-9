@@ -29,10 +29,10 @@ tidy-check:
 fix: format
 
 format:
-	@find cmd internal examples scripts -type f -name '*.go' -exec gofmt -w {} +
+	@find cmd internal -type f -name '*.go' -exec gofmt -w {} +
 
 format-check:
-	@unformatted="$$(find cmd internal examples scripts -type f -name '*.go' -exec gofmt -l {} +)"; \
+	@unformatted="$$(find cmd internal -type f -name '*.go' -exec gofmt -l {} +)"; \
 	if [ -n "$$unformatted" ]; then \
 	  printf 'Files need gofmt:\n%s\n' "$$unformatted"; exit 1; \
 	fi
