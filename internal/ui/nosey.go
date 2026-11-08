@@ -86,10 +86,12 @@ type noseyModel struct {
 	styles                      noseyStyles
 	displayMode                 string
 	settingsAnchor              string
+	refreshOnStart              bool
 }
 
 // RunNosey opens the single-column four-tab product interface.
-func RunNosey(ctx context.Context, cwd, config, mode string) error {
+// When refresh is true the initial registry load bypasses the TTL window.
+func RunNosey(ctx context.Context, cwd, config, mode string, refresh bool) error {
 	if mode != "inline" && mode != "fullscreen" {
 		return fmt.Errorf("invalid UI display mode")
 	}
@@ -97,6 +99,7 @@ func RunNosey(ctx context.Context, cwd, config, mode string) error {
 	defer cancel()
 	model := newNoseyModel(ctx, cwd, config)
 	model.displayMode = mode
+	model.refreshOnStart = refresh
 	_, err := tea.NewProgram(model, tea.WithContext(ctx)).Run()
 	return err
 }
@@ -115,10 +118,11 @@ func newNoseyModel(ctx context.Context, cwd, config string) noseyModel {
 	m.sort = [3]string{"name-asc", "priority-desc", "relevance"}
 	return m
 }
-func (m noseyModel) load() tea.Cmd {
+func (m noseyModel) load() tea.Cmd { return m.loadWith(false) }
+func (m noseyModel) loadWith(refresh bool) tea.Cmd {
 	generation := m.generation
 	return func() tea.Msg {
-		s, err := app.Open(m.ctx, m.cwd, m.config, false)
+		s, err := app.Open(m.ctx, m.cwd, m.config, refresh)
 		if err != nil {
 			return noseyLoaded{generation: generation, err: err}
 		}
@@ -126,7 +130,7 @@ func (m noseyModel) load() tea.Cmd {
 		return noseyLoaded{generation, s, scan, recs, err}
 	}
 }
-func (m noseyModel) Init() tea.Cmd { return tea.Batch(m.load(), m.busy.Tick) }
+func (m noseyModel) Init() tea.Cmd { return tea.Batch(m.loadWith(m.refreshOnStart), m.busy.Tick) }
 func (m noseyModel) readInventory() tea.Cmd {
 	session, generation := m.session, m.generation
 	return func() tea.Msg {
@@ -468,7 +472,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 			m.generation++
 			m.loading = true
-			return m, m.load()
+			return m, m.loadWith(true)
 		case "f":
 			if m.tab < 2 {
 				f := m.filters[m.activeFilter()]
@@ -488,7 +492,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 		case "?":
 			m.modal = "details"
-			m.details = "Tab / Shift+Tab: change section\nArrows: navigate; ←/→: technology strip or group collapse\nSpace: select skill or group; Enter: expand/collapse group\nLeft/right: navigate technologies; Down: recommendations\na: select visible skills\nf: filters; s: sort; /: search; x: clear filters\ni: review all selected skills, including hidden selections\nr: refresh; q: quit; Escape: cancel dialog\nSettings: Enter edits; a adds existing; n creates registry"
+			m.details = "Tab / Shift+Tab: change section\nArrows: navigate; ←/→: technology strip or group collapse\nSpace: select skill or group; Enter: expand/collapse group\nLeft/right: navigate technologies; Down: recommendations\na: select visible skills\nf: filters; s: sort; /: search; x: clear filters\ni: review all selected skills, including hidden selections\nr: refresh registries (or inventory on the Installed tab); q: quit; Escape: cancel dialog\nSettings: Enter edits; a adds existing; n creates registry"
 		case "enter":
 			if len(rows) == 0 {
 				break

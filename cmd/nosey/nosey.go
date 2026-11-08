@@ -59,6 +59,7 @@ func fail(code int, err error) error {
 
 type cliOptions struct {
 	cwd, config string
+	refresh     bool
 	open        func(context.Context, string, string, bool) (app.Session, error)
 }
 
@@ -85,7 +86,7 @@ func (o *cliOptions) session(ctx context.Context, refresh bool) (app.Session, er
 	if open == nil {
 		open = app.Open
 	}
-	s, err := open(ctx, store.Workspace, o.config, refresh)
+	s, err := open(ctx, store.Workspace, o.config, refresh || o.refresh)
 	if err != nil {
 		return s, fail(3, err)
 	}
@@ -116,6 +117,7 @@ func newCommandTree(open func(context.Context, string, string, bool) (app.Sessio
 	root := &cobra.Command{Use: "nosey", Short: "Discover and install agent skills for your workspace", Args: cobra.NoArgs, SilenceErrors: true, SilenceUsage: true}
 	root.PersistentFlags().StringVar(&o.cwd, "cwd", "", "workspace root (defaults to current directory; never ascends)")
 	root.PersistentFlags().StringVarP(&o.config, "config", "c", "", "user JSON settings file")
+	root.PersistentFlags().BoolVar(&o.refresh, "refresh", false, "refresh registry snapshots now, even within the refresh interval (TTL)")
 	root.Flags().BoolVarP(&showVersion, "version", "v", false, "print version")
 	root.RunE = func(cmd *cobra.Command, _ []string) error {
 		if showVersion {
@@ -191,7 +193,7 @@ func normalizeFilters(cmd *cobra.Command, f *domain.Filters, c domain.Catalog) e
 func scanCommand(o *cliOptions) *cobra.Command {
 	f := domain.DefaultFilters()
 	sort := domain.Sort{Technologies: "name-asc", Skills: "priority-desc"}
-	jsonMode, strict, mcp, refresh := false, false, false, false
+	jsonMode, strict, mcp := false, false, false
 	cmd := &cobra.Command{Use: "scan", Short: "Detect technologies and recommend skills", Args: cobra.NoArgs}
 	filterFlags(cmd, &f, true)
 	cmd.Flags().StringVar(&sort.Technologies, "sort-technologies", "name-asc", "name-asc, name-desc, evidence-count-desc, matched-rules-desc")
@@ -199,9 +201,8 @@ func scanCommand(o *cliOptions) *cobra.Command {
 	cmd.Flags().BoolVar(&jsonMode, "json", false, "emit scan JSON v2")
 	cmd.Flags().BoolVar(&strict, "strict", false, "exit 4 when required evaluation is incomplete")
 	cmd.Flags().BoolVar(&mcp, "enable-mcp", false, "passively inspect project MCP package references")
-	cmd.Flags().BoolVar(&refresh, "refresh", false, "refresh registry snapshots")
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
-		s, err := o.session(cmd.Context(), refresh)
+		s, err := o.session(cmd.Context(), false)
 		if err != nil {
 			return err
 		}
@@ -829,5 +830,5 @@ func runNoseyUI(cmd *cobra.Command, o *cliOptions) error {
 	if err != nil {
 		return err
 	}
-	return ui.RunNosey(cmd.Context(), store.Workspace, o.config, resolved.Settings.UI.Mode)
+	return ui.RunNosey(cmd.Context(), store.Workspace, o.config, resolved.Settings.UI.Mode, o.refresh)
 }

@@ -91,6 +91,29 @@ func TestMachineCommandsAndNonTTYContracts(t *testing.T) {
 		})
 	}
 }
+func TestRefreshFlagForcesRegistryRefresh(t *testing.T) {
+	session, _ := fixtureSession(t)
+	for _, test := range []struct {
+		args []string
+		want bool
+	}{{[]string{"scan", "--json"}, false}, {[]string{"scan", "--json", "--refresh"}, true}, {[]string{"--refresh", "search", "next", "--json"}, true}, {[]string{"list", "--json", "--refresh"}, true}} {
+		var got bool
+		cmd := newCommandTree(func(_ context.Context, _, _ string, refresh bool) (app.Session, error) {
+			got = refresh
+			return session, nil
+		})
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs(append([]string{"--cwd", session.Store.Workspace}, test.args...))
+		if err := cmd.Execute(); err != nil {
+			t.Fatal(test.args, err, out.String())
+		}
+		if got != test.want {
+			t.Fatalf("%v: refresh = %t, want %t", test.args, got, test.want)
+		}
+	}
+}
 func TestIncompleteStrictAndUsageErrors(t *testing.T) {
 	session, _ := fixtureSession(t)
 	session.Resolved.Settings.Detection.MaxBytes = 1
