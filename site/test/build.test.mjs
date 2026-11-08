@@ -48,5 +48,6 @@ test('builds the official registry when it is checked out', (t) => {
   const index = build(dir, out);
   assert.ok(index.skills.length > 0);
   for (const f of ['index.html', 'app.js', 'style.css', 'data.json', 'details.json']) assert.ok(existsSync(join(out, f)), f);
+  assert.match(readFileSync(join(out, 'index.html'), 'utf8'), /app\.js\?v=[0-9a-f]{10}/);
   assert.equal(JSON.parse(readFileSync(join(out, 'data.json'), 'utf8')).skills.length, index.skills.length);
 });

@@ -5,6 +5,7 @@
 //
 // Defaults: registries/default -> dist/site. No dependencies; Node >= 22.
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -164,6 +165,15 @@ export function build(registryDir, outDir, meta = {}) {
   writeFileSync(join(outDir, 'data.json'), JSON.stringify(index));
   writeFileSync(join(outDir, 'details.json'), JSON.stringify(details));
   writeFileSync(join(outDir, '.nojekyll'), '');
+  // Pages caches assets for 10 minutes under unchanged names; a content hash in
+  // the URLs makes every deploy visible as soon as index.html is refreshed.
+  const hash = createHash('sha256');
+  for (const f of ['style.css', 'app.js', 'data.json', 'details.json']) hash.update(readFileSync(join(outDir, f)));
+  const version = hash.digest('hex').slice(0, 10);
+  const page = readFileSync(join(outDir, 'index.html'), 'utf8')
+    .replace('href="style.css"', `href="style.css?v=${version}"`)
+    .replace('src="app.js"', `src="app.js?v=${version}"`);
+  writeFileSync(join(outDir, 'index.html'), page);
   return index;
 }
 

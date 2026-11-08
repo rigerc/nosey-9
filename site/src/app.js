@@ -1,5 +1,7 @@
 // Nosey registry browser. All registry text is rendered with textContent only.
 const app = document.getElementById('app');
+// Build version from this module's URL; carried onto the data requests so they bypass stale caches.
+const V = new URL(import.meta.url).search;
 const PAGE = 30;
 const QUALITIES = ['excellent', 'good', 'fair', 'poor'];
 const JEV_LABELS = {
@@ -45,7 +47,7 @@ const qualityOf = (score) => (score >= 85 ? 'excellent' : score >= 70 ? 'good' :
 const avg = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
 async function loadDetails() {
-  detailsPromise ??= fetch('details.json').then((r) => {
+  detailsPromise ??= fetch(`details.json${V}`).then((r) => {
     if (!r.ok) throw new Error(`details.json: ${r.status}`);
     return r.json();
   });
@@ -615,7 +617,7 @@ async function route() {
 }
 
 try {
-  data = await (await fetch('data.json')).json();
+  data = await (await fetch(`data.json${V}`)).json();
   prepare();
   addEventListener('hashchange', route);
   await route();
