@@ -17,11 +17,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { goos: linux, goarch: amd64, binary: go-cli-template_linux_amd64 }
-          - { goos: linux, goarch: arm64, binary: go-cli-template_linux_arm64 }
-          - { goos: darwin, goarch: amd64, binary: go-cli-template_darwin_amd64 }
-          - { goos: darwin, goarch: arm64, binary: go-cli-template_darwin_arm64 }
-          - { goos: windows, goarch: amd64, binary: go-cli-template_windows_amd64.exe }
+          - { goos: linux, goarch: amd64, binary: nosey_linux_amd64 }
+          - { goos: linux, goarch: arm64, binary: nosey_linux_arm64 }
+          - { goos: darwin, goarch: amd64, binary: nosey_darwin_amd64 }
+          - { goos: darwin, goarch: arm64, binary: nosey_darwin_arm64 }
+          - { goos: windows, goarch: amd64, binary: nosey_windows_amd64.exe }
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -41,7 +41,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          go build -trimpath -o "dist/${{ matrix.binary }}" ./cmd/go-cli-template
+          go build -trimpath -o "dist/${{ matrix.binary }}" ./cmd/nosey
 
       - name: Upload binary
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

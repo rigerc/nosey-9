@@ -18,3 +18,5 @@ __pycache__/
 /coverage.out
 /coverage.html
 /custom-gcl
+
+/core-coverage.out

@@ -3,8 +3,8 @@ package utils_test
 import (
 	"testing"
 
-	"github.com/go-cli-template/internal/clack/core/utils"
-	"github.com/go-cli-template/internal/clack/third_party/picocolors"
+	"github.com/rigerc/nosey-9/internal/clack/core/utils"
+	"github.com/rigerc/nosey-9/internal/clack/third_party/picocolors"
 
 	"github.com/stretchr/testify/assert"
 )

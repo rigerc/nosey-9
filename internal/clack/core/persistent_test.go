@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-cli-template/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

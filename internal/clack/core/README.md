@@ -31,7 +31,7 @@ import (
     "fmt"
     "os"
 
-    "github.com/go-cli-template/internal/clack/core"
+    "github.com/rigerc/nosey-9/internal/clack/core"
 )
 
 func main() {
@@ -58,7 +58,7 @@ This example belongs **inside the same Go module**, due to the `internal/` impor
 
 If a CLI asks more than one question, construct styled `prompts.*Model` objects and add them to a `prompts.Workflow` with `ModelStep`. `RunNative()` drives those models in one program. Do not call multiple `.Run()` methods from inside another active Bubble Tea update loop.
 
-See the complete native composition example in [`../README.md`](../README.md) and the real command in `cmd/go-cli-template/prompt.go`.
+See the complete native composition example in [`../README.md`](../README.md) and the real command in `cmd/nosey/prompt.go`.
 
 ## Testing and customization
 

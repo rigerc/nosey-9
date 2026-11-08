@@ -57,8 +57,8 @@ For one prompt, use `prompts.Text` / `prompts.Confirm` and handle the returned e
 
 ```go
 import (
-    "github.com/go-cli-template/internal/clack/core"
-    "github.com/go-cli-template/internal/clack/prompts"
+    "github.com/rigerc/nosey-9/internal/clack/core"
+    "github.com/rigerc/nosey-9/internal/clack/prompts"
 )
 
 var answers struct{ Name string }
@@ -76,4 +76,4 @@ if err != nil {
 
 The packages live under `internal/` and are importable only from the permitted module tree. To use them in a different Go module, bring the source into that module and keep the upstream licenses.
 
-See [the runtime overview](../../internal/clack/README.md), [styled API](../../internal/clack/prompts/README.md), and [sample CLI command](../../cmd/go-cli-template/prompt.go).
+See [the runtime overview](../../internal/clack/README.md), [styled API](../../internal/clack/prompts/README.md), and [sample CLI command](../../cmd/nosey/prompt.go).

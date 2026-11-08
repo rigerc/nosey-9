@@ -2,7 +2,7 @@
 // Manager is the optional TOML persistence adapter for the UI example.
 package config
 
-import "github.com/go-cli-template/internal/domain"
+import "github.com/rigerc/nosey-9/internal/domain"
 
 // Manager describes configuration persistence behavior.
 type Manager interface {

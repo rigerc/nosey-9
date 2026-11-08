@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/go-cli-template/internal/clack/core/utils"
-	"github.com/go-cli-template/internal/clack/third_party/picocolors"
+	"github.com/rigerc/nosey-9/internal/clack/core/utils"
+	"github.com/rigerc/nosey-9/internal/clack/third_party/picocolors"
 )
 
 // TrackKeyValue updates the string value and cursor position based on key presses.

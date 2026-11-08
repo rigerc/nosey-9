@@ -6,10 +6,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/go-cli-template/internal/clack/core/internals"
-	"github.com/go-cli-template/internal/clack/core/utils"
-	"github.com/go-cli-template/internal/clack/core/validator"
-	"github.com/go-cli-template/internal/clack/third_party/picocolors"
+	"github.com/rigerc/nosey-9/internal/clack/core/internals"
+	"github.com/rigerc/nosey-9/internal/clack/core/utils"
+	"github.com/rigerc/nosey-9/internal/clack/core/validator"
+	"github.com/rigerc/nosey-9/internal/clack/third_party/picocolors"
 )
 
 // PathPrompt is a file path input prompt.

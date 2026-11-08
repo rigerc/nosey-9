@@ -2,7 +2,7 @@
 # ================================================================================
 set shell := ["zsh", "-cu"]
 
-PACKAGE := "go-cli-template"
+PACKAGE := "nosey"
 PACKAGE_BIN := "./bin/" + PACKAGE
 PACKAGE_CMD := "./cmd/" + PACKAGE
 

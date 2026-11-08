@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nosey:schema:registry-list-output:v1",
+  "title": "Nosey registry-list-output output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "outputVersion",
+    "diagnostics",
+    "registries"
+  ],
+  "properties": {
+    "outputVersion": {
+      "const": 1
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "registries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "source",
+          "enabled",
+          "priority",
+          "ttlHours",
+          "trust",
+          "cacheState"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "location",
+              "requestedRef",
+              "resolvedRevision"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "git",
+                  "local"
+                ]
+              },
+              "location": {
+                "type": "string",
+                "minLength": 1
+              },
+              "requestedRef": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resolvedRevision": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{40}([a-f0-9]{24})?$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000
+          },
+          "ttlHours": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 168
+          },
+          "trust": {
+            "enum": [
+              "not-required",
+              "approved",
+              "pending"
+            ]
+          },
+          "cacheState": {
+            "enum": [
+              "fresh",
+              "stale",
+              "missing",
+              "local"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

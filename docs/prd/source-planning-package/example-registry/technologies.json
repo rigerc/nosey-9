@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 2,
+  "technologies": [
+    {
+      "id": "nextjs",
+      "name": "Next.js",
+      "tags": [
+        "frontend",
+        "react"
+      ],
+      "rules": [
+        {
+          "id": "npm-next",
+          "kind": "dependency",
+          "ecosystem": "npm",
+          "name": "next"
+        },
+        {
+          "id": "next-config",
+          "kind": "file",
+          "glob": "**/next.config.*"
+        }
+      ],
+      "category": "framework"
+    },
+    {
+      "id": "typescript",
+      "name": "TypeScript",
+      "tags": [
+        "language"
+      ],
+      "rules": [
+        {
+          "id": "tsconfig",
+          "kind": "file",
+          "glob": "**/tsconfig.json"
+        },
+        {
+          "id": "npm-typescript",
+          "kind": "dependency",
+          "ecosystem": "npm",
+          "name": "typescript"
+        }
+      ],
+      "category": "language"
+    }
+  ]
+}

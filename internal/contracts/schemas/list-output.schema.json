@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nosey:schema:list-output:v1",
+  "title": "Nosey list-output output v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "outputVersion",
+    "diagnostics",
+    "workspace",
+    "complete",
+    "skills"
+  ],
+  "properties": {
+    "outputVersion": {
+      "const": 1
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "info",
+              "warning",
+              "error"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "workspace": {
+      "type": "string",
+      "minLength": 1
+    },
+    "complete": {
+      "type": "boolean"
+    },
+    "skills": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "skillId",
+          "skillName",
+          "logicalSource",
+          "requestedRef",
+          "agents",
+          "scope",
+          "status",
+          "unmanaged",
+          "path"
+        ],
+        "properties": {
+          "skillId": {
+            "oneOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+                "minLength": 1,
+                "maxLength": 160
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "skillName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "logicalSource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requestedRef": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          },
+          "scope": {
+            "const": "project"
+          },
+          "status": {
+            "enum": [
+              "installed",
+              "missing",
+              "unknown"
+            ]
+          },
+          "unmanaged": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

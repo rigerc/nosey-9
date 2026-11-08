@@ -9,8 +9,8 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/go-cli-template/internal/domain"
-	"github.com/go-cli-template/internal/utils"
+	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/utils"
 )
 
 // ManagerImpl loads and saves configuration files.

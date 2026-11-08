@@ -5,9 +5,9 @@ import (
 	"os"
 	"path"
 
-	"github.com/go-cli-template/internal/clack/core/internals"
-	"github.com/go-cli-template/internal/clack/core/utils"
-	"github.com/go-cli-template/internal/clack/core/validator"
+	"github.com/rigerc/nosey-9/internal/clack/core/internals"
+	"github.com/rigerc/nosey-9/internal/clack/core/utils"
+	"github.com/rigerc/nosey-9/internal/clack/core/validator"
 )
 
 // SelectPathPrompt is a file path selection prompt.

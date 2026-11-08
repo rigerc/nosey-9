@@ -1,18 +1,25 @@
 # Quality checks from go-agentic-template, adapted to the larger CLI codebase.
 GO ?= go
-BIN := dist/go-cli-template
+BIN := dist/nosey
 LINTER_BIN := ./custom-gcl
 COVERAGE_FILE := coverage.out
 COVERAGE_MIN ?= 80
 # Generated CLI agent skills belong to each downstream app, not the template.
 SKILL_NAME ?= $(notdir $(BIN))
-# The newly imported runtime packages have a strict coverage gate. The existing
-# CLI/TUI packages retain their own tests without a retrospective coverage bar.
+# Core services have a shared coverage gate; CLI/TUI tests exercise the same services.
 RUNTIME_PACKAGES := ./internal/runtimeconfig/... ./internal/logging/... ./internal/greeting/...
+CORE_PACKAGES := ./internal/app ./internal/catalog ./internal/catalogimport ./internal/contracts ./internal/detection ./internal/installation ./internal/process ./internal/registry ./internal/settings ./internal/storage
+empty :=
+space := $(empty) $(empty)
+CORE_COVERPKG = $(subst $(space),$(comma),$(strip $(CORE_PACKAGES)))
+comma := ,
 
-.PHONY: check fix format format-check lint test test-coverage build run skills audit hooks-install clean
+.PHONY: registry-check check fix format format-check lint test test-coverage build run skills audit hooks-install clean
 
-check: format-check lint test-coverage build
+check: format-check lint registry-check test-coverage build
+
+registry-check:
+	$(GO) run ./scripts/catalog-import --check
 
 fix: format
 
@@ -46,13 +53,16 @@ test-coverage:
 	@$(GO) tool cover -func=$(COVERAGE_FILE) | awk -v min=$(COVERAGE_MIN) \
 	  '/^total:/ { gsub(/%/, "", $$3); printf "Runtime coverage: %.1f%% (minimum: %s%%)\n", $$3, min; found = 1; if ($$3 + 0 < min) exit 1 } \
 	   END { if (!found) { print "No coverage total found" > "/dev/stderr"; exit 1 } }'
+	$(GO) test -race -covermode=atomic -coverpkg=$(CORE_COVERPKG) -coverprofile=core-coverage.out ./cmd/nosey ./internal/ui $(CORE_PACKAGES)
+	@$(GO) tool cover -func=core-coverage.out | awk -v min=$(COVERAGE_MIN) \
+	  '/^total:/ { gsub(/%/, "", $$3); printf "Core coverage: %.1f%% (minimum: %s%%)\n", $$3, min; found=1; if ($$3 + 0 < min) exit 1 } END { if (!found) exit 1 }'
 
 build:
 	@mkdir -p dist
-	$(GO) build -trimpath -o $(BIN) ./cmd/go-cli-template
+	$(GO) build -trimpath -o $(BIN) ./cmd/nosey
 
 run:
-	$(GO) run ./cmd/go-cli-template
+	$(GO) run ./cmd/nosey
 
 # Regenerate only this CLI's skill; leave other .agents/skills entries untouched.
 # Generate from the live Cobra tree through the built CLI's skillgen subcommand.
@@ -78,4 +88,4 @@ hooks-install:
 	git config --local core.hooksPath .githooks
 
 clean:
-	rm -rf dist $(COVERAGE_FILE) $(LINTER_BIN)
+	rm -rf dist $(COVERAGE_FILE) core-coverage.out $(LINTER_BIN)

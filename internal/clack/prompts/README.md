@@ -13,7 +13,7 @@ import (
     "fmt"
     "os"
 
-    "github.com/go-cli-template/internal/clack/prompts"
+    "github.com/rigerc/nosey-9/internal/clack/prompts"
 )
 
 func main() {
@@ -55,8 +55,8 @@ Use `Workflow(&result)` and `ModelStep` to run a series of models under **one Bu
 
 ```go
 import (
-    "github.com/go-cli-template/internal/clack/core"
-    "github.com/go-cli-template/internal/clack/prompts"
+    "github.com/rigerc/nosey-9/internal/clack/core"
+    "github.com/rigerc/nosey-9/internal/clack/prompts"
 )
 
 var result struct {
@@ -125,9 +125,9 @@ rather than launching a second Bubble Tea program:
 import (
     "time"
 
-    "github.com/go-cli-template/internal/clack/core"
-    "github.com/go-cli-template/internal/clack/prompts"
-    "github.com/go-cli-template/internal/clack/prompts/banner"
+    "github.com/rigerc/nosey-9/internal/clack/core"
+    "github.com/rigerc/nosey-9/internal/clack/prompts"
+    "github.com/rigerc/nosey-9/internal/clack/prompts/banner"
 )
 
 var result struct{ Name string }
@@ -199,6 +199,6 @@ Prefer `RunTasks` when failures matter. Many output helpers write to terminal st
 - [`../README.md`](../README.md) for the integration overview.
 - [`../core/README.md`](../core/README.md) for custom renderers.
 - [`../../../examples/forms/README.md`](../../../examples/forms/README.md) to run every demo.
-- `cmd/go-cli-template/prompt.go` for a real two-step Cobra command.
+- `cmd/nosey/prompt.go` for a real two-step Cobra command.
 
 The bundled runtime retains its upstream [MIT license](../LICENSE).

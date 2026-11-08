@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-cli-template/internal/domain"
-	"github.com/go-cli-template/internal/utils"
+	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/utils"
 )
 
 func TestManagerLoadsDefaults(t *testing.T) {

@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "id": "example:nosey-registry",
+  "name": "Example Nosey Registry",
+  "description": "Demonstrates technology detection, recommendations and local skills.",
+  "files": {
+    "technologies": "technologies.json",
+    "skills": "skills.json",
+    "mappings": "mappings.json",
+    "repositories": "repositories.json"
+  },
+  "templates": [
+    {
+      "id": "empty",
+      "kind": "registry",
+      "descriptor": "templates/registry/empty/nosey.template.json",
+      "description": "Minimal valid registry skeleton"
+    },
+    {
+      "id": "workspace",
+      "kind": "registry",
+      "descriptor": "templates/registry/workspace/nosey.template.json",
+      "description": "Skeleton plus optionally selected workspace technologies"
+    }
+  ],
+  "repositoryScores": {
+    "vercel:agent-skills": {
+      "averageScore": 91,
+      "scoreCount": 1
+    },
+    "local:workspace-skills": {
+      "averageScore": 86,
+      "scoreCount": 2
+    }
+  }
+}

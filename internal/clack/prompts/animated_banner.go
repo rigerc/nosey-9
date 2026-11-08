@@ -7,8 +7,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/go-cli-template/internal/clack/core"
-	"github.com/go-cli-template/internal/clack/prompts/banner"
+	"github.com/rigerc/nosey-9/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/banner"
 	"golang.org/x/term"
 )
 

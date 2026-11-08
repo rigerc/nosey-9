@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/go-cli-template/internal/clack/reflectutil"
+	"github.com/rigerc/nosey-9/internal/clack/reflectutil"
 )
 
 var (

@@ -1,0 +1,3 @@
+[submodule "registries/default"]
+	path = registries/default
+	url = https://github.com/rigerc/nosey-registry

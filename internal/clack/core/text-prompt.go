@@ -5,8 +5,8 @@ import (
 	"os"
 	"unicode/utf8"
 
-	"github.com/go-cli-template/internal/clack/core/validator"
-	"github.com/go-cli-template/internal/clack/third_party/picocolors"
+	"github.com/rigerc/nosey-9/internal/clack/core/validator"
+	"github.com/rigerc/nosey-9/internal/clack/third_party/picocolors"
 )
 
 // TextPrompt is a single-line text prompt.

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	"github.com/go-cli-template/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/core"
 )
 
 // IsCancel checks if the given error is a cancellation error (core.ErrCancelPrompt).

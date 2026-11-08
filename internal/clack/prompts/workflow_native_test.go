@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/exp/teatest/v2"
-	"github.com/go-cli-template/internal/clack/core"
-	"github.com/go-cli-template/internal/clack/prompts/symbols"
+	"github.com/rigerc/nosey-9/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/symbols"
 )
 
 // CONTRACT: nativeText exercises the ComposablePrompt interface accepted by ModelStep.

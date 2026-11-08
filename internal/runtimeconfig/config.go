@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/go-cli-template/internal/config"
+	"github.com/rigerc/nosey-9/internal/config"
 )
 
 // Environment is a validated application execution environment.

@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/go-cli-template/internal/clack/core"
-	"github.com/go-cli-template/internal/clack/prompts"
-	"github.com/go-cli-template/internal/clack/prompts/symbols"
+	"github.com/rigerc/nosey-9/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/prompts"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/symbols"
 	"github.com/stretchr/testify/assert"
 )
 

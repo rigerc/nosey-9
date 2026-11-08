@@ -1,6 +1,6 @@
 package prompts
 
-import "github.com/go-cli-template/internal/clack/core"
+import "github.com/rigerc/nosey-9/internal/clack/core"
 
 // PersistentComponent renders one block above the current form.
 type PersistentComponent = core.PersistentComponent

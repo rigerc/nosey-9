@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/go-cli-template/internal/package"
+	"github.com/rigerc/nosey-9/internal/package"
 )
 
 // XDGConfigHome returns the config home directory with sensible defaults.

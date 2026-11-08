@@ -5,7 +5,7 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/go-cli-template/internal/runtimeconfig"
+	"github.com/rigerc/nosey-9/internal/runtimeconfig"
 )
 
 // New returns a logger that writes human-readable text locally and JSON in

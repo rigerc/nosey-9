@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/go-cli-template/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/core"
 )
 
 // workflowModel is a Bubble Tea parent model; child prompts never launch

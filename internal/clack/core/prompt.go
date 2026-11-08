@@ -9,8 +9,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/go-cli-template/internal/clack/core/utils"
-	"github.com/go-cli-template/internal/clack/core/validator"
+	"github.com/rigerc/nosey-9/internal/clack/core/utils"
+	"github.com/rigerc/nosey-9/internal/clack/core/validator"
 	"golang.org/x/term"
 )
 

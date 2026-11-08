@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-cli-template/internal/runtimeconfig"
+	"github.com/rigerc/nosey-9/internal/runtimeconfig"
 )
 
 func TestNewDevelopmentUsesText(t *testing.T) {

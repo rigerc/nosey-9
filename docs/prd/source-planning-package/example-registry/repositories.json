@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "repositories": [
+    {
+      "id": "vercel:agent-skills",
+      "name": "vercel-labs/agent-skills",
+      "kind": "git",
+      "uri": "vercel-labs/agent-skills"
+    },
+    {
+      "id": "local:workspace-skills",
+      "name": "Workspace Skill Collection",
+      "kind": "local",
+      "path": "skills",
+      "description": "Example private skills local to the registry"
+    }
+  ]
+}

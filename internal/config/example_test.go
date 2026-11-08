@@ -3,7 +3,7 @@ package config_test
 import (
 	"fmt"
 
-	"github.com/go-cli-template/internal/config"
+	"github.com/rigerc/nosey-9/internal/config"
 )
 
 func ExampleLoad() {

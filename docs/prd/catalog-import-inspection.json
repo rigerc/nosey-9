@@ -1,0 +1,102 @@
+{
+  "inspectedAt": "2026-11-07",
+  "repository": "https://github.com/rigerc/skills-catalog",
+  "sourceRevision": "d1bc68a826cd233f85f291eca0cfa9b4303713e6",
+  "files": [
+    {
+      "path": "data/catalog-source-ledger.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "24f0b9dd10f540f9f8c3ce4b061d226ba36b31ab",
+      "size": 326838,
+      "url": "https://api.github.com/repos/rigerc/skills-catalog/git/blobs/24f0b9dd10f540f9f8c3ce4b061d226ba36b31ab"
+    },
+    {
+      "path": "data/mappings.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "b59483efe00c4effd71f34007af78a629ca975d1",
+      "size": 244136,
+      "url": "https://api.github.com/repos/rigerc/skills-catalog/git/blobs/b59483efe00c4effd71f34007af78a629ca975d1"
+    }
+  ],
+  "ledger": {
+    "entries": 877,
+    "statusCounts": {
+      "verified": 877
+    },
+    "reportedReleaseBlocked": false,
+    "reportedUnresolvedCount": 0,
+    "explicitSourceSkillNames": 12
+  },
+  "mappings": {
+    "technologies": 289,
+    "combinations": 35,
+    "distinctReferencedSkills": 877,
+    "mappingStatuses": {
+      "detect_only": 66,
+      "mapped": 223
+    },
+    "repositoryAliases": {
+      "affaan-m/everything-claude-code": "affaan-m/ECC"
+    }
+  },
+  "compatibility": {
+    "runtimeCompatible": false,
+    "reason": "Authoring inputs use schema_version/skill_ids rather than Nosey schemaVersion/skillId contracts. Slash-separated skill IDs require a reviewed ID map; source frontmatter, metadata and licenses require verification.",
+    "missingReferencedSkillIds": [],
+    "technologyIdsRequiringCrosswalk": [
+      "anthropic-sdk",
+      "google-genai",
+      "hugging-face",
+      "mcp-sdk",
+      "openai-sdk",
+      "vercel-ai",
+      "better-auth",
+      "elysia",
+      "hono",
+      "nx",
+      "github-actions",
+      "gitlab-ci",
+      "google-cloud",
+      "vercel-deploy",
+      "convex",
+      "drizzle",
+      "neon",
+      "postgres",
+      "go",
+      "bun",
+      "cpp",
+      "node",
+      "capacitor",
+      "expo",
+      "postgresql-ruby",
+      "redis-ruby",
+      "biome",
+      "cypress",
+      "chakra-ui",
+      "d3",
+      "lit",
+      "monaco-editor",
+      "nuxt",
+      "preact",
+      "qwik",
+      "radix-ui",
+      "react-router",
+      "svelte",
+      "tanstack-start",
+      "alpine-js",
+      "apache-airflow"
+    ],
+    "missingCombinationTechnologyIds": [
+      "node",
+      "expo",
+      "drizzle",
+      "vercel-ai",
+      "nuxt",
+      "react-router",
+      "tanstack-start"
+    ]
+  },
+  "verificationLimit": "Shape/count/identifier inspection only; source ledger status is an upstream assertion, not executed Nosey installation, schema compatibility or license verification."
+}

@@ -4,7 +4,7 @@ package greeting
 import (
 	"log/slog"
 
-	"github.com/go-cli-template/internal/runtimeconfig"
+	"github.com/rigerc/nosey-9/internal/runtimeconfig"
 )
 
 // Greet returns a greeting for the supplied name.

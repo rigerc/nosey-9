@@ -7,8 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/go-cli-template/internal/clack/core"
-	"github.com/go-cli-template/internal/clack/prompts"
+	"github.com/rigerc/nosey-9/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/prompts"
 )
 
 // ConfirmationModel is a reusable confirmation dialog backed by go-clack's

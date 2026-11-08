@@ -31,7 +31,7 @@ linters:
           # reflectutil is the single package that imports reflect; every other
           # package remains subject to the noreflect rule.
           reflect-allow:
-            - github.com/go-cli-template/internal/clack/reflectutil
+            - github.com/rigerc/nosey-9/internal/clack/reflectutil
           # Default rules are always on. Additional rules chosen deliberately:
           enable:
             - noanyparam

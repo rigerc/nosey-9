@@ -6,11 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/go-cli-template/internal/clack/core"
-	"github.com/go-cli-template/internal/clack/core/validator"
-	"github.com/go-cli-template/internal/clack/prompts/symbols"
-	"github.com/go-cli-template/internal/clack/prompts/theme"
-	"github.com/go-cli-template/internal/clack/third_party/picocolors"
+	"github.com/rigerc/nosey-9/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/core/validator"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/symbols"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/theme"
+	"github.com/rigerc/nosey-9/internal/clack/third_party/picocolors"
 )
 
 // MultiSelectOption is one selectable multi-select item.

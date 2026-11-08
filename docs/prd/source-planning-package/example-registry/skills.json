@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "skills": [
+    {
+      "id": "vercel:web-design-guidelines",
+      "name": "Web Design Guidelines",
+      "description": "Review web UI quality and accessibility.",
+      "tags": [
+        "frontend",
+        "review"
+      ],
+      "source": {
+        "kind": "git",
+        "uri": "vercel-labs/agent-skills",
+        "skillName": "web-design-guidelines"
+      },
+      "repositoryId": "vercel:agent-skills",
+      "technologies": [
+        "nextjs",
+        "typescript"
+      ],
+      "quality": "excellent",
+      "score": 93,
+      "requires": [],
+      "conflictsWith": [],
+      "assessment": {
+        "method": "manual-review",
+        "assessedAt": "2026-11-01",
+        "assessor": "Nosey example curator"
+      }
+    },
+    {
+      "id": "local:workspace-style",
+      "name": "Workspace Style",
+      "description": "Example local coding conventions skill.",
+      "tags": [
+        "conventions"
+      ],
+      "source": {
+        "kind": "local",
+        "path": "skills/workspace-style",
+        "skillName": "workspace-style"
+      },
+      "repositoryId": "local:workspace-skills",
+      "technologies": [
+        "nextjs"
+      ],
+      "quality": "good",
+      "score": 84
+    },
+    {
+      "id": "local:frontend-checklist",
+      "name": "Frontend Checklist",
+      "description": "Example local frontend review checklist skill.",
+      "tags": [
+        "frontend",
+        "review"
+      ],
+      "technologies": [
+        "nextjs",
+        "typescript"
+      ],
+      "repositoryId": "local:workspace-skills",
+      "quality": "good",
+      "score": 88,
+      "source": {
+        "kind": "local",
+        "path": "skills/frontend-checklist",
+        "skillName": "frontend-checklist"
+      }
+    }
+  ]
+}

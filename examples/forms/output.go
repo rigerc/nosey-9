@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-cli-template/internal/clack/core"
-	"github.com/go-cli-template/internal/clack/prompts"
-	"github.com/go-cli-template/internal/clack/prompts/banner"
+	"github.com/rigerc/nosey-9/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/prompts"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/banner"
 )
 
 func runBanner() error {

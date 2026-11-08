@@ -9,9 +9,9 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
 
-	"github.com/go-cli-template/internal/clack/core"
-	"github.com/go-cli-template/internal/clack/prompts/banner"
-	"github.com/go-cli-template/internal/clack/reflectutil"
+	"github.com/rigerc/nosey-9/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/banner"
+	"github.com/rigerc/nosey-9/internal/clack/reflectutil"
 )
 
 // WorkflowStep is one step in a workflow.

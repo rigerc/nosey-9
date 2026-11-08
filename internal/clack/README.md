@@ -20,8 +20,8 @@ The prompt constructors used for `ModelStep` return models implementing `core.Co
 
 ```go
 import (
-    "github.com/go-cli-template/internal/clack/core"
-    "github.com/go-cli-template/internal/clack/prompts"
+    "github.com/rigerc/nosey-9/internal/clack/core"
+    "github.com/rigerc/nosey-9/internal/clack/prompts"
 )
 
 var answers struct {

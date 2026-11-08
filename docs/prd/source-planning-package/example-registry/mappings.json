@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 2,
+  "mappings": [
+    {
+      "id": "nextjs-recommendations",
+      "technologyId": "nextjs",
+      "recommendations": [
+        {
+          "priority": "recommended",
+          "reason": "Applies web UI review practices to Next.js projects.",
+          "when": {
+            "allTechnologies": [
+              "typescript"
+            ]
+          },
+          "requires": [],
+          "conflictsWith": [],
+          "skillId": "vercel:web-design-guidelines"
+        },
+        {
+          "priority": "optional",
+          "reason": "Apply workspace-specific conventions.",
+          "requires": [],
+          "conflictsWith": [],
+          "skillId": "local:workspace-style"
+        }
+      ]
+    }
+  ]
+}

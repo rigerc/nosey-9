@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/go-cli-template/internal/clack/core/internals"
+	"github.com/rigerc/nosey-9/internal/clack/core/internals"
 )
 
 // PathNode is a node in a selectable file tree.

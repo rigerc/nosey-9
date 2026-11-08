@@ -6,10 +6,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/go-cli-template/internal/clack/core"
-	"github.com/go-cli-template/internal/clack/core/utils"
-	"github.com/go-cli-template/internal/clack/prompts/symbols"
-	"github.com/go-cli-template/internal/clack/third_party/picocolors"
+	"github.com/rigerc/nosey-9/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/core/utils"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/symbols"
+	"github.com/rigerc/nosey-9/internal/clack/third_party/picocolors"
 )
 
 // NoteOptions configures a rendered note.

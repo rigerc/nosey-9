@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/go-cli-template/internal/clack/prompts/banner"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/banner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

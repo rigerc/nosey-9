@@ -4,8 +4,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/go-cli-template/internal/clack/core"
-	"github.com/go-cli-template/internal/clack/prompts/theme"
+	"github.com/rigerc/nosey-9/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/theme"
 )
 
 // PasswordParams configures a password prompt.

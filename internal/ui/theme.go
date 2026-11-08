@@ -7,7 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/go-cli-template/internal/domain"
+	"github.com/rigerc/nosey-9/internal/domain"
 )
 
 // Theme holds configurable colors for UI output.

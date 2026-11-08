@@ -2,12 +2,12 @@
 package prompts
 
 import (
-	"github.com/go-cli-template/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/core"
 	"io"
 	"os"
 	"strings"
 
-	"github.com/go-cli-template/internal/clack/prompts/banner"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/banner"
 )
 
 // BannerOptions configures a printable FIGlet banner.

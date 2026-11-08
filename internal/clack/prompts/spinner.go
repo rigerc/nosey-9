@@ -11,10 +11,10 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/go-cli-template/internal/clack/core"
-	"github.com/go-cli-template/internal/clack/prompts/symbols"
-	isunicodesupported "github.com/go-cli-template/internal/clack/third_party/is-unicode-supported"
-	"github.com/go-cli-template/internal/clack/third_party/picocolors"
+	"github.com/rigerc/nosey-9/internal/clack/core"
+	"github.com/rigerc/nosey-9/internal/clack/prompts/symbols"
+	isunicodesupported "github.com/rigerc/nosey-9/internal/clack/third_party/is-unicode-supported"
+	"github.com/rigerc/nosey-9/internal/clack/third_party/picocolors"
 	"golang.org/x/term"
 )
 
