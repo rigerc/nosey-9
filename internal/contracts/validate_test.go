@@ -67,3 +67,39 @@ func TestSchemaCopiesMatchApprovedSource(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillQuarantineShape(t *testing.T) {
+	sha := `"0123456789abcdef0123456789abcdef01234567"`
+	skill := func(quarantine string) []byte {
+		return []byte(`{"schemaVersion":2,"skills":[{"id":"a:b","name":"B","source":{"kind":"git","uri":"owner/repo","skillName":"b"},"quarantine":` + quarantine + `}]}`)
+	}
+	valid := []string{
+		`{"reason":"repo_gone","since":"2026-11-01","lastSeenRef":` + sha + `}`,
+		`{"reason":"skill_absent","since":"2026-11-01","lastSeenRef":` + sha + `,"lastChecked":"2026-11-08"}`,
+	}
+	invalid := []string{
+		`{"reason":"repo_gone","since":"2026-11-01"}`,
+		`{"reason":"deleted","since":"2026-11-01","lastSeenRef":` + sha + `}`,
+		`{"reason":"repo_gone","since":"yesterday","lastSeenRef":` + sha + `}`,
+		`{"reason":"repo_gone","since":"2026-11-01","lastSeenRef":"main"}`,
+		`{"reason":"repo_gone","since":"2026-11-01","lastSeenRef":` + sha + `,"extra":true}`,
+		`true`,
+		`null`,
+	}
+	for _, schema := range []string{"skills.schema.json", "skills.effective.schema.json"} {
+		for _, q := range valid {
+			if err := Validate(schema, skill(q)); err != nil {
+				t.Fatalf("%s rejected %s: %v", schema, q, err)
+			}
+		}
+		for _, q := range invalid {
+			if err := Validate(schema, skill(q)); err == nil {
+				t.Fatalf("%s accepted %s", schema, q)
+			}
+		}
+	}
+	// A quarantined entry may not also pose as disabled in the effective catalog.
+	if err := Validate("skills.effective.schema.json", []byte(`{"schemaVersion":2,"skills":[{"id":"a:b","name":"B","disabled":true,"source":{"kind":"git","uri":"owner/repo","skillName":"b"}}]}`)); err == nil {
+		t.Fatal("disabled skill passed the effective schema")
+	}
+}

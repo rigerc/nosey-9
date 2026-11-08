@@ -91,7 +91,17 @@ type Skill struct {
 	Requires      []string    `json:"requires,omitempty"`
 	ConflictsWith []string    `json:"conflictsWith,omitempty"`
 	Disabled      bool        `json:"disabled,omitempty"`
+	Quarantine    *Quarantine `json:"quarantine,omitempty"`
 	RegistryID    string      `json:"-"`
+}
+
+// Quarantine marks a skill whose upstream is gone. It stays declared so that
+// mappings and relationships remain valid, but it is never active.
+type Quarantine struct {
+	Reason      string `json:"reason"`
+	Since       string `json:"since"`
+	LastSeenRef string `json:"lastSeenRef"`
+	LastChecked string `json:"lastChecked,omitempty"`
 }
 
 // Condition contains three-state technology clauses.
@@ -164,6 +174,8 @@ type Catalog struct {
 	InstallStatus       map[string]string
 	Technologies        map[string]Technology
 	Skills              map[string]Skill
+	Quarantined         map[string]Skill
+	Blocked             map[string]string
 	Mappings            map[string]Mapping
 	Repositories        map[string]Repository
 	Scores              map[string]RepositoryScore

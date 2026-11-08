@@ -3,6 +3,7 @@ package installation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -331,5 +332,24 @@ func TestExecuteRejectsWrongDigestAndUnconfirmedRequests(t *testing.T) {
 	}
 	if runner.calls != 0 {
 		t.Fatal("rejected execution invoked the installer")
+	}
+}
+
+func TestQuarantinedAndBlockedSkillsAreNeverPlanned(t *testing.T) {
+	s, _, runner := localPlan(t)
+	c := domain.Catalog{
+		Skills:      map[string]domain.Skill{},
+		Quarantined: map[string]domain.Skill{"gone": {ID: "gone", Quarantine: &domain.Quarantine{Reason: "repo_gone"}}},
+		Blocked:     map[string]string{"dependent": "Requires quarantined skill gone"},
+	}
+	for id, want := range map[string]string{"gone": "skill is quarantined: repo_gone", "dependent": "skill is unavailable"} {
+		_, err := s.Plan(context.Background(), c, catalog.Recommendations{}, Options{IDs: []string{id}})
+		var policy PolicyError
+		if !errors.As(err, &policy) || !strings.Contains(policy.Reason, want) {
+			t.Fatalf("%s: err = %v, want policy error containing %q", id, err, want)
+		}
+	}
+	if runner.calls != 0 {
+		t.Fatal("planning invoked the installer")
 	}
 }

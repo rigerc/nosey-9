@@ -15,7 +15,7 @@ import (
 
 // Load merges enabled sources while retaining field provenance and invalidation.
 func (s Service) Load(ctx context.Context, resolved settings.Resolved, refresh bool) (domain.Catalog, error) {
-	c := domain.Catalog{Raw: map[string]map[string]json.RawMessage{}, History: map[string]map[string][]string{}, Sources: map[string]domain.RegistrySource{}, ProjectSources: resolved.WorkspaceIDs, Technologies: map[string]domain.Technology{}, Skills: map[string]domain.Skill{}, Mappings: map[string]domain.Mapping{}, Repositories: map[string]domain.Repository{}, Scores: map[string]domain.RepositoryScore{}, Provenance: map[string]map[string]string{}, Roots: map[string]string{}, Revisions: map[string]*string{}, InvalidTechnologies: map[string]string{}, Diagnostics: append([]domain.Diagnostic{}, resolved.Diagnostics...)}
+	c := domain.Catalog{Raw: map[string]map[string]json.RawMessage{}, History: map[string]map[string][]string{}, Sources: map[string]domain.RegistrySource{}, ProjectSources: resolved.WorkspaceIDs, Technologies: map[string]domain.Technology{}, Skills: map[string]domain.Skill{}, Quarantined: map[string]domain.Skill{}, Blocked: map[string]string{}, Mappings: map[string]domain.Mapping{}, Repositories: map[string]domain.Repository{}, Scores: map[string]domain.RepositoryScore{}, Provenance: map[string]map[string]string{}, Roots: map[string]string{}, Revisions: map[string]*string{}, InvalidTechnologies: map[string]string{}, Diagnostics: append([]domain.Diagnostic{}, resolved.Diagnostics...)}
 	refs := slices.Clone(resolved.Settings.Registries)
 	slices.SortStableFunc(refs, func(a, b domain.RegistryRef) int {
 		if a.Priority != b.Priority {
@@ -91,7 +91,7 @@ func (s Service) Load(ctx context.Context, resolved settings.Resolved, refresh b
 					_ = json.Unmarshal(entity["repositoryId"], &repo)
 					_ = json.Unmarshal(entity["score"], &score)
 					_ = json.Unmarshal(entity["disabled"], &disabled)
-					if repo != "" && score != nil && !disabled {
+					if repo != "" && score != nil && !disabled && len(entity["quarantine"]) == 0 {
 						sums[repo] += *score
 						counts[repo]++
 					}
@@ -165,7 +165,11 @@ func (s Service) Load(ctx context.Context, resolved settings.Resolved, refresh b
 					for i := range skill.Tags {
 						skill.Tags[i] = storage.Safe(skill.Tags[i])
 					}
-					c.Skills[id] = skill
+					if skill.Quarantine != nil {
+						c.Quarantined[id] = skill
+					} else {
+						c.Skills[id] = skill
+					}
 				}
 			case "mappings":
 				var mapping domain.Mapping
@@ -209,17 +213,20 @@ func (s Service) Load(ctx context.Context, resolved settings.Resolved, refresh b
 		}
 	}
 	semanticSkills(&c)
+	if len(c.Quarantined) > 0 {
+		c.Diagnostics = append(c.Diagnostics, domain.Diagnostic{Code: "I_SKILLS_QUARANTINED", Severity: "info", Message: fmt.Sprintf("%d skills are quarantined because their upstream is gone", len(c.Quarantined))})
+	}
 	for id, m := range c.Mappings {
 		valid := true
 		if _, ok := c.Technologies[m.TechnologyID]; !ok {
 			valid = false
 		}
 		for _, r := range m.Recommendations {
-			if _, ok := c.Skills[r.SkillID]; !ok {
+			if !knownSkill(&c, r.SkillID) {
 				valid = false
 			}
 			for _, required := range append(slices.Clone(r.Requires), r.ConflictsWith...) {
-				if _, ok := c.Skills[required]; !ok || required == r.SkillID {
+				if !knownSkill(&c, required) || required == r.SkillID {
 					valid = false
 				}
 			}
@@ -260,4 +267,18 @@ func (s Service) Load(ctx context.Context, resolved settings.Resolved, refresh b
 		}
 	}
 	return c, nil
+}
+
+// knownSkill reports whether id is declared, including skills that are
+// quarantined or unavailable because they require a quarantined skill. Mappings
+// stay valid when they reference such skills; the skills are simply not offered.
+func knownSkill(c *domain.Catalog, id string) bool {
+	if _, ok := c.Skills[id]; ok {
+		return true
+	}
+	if _, ok := c.Quarantined[id]; ok {
+		return true
+	}
+	_, ok := c.Blocked[id]
+	return ok
 }

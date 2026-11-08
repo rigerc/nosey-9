@@ -52,6 +52,9 @@ func (s Service) Plan(ctx context.Context, c domain.Catalog, recs catalog.Recomm
 		}
 		skill, ok := c.Skills[id]
 		if !ok {
+			if err := unavailableSkill(c, id); err != nil {
+				return err
+			}
 			return fmt.Errorf("unknown required skill %s", id)
 		}
 		visit[id] = 1
@@ -223,6 +226,22 @@ func (p Plan) CommandsReady() error {
 		if err != nil || hash != filepath.Base(path) {
 			return PolicyError{Reason: "local sources are not prepared; execute the reviewed plan through nosey before copying raw upstream commands"}
 		}
+	}
+	return nil
+}
+
+// unavailableSkill explains why a declared skill cannot be installed, or returns
+// nil when the catalog does not know it at all.
+func unavailableSkill(c domain.Catalog, id string) error {
+	if skill, ok := c.Quarantined[id]; ok {
+		reason := "upstream is gone"
+		if skill.Quarantine != nil {
+			reason = skill.Quarantine.Reason
+		}
+		return PolicyError{Reason: "skill is quarantined: " + reason + " (" + id + ")"}
+	}
+	if reason, ok := c.Blocked[id]; ok {
+		return PolicyError{Reason: "skill is unavailable: " + reason + " (" + id + ")"}
 	}
 	return nil
 }
