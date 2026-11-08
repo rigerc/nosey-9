@@ -352,3 +352,34 @@ func TestSortSelectAppliesValidChoicesAndEscapeCancels(t *testing.T) {
 		}
 	}
 }
+
+func TestStalePlanAndOperationResultsDoNotReplaceCurrentState(t *testing.T) {
+	m := productModel()
+	m.generation = 3
+	m.loading = true
+
+	updated, _ := m.Update(noseyPlan{generation: 2})
+	next, ok := updated.(noseyModel)
+	if !ok {
+		t.Fatal("unexpected model type")
+	}
+	if next.modal != "" || !next.loading {
+		t.Fatal("stale plan opened a review for superseded state")
+	}
+
+	m.modal = "plan"
+	updated, cmd := m.Update(noseyOperation{generation: 2, message: "done"})
+	next, ok = updated.(noseyModel)
+	if !ok {
+		t.Fatal("unexpected model type")
+	}
+	if cmd != nil || next.modal != "plan" || !next.loading || next.generation != 3 {
+		t.Fatal("stale operation disturbed the newer load or modal")
+	}
+
+	updated, _ = m.Update(noseyPlan{generation: 3})
+	next, ok = updated.(noseyModel)
+	if !ok || next.modal != "plan" || next.loading {
+		t.Fatal("current plan was ignored")
+	}
+}

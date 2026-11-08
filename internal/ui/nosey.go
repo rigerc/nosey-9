@@ -35,12 +35,14 @@ type noseyInventory struct {
 	generation int
 }
 type noseyPlan struct {
-	plan installation.Plan
-	err  error
+	plan       installation.Plan
+	err        error
+	generation int
 }
 type noseyOperation struct {
-	message string
-	err     error
+	message    string
+	err        error
+	generation int
 }
 type noseyRow struct{ kind, id, label string }
 type noseyForm struct {
@@ -298,6 +300,10 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 		}
 		return m, nil
 	case noseyPlan:
+		if value.generation != m.generation {
+			// A refresh or settings change superseded the state this plan was built from.
+			return m, nil
+		}
 		m.loading = false
 		m.err = value.err
 		if value.err == nil {
@@ -308,6 +314,14 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 		}
 		return m, nil
 	case noseyOperation:
+		if value.generation != m.generation {
+			// Report the outcome, but leave the newer load, modal and loading state alone.
+			m.err = value.err
+			if value.err == nil {
+				m.message = value.message
+			}
+			return m, nil
+		}
 		m.loading = false
 		m.err = value.err
 		m.message = ""
@@ -592,13 +606,14 @@ func (m noseyModel) updateModal(key tea.KeyPressMsg) (noseyModel, tea.Cmd) {
 				m.err = err
 				return m, nil
 			}
+			generation := m.generation
 			return m, func() tea.Msg {
 				lines := []string{}
 				for _, cmd := range m.plan.Commands {
 					lines = append(lines, installation.CommandText(cmd.Argv))
 				}
 				err := clipboard.WriteAll(strings.Join(lines, "\n"))
-				return noseyOperation{message: "Commands copied", err: err}
+				return noseyOperation{message: "Commands copied", err: err, generation: generation}
 			}
 		case "enter":
 			if m.action == "print" {
@@ -613,9 +628,10 @@ func (m noseyModel) updateModal(key tea.KeyPressMsg) (noseyModel, tea.Cmd) {
 				approval = *m.plan.Approval.Digest
 			}
 			m.loading = true
+			generation := m.generation
 			return m, func() tea.Msg {
 				err := m.session.Installer.Execute(m.ctx, m.plan, approval, true)
-				return noseyOperation{message: "Project installation verified", err: err}
+				return noseyOperation{message: "Project installation verified", err: err, generation: generation}
 			}
 		}
 		return m, nil
@@ -821,13 +837,14 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 		}
 		m.modal = ""
 		m.loading = true
+		generation := m.generation
 		return m, func() tea.Msg {
 			r, err := m.session.Registry.Init(m.ctx, m.session.Catalog, opts)
 			message := "Created registry " + r.Path
 			if err == nil && opts.GitHubRepo != "" {
 				message += " and published https://github.com/" + opts.GitHubRepo
 			}
-			return noseyOperation{message: message, err: err}
+			return noseyOperation{message: message, err: err, generation: generation}
 		}
 	}
 	return m, nil
