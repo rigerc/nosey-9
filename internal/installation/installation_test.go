@@ -233,9 +233,7 @@ func (r *sourceGitRunner) Run(_ context.Context, dir string, _ []string, _ strin
 		}
 	}
 	if slices.Contains(args, "checkout") {
-		if err := storage.Write(filepath.Join(dir, "SKILL.md"), []byte("---\nname: fixture\n---\n"+r.body)); err != nil {
-			return process.Output{}, err
-		}
+		return process.Output{}, fmt.Errorf("source must not be checked out")
 	}
 	if slices.Contains(args, "rev-parse") {
 		return process.Output{Stdout: []byte(r.revision)}, nil
@@ -263,11 +261,6 @@ func TestGitPlansBindImmutableRevisionsAndRejectUnavailableResolution(t *testing
 	}
 	if *first.Approval.Digest == *second.Approval.Digest || first.Approval.Sources[0].Hash == second.Approval.Sources[0].Hash {
 		t.Fatal("changed source retained approval")
-	}
-	firstRoot := filepath.Join(s.Store.Cache, "skill-sources", storage.Hash([]byte("owner/repo#main")), strings.Repeat("a", 40))
-	data, err := storage.Read(firstRoot, "SKILL.md", 1024)
-	if err != nil || !strings.Contains(string(data), "first") {
-		t.Fatal("later preview mutated reviewed snapshot", err)
 	}
 	runner.fail = true
 	if _, err = s.Plan(context.Background(), domain.Catalog{}, catalog.Recommendations{}, opts); err == nil {
