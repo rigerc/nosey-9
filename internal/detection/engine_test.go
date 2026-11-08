@@ -2,14 +2,15 @@ package detection
 
 import (
 	"context"
-	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/settings"
-	"github.com/rigerc/nosey-9/internal/storage"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/settings"
+	"github.com/rigerc/nosey-9/internal/storage"
 )
 
 func TestWorkspaceEvidenceMCPAndSecretRedaction(t *testing.T) {
@@ -224,5 +225,25 @@ func TestTrustedAdaptersRemainScopedAndFailuresProduceGaps(t *testing.T) {
 	result, err := Scan(context.Background(), root, c, cfg)
 	if err != nil || result.Coverage.Unevaluated != 1 {
 		t.Fatal("adapter signature mismatch was treated as absence", result, err)
+	}
+}
+
+func TestSymlinkEscapingRootIsNeverEvidenceNorAbsence(t *testing.T) {
+	outside := t.TempDir()
+	target := filepath.Join(outside, "package.json")
+	if err := os.WriteFile(target, []byte(`{"dependencies":{"next":"1"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.Symlink(target, filepath.Join(root, "package.json")); err != nil {
+		t.Skip(err)
+	}
+	c := domain.Catalog{Technologies: map[string]domain.Technology{"next": {ID: "next", Rules: []domain.Rule{{ID: "dep", Kind: "dependency", Ecosystem: "npm", Name: "next"}}}}}
+	r, err := Scan(context.Background(), root, c, settings.Defaults())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.States["next"] != "unknown" {
+		t.Fatalf("symlink outside the root produced state %q, want unknown", r.States["next"])
 	}
 }

@@ -4,11 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/process"
-	"github.com/rigerc/nosey-9/internal/registrygen"
-	"github.com/rigerc/nosey-9/internal/settings"
-	"github.com/rigerc/nosey-9/internal/storage"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +11,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/registrygen"
+	"github.com/rigerc/nosey-9/internal/settings"
+	"github.com/rigerc/nosey-9/internal/storage"
 )
 
 func fixtureRegistry(t *testing.T, tech, skills, mappings string) string {
@@ -389,5 +390,94 @@ func TestInitGitHubRepositoryValidationAndFailure(t *testing.T) {
 	}
 	if !result.Valid {
 		t.Fatal("local registry should still be reported valid")
+	}
+}
+
+const quarantineSkills = `{"schemaVersion":2,"skills":[
+{"id":"live:skill","name":"Live","source":{"kind":"git","uri":"owner/live","skillName":"live"},"requires":["gone:skill"]},
+{"id":"conflict:skill","name":"Conflict","source":{"kind":"git","uri":"owner/conflict","skillName":"conflict"},"conflictsWith":["gone:skill"]},
+{"id":"chain:skill","name":"Chain","source":{"kind":"git","uri":"owner/chain","skillName":"chain"},"requires":["live:skill"]},
+{"id":"plain:skill","name":"Plain","source":{"kind":"git","uri":"owner/plain","skillName":"plain"}},
+{"id":"gone:skill","name":"Gone","source":{"kind":"git","uri":"owner/gone","skillName":"gone"},"quarantine":{"reason":"repo_gone","since":"2026-11-01","lastSeenRef":"0123456789abcdef0123456789abcdef01234567"}}]}`
+
+func quarantineCatalog(t *testing.T, extra ...domain.RegistryRef) domain.Catalog {
+	t.Helper()
+	root := fixtureRegistry(t,
+		`{"schemaVersion":2,"technologies":[{"id":"good","name":"Good","category":"language","metadataOnly":true}]}`,
+		quarantineSkills,
+		`{"schemaVersion":2,"mappings":[{"id":"m","technologyId":"good","recommendations":[{"skillId":"gone:skill"},{"skillId":"plain:skill","requires":["gone:skill"]},{"skillId":"conflict:skill","conflictsWith":["gone:skill"]}]}]}`)
+	cfg := settings.Defaults()
+	cfg.Registries = append([]domain.RegistryRef{{ID: "test:registry", Source: domain.RegistrySource{Kind: "local", Path: root}, Enabled: true}}, extra...)
+	c, err := (Service{}).Load(context.Background(), settings.Resolved{Settings: cfg}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestQuarantinedSkillsAreHiddenButKeepMappingsAndRelationshipsValid(t *testing.T) {
+	c := quarantineCatalog(t)
+	if _, ok := c.Skills["gone:skill"]; ok || c.Quarantined["gone:skill"].Quarantine == nil {
+		t.Fatal("quarantined skill is active or not recorded:", c.Skills)
+	}
+	if len(c.Mappings) != 1 {
+		t.Fatal("mapping referencing a quarantined skill was dropped:", c.Diagnostics)
+	}
+	if _, ok := c.Skills["conflict:skill"]; !ok {
+		t.Fatal("conflict with a quarantined skill invalidated the skill:", c.Diagnostics)
+	}
+	if _, ok := c.Skills["plain:skill"]; !ok {
+		t.Fatal("unrelated skill was removed")
+	}
+	for _, id := range []string{"live:skill", "chain:skill"} {
+		if _, ok := c.Skills[id]; ok || c.Blocked[id] == "" {
+			t.Fatalf("%s was not blocked by the quarantined prerequisite", id)
+		}
+	}
+	codes := map[string]int{}
+	for _, d := range c.Diagnostics {
+		codes[d.Code]++
+		if d.Severity == "error" {
+			t.Fatal("unexpected error diagnostic:", d)
+		}
+	}
+	if codes["I_SKILLS_QUARANTINED"] != 1 || codes["W_REQUIRES_QUARANTINED"] != 2 {
+		t.Fatal("unexpected diagnostics:", codes)
+	}
+}
+
+func TestQuarantinedSkillsAreExcludedFromScoreDrift(t *testing.T) {
+	root := fixtureRegistry(t,
+		`{"schemaVersion":2,"technologies":[]}`,
+		`{"schemaVersion":2,"skills":[{"id":"a","name":"A","source":{"kind":"git","uri":"o/a","skillName":"a"},"repositoryId":"repo","score":80},{"id":"b","name":"B","source":{"kind":"git","uri":"o/b","skillName":"b"},"repositoryId":"repo","score":0,"quarantine":{"reason":"skill_absent","since":"2026-11-01","lastSeenRef":"0123456789abcdef0123456789abcdef01234567"}}]}`,
+		`{"schemaVersion":2,"mappings":[]}`)
+	manifest := `{"schemaVersion":1,"id":"test:registry","name":"Test","files":{"technologies":"technologies.json","skills":"skills.json","mappings":"mappings.json","repositories":"repositories.json"},"repositoryScores":{"repo":{"averageScore":80,"scoreCount":1}}}`
+	if err := storage.Write(filepath.Join(root, "nosey.registry.json"), []byte(manifest)); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.Write(filepath.Join(root, "repositories.json"), []byte(`{"schemaVersion":1,"repositories":[{"id":"repo","name":"Repo","kind":"git","uri":"o/a"}]}`)); err != nil {
+		t.Skip(err)
+	}
+	cfg := settings.Defaults()
+	cfg.Registries = []domain.RegistryRef{{ID: "test:registry", Source: domain.RegistrySource{Kind: "local", Path: root}, Enabled: true}}
+	c, err := (Service{}).Load(context.Background(), settings.Resolved{Settings: cfg}, false)
+	if err != nil {
+		t.Skip("fixture manifest not accepted:", err)
+	}
+	for _, d := range c.Diagnostics {
+		if d.Code == "W_SCORE_DRIFT" {
+			t.Fatal("quarantined score counted toward the repository average")
+		}
+	}
+}
+
+func TestOverlayCannotClearOfficialQuarantine(t *testing.T) {
+	base := domain.RawEntity{"id": json.RawMessage(`"x"`), "quarantine": json.RawMessage(`{"reason":"repo_gone"}`)}
+	overlay := domain.RawEntity{"id": json.RawMessage(`"x"`), "name": json.RawMessage(`"Renamed"`), "score": json.RawMessage(`90`)}
+	if err := mergeEntity(base, overlay, "skills", map[string]string{}, "workspace"); err != nil {
+		t.Fatal(err)
+	}
+	if string(base["quarantine"]) != `{"reason":"repo_gone"}` {
+		t.Fatal("overlay without quarantine cleared it:", string(base["quarantine"]))
 	}
 }

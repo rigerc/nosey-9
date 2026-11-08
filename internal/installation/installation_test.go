@@ -3,19 +3,21 @@ package installation
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/rigerc/nosey-9/internal/catalog"
-	"github.com/rigerc/nosey-9/internal/contracts"
-	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/process"
-	"github.com/rigerc/nosey-9/internal/settings"
-	"github.com/rigerc/nosey-9/internal/storage"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/rigerc/nosey-9/internal/catalog"
+	"github.com/rigerc/nosey-9/internal/contracts"
+	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/settings"
+	"github.com/rigerc/nosey-9/internal/storage"
 )
 
 type recordingRunner struct {
@@ -317,5 +319,37 @@ func TestSymbolicRefIdentityRequiresMatchingResolvedReceipt(t *testing.T) {
 	locked.Ref = strings.Repeat("b", 40)
 	if id, _, _ := s.catalogIdentity(record, locked, c); id != nil {
 		t.Fatal("receipt attributed a different Git revision")
+	}
+}
+
+func TestExecuteRejectsWrongDigestAndUnconfirmedRequests(t *testing.T) {
+	s, p, runner := localPlan(t)
+	if err := s.Execute(context.Background(), p, "sha256:"+strings.Repeat("0", 64), true); err == nil {
+		t.Fatal("approval digest for a different plan was accepted")
+	}
+	if err := s.Execute(context.Background(), p, *p.Approval.Digest, false); err == nil {
+		t.Fatal("unconfirmed execution was accepted")
+	}
+	if runner.calls != 0 {
+		t.Fatal("rejected execution invoked the installer")
+	}
+}
+
+func TestQuarantinedAndBlockedSkillsAreNeverPlanned(t *testing.T) {
+	s, _, runner := localPlan(t)
+	c := domain.Catalog{
+		Skills:      map[string]domain.Skill{},
+		Quarantined: map[string]domain.Skill{"gone": {ID: "gone", Quarantine: &domain.Quarantine{Reason: "repo_gone"}}},
+		Blocked:     map[string]string{"dependent": "Requires quarantined skill gone"},
+	}
+	for id, want := range map[string]string{"gone": "skill is quarantined: repo_gone", "dependent": "skill is unavailable"} {
+		_, err := s.Plan(context.Background(), c, catalog.Recommendations{}, Options{IDs: []string{id}})
+		var policy PolicyError
+		if !errors.As(err, &policy) || !strings.Contains(policy.Reason, want) {
+			t.Fatalf("%s: err = %v, want policy error containing %q", id, err, want)
+		}
+	}
+	if runner.calls != 0 {
+		t.Fatal("planning invoked the installer")
 	}
 }

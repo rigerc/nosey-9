@@ -338,3 +338,20 @@ func TestGeneratePreservesProjectedAssessments(t *testing.T) {
 		t.Fatal("check mutated skills.json")
 	}
 }
+
+func TestQuarantinedSkillRoundTripsWithoutReorderingFields(t *testing.T) {
+	skills := `{"schemaVersion":2,"skills":[{"id":"go:skill","name":"Go Skill","source":{"kind":"git","uri":"owner/repo","skillName":"go"},"quarantine":{"reason":"skill_absent","since":"2026-11-01","lastSeenRef":"0123456789abcdef0123456789abcdef01234567","lastChecked":"2026-11-08"}}]}`
+	root := fixture(t, simpleConfig(""), map[string]string{"technologies.json": goTech, "skills.json": skills, "mappings.json": goMappings})
+	if _, err := Run(root, Options{}); err != nil {
+		t.Fatal("generate rejected a quarantined skill:", err)
+	}
+	out := readFile(t, root, "skills.json")
+	for _, pair := range [][2]string{{`"source"`, `"quarantine"`}, {`"reason"`, `"since"`}, {`"since"`, `"lastSeenRef"`}, {`"lastSeenRef"`, `"lastChecked"`}} {
+		if bytes.Index(out, []byte(pair[0])) > bytes.Index(out, []byte(pair[1])) {
+			t.Fatalf("field order changed: %s after %s\n%s", pair[0], pair[1], out)
+		}
+	}
+	if _, err := Run(root, Options{Check: true}); err != nil {
+		t.Fatal("check failed after generation:", err)
+	}
+}

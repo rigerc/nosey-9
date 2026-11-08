@@ -1,13 +1,18 @@
 package registry
 
 import (
+	"slices"
+
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/storage"
-	"slices"
 )
 
 func semanticSkills(c *domain.Catalog) {
+	if c.Blocked == nil {
+		c.Blocked = map[string]string{}
+	}
 	invalid := map[string]string{}
+	blocked := map[string]string{}
 	for id, s := range c.Skills {
 		if s.RepositoryID != "" {
 			if _, ok := c.Repositories[s.RepositoryID]; !ok {
@@ -20,6 +25,10 @@ func semanticSkills(c *domain.Catalog) {
 			}
 		}
 		for _, required := range s.Requires {
+			if _, quarantined := c.Quarantined[required]; quarantined && required != id {
+				blocked[id] = "Requires quarantined skill " + required
+				continue
+			}
 			if _, ok := c.Skills[required]; !ok || required == id {
 				invalid[id] = "Unknown or self-linked requirement " + required
 			}
@@ -28,6 +37,9 @@ func semanticSkills(c *domain.Catalog) {
 			}
 		}
 		for _, other := range s.ConflictsWith {
+			if _, quarantined := c.Quarantined[other]; quarantined && other != id {
+				continue
+			}
 			target, ok := c.Skills[other]
 			if !ok || other == id || !slices.Contains(target.ConflictsWith, id) {
 				invalid[id] = "Unknown, self-linked or asymmetric conflict " + other
@@ -51,12 +63,24 @@ func semanticSkills(c *domain.Catalog) {
 					changed = true
 					break
 				}
+				if blocked[required] != "" && blocked[id] == "" {
+					blocked[id] = "Requires unavailable skill " + required
+					changed = true
+				}
 			}
 		}
 	}
 	for id, reason := range invalid {
 		delete(c.Skills, id)
 		c.Diagnostics = append(c.Diagnostics, domain.Diagnostic{Code: "E_SKILL_REFERENCE", Severity: "error", Message: reason, Subject: id})
+	}
+	for id, reason := range blocked {
+		if invalid[id] != "" {
+			continue
+		}
+		delete(c.Skills, id)
+		c.Blocked[id] = reason
+		c.Diagnostics = append(c.Diagnostics, domain.Diagnostic{Code: "W_REQUIRES_QUARANTINED", Severity: "warning", Message: reason, Subject: id})
 	}
 	for id := range c.Scores {
 		if _, ok := c.Repositories[id]; !ok {

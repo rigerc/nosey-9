@@ -1,22 +1,24 @@
 package installation
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
 	"github.com/rigerc/nosey-9/internal/contracts"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/storage"
 	"golang.org/x/text/collate"
 	"golang.org/x/text/language"
 	"gopkg.in/yaml.v3"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"slices"
-	"strings"
 )
 
 // lockEntry mirrors the project-scoped skills-lock.json entry (LocalSkillLockEntry in skills@1.7.6
@@ -298,6 +300,94 @@ func (s Service) diskInstalled(c domain.Catalog) map[string]bool {
 		if id, _, _ := s.catalogIdentity(record, entry, c); id != nil {
 			result[*id] = true
 		}
+	}
+	return result
+}
+
+type upstreamItem struct {
+	Name      string   `json:"name"`
+	Status    string   `json:"status"`
+	Path      string   `json:"path"`
+	Scope     string   `json:"scope"`
+	Agents    []string `json:"agents"`
+	Source    string   `json:"source"`
+	SourceURL *string  `json:"sourceUrl"`
+	Ref       *string  `json:"ref"`
+}
+
+func (s Service) read(ctx context.Context) ([]upstreamItem, error) {
+	out, err := s.run(ctx, s.Store.Workspace, s.env(), "npx", "--yes", "skills@"+Version, "list", "--json")
+	if err != nil {
+		return nil, err
+	}
+	var items []upstreamItem
+	err = json.Unmarshal(out.Stdout, &items)
+	return items, err
+}
+
+func agentEvidence(observed, wanted []string) bool {
+	for _, id := range wanted {
+		if !slices.Contains(observed, agents[id]) {
+			return false
+		}
+	}
+	return true
+}
+
+// InventoryItem is a conservative project-scoped inventory wire record.
+type InventoryItem struct {
+	SkillID       *string  `json:"skillId"`
+	Name          string   `json:"skillName"`
+	LogicalSource *string  `json:"logicalSource"`
+	Ref           *string  `json:"requestedRef"`
+	Agents        []string `json:"agents"`
+	Scope         string   `json:"scope"`
+	Status        string   `json:"status"`
+	Unmanaged     bool     `json:"unmanaged"`
+	Path          *string  `json:"path"`
+}
+
+// Inventory is the versioned installed-state envelope.
+type Inventory struct {
+	Version     int                 `json:"outputVersion"`
+	Diagnostics []domain.Diagnostic `json:"diagnostics"`
+	Workspace   string              `json:"workspace"`
+	Complete    bool                `json:"complete"`
+	Skills      []InventoryItem     `json:"skills"`
+}
+
+// Inventory is the versioned installed-state envelope.
+func (s Service) Inventory(ctx context.Context, c domain.Catalog) Inventory {
+	result := Inventory{Version: 1, Diagnostics: []domain.Diagnostic{}, Workspace: s.Store.Workspace, Skills: []InventoryItem{}}
+	items, err := s.read(ctx)
+	if err != nil {
+		result.Diagnostics = append(result.Diagnostics, domain.Diagnostic{Code: "W_INVENTORY_UNKNOWN", Severity: "warning", Message: "Pinned upstream project inventory unavailable"})
+		return result
+	}
+	locked, lockErr := s.readLock()
+	result.Complete = lockErr == nil || len(items) == 0
+	if lockErr != nil && len(items) > 0 {
+		result.Diagnostics = append(result.Diagnostics, domain.Diagnostic{Code: "W_INVENTORY_UNKNOWN", Severity: "warning", Message: "Project lock attribution unavailable: " + lockErr.Error() + "; fix or delete skills-lock.json"})
+	}
+	for _, item := range items {
+		if item.Scope != "project" {
+			continue
+		}
+		record := InventoryItem{Name: item.Name, Agents: []string{}, Scope: "project", Status: "unknown", Unmanaged: true, Path: &item.Path}
+		for id, name := range agents {
+			if slices.Contains(item.Agents, name) {
+				record.Agents = append(record.Agents, id)
+			}
+		}
+		slices.Sort(record.Agents)
+		if lockErr == nil {
+			record.SkillID, record.LogicalSource, record.Ref = s.catalogIdentity(item, locked.Skills[item.Name], c)
+			record.Unmanaged = record.SkillID == nil
+			if len(record.Agents) > 0 && s.verifiedRecord(item, locked) {
+				record.Status = "installed"
+			}
+		}
+		result.Skills = append(result.Skills, record)
 	}
 	return result
 }

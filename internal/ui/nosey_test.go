@@ -1,16 +1,17 @@
 package ui
 
 import (
-	tea "charm.land/bubbletea/v2"
 	"context"
 	"fmt"
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rigerc/nosey-9/internal/app"
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/installation"
-	"strings"
-	"testing"
 )
 
 func productModel() noseyModel {
@@ -350,5 +351,36 @@ func TestSortSelectAppliesValidChoicesAndEscapeCancels(t *testing.T) {
 				t.Fatal("select exposed invalid sort", err)
 			}
 		}
+	}
+}
+
+func TestStalePlanAndOperationResultsDoNotReplaceCurrentState(t *testing.T) {
+	m := productModel()
+	m.generation = 3
+	m.loading = true
+
+	updated, _ := m.Update(noseyPlan{generation: 2})
+	next, ok := updated.(noseyModel)
+	if !ok {
+		t.Fatal("unexpected model type")
+	}
+	if next.modal != "" || !next.loading {
+		t.Fatal("stale plan opened a review for superseded state")
+	}
+
+	m.modal = "plan"
+	updated, cmd := m.Update(noseyOperation{generation: 2, message: "done"})
+	next, ok = updated.(noseyModel)
+	if !ok {
+		t.Fatal("unexpected model type")
+	}
+	if cmd != nil || next.modal != "plan" || !next.loading || next.generation != 3 {
+		t.Fatal("stale operation disturbed the newer load or modal")
+	}
+
+	updated, _ = m.Update(noseyPlan{generation: 3})
+	next, ok = updated.(noseyModel)
+	if !ok || next.modal != "plan" || next.loading {
+		t.Fatal("current plan was ignored")
 	}
 }

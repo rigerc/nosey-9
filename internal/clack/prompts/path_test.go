@@ -95,10 +95,11 @@ func TestPathValueWithOptions(t *testing.T) {
 	p.PressKey(&core.Key{Name: core.TabKey})
 
 	title := symbols.State(core.ActiveState) + " " + message
-	value := symbols.Bar + " " + p.ValueWithCursor()
-	options := p.FormatLines([]string{strings.Join(p.HintOptions, " ")}, core.FormatLinesOptions{
-		Default: core.FormatLineOptions{Start: symbols.Bar},
-	})
+	// The initial value is the working directory, whose length depends on the checkout path, so wrap
+	// it with the same renderer instead of assuming it fits on one line.
+	lineOptions := core.FormatLinesOptions{Default: core.FormatLineOptions{Start: symbols.Bar}}
+	value := p.FormatLines([]string{p.ValueWithCursor()}, lineOptions)
+	options := p.FormatLines([]string{strings.Join(p.HintOptions, " ")}, lineOptions)
 	expected := strings.Join([]string{symbols.Bar, title, value, options, symbols.BarEnd}, "\r\n")
 	assert.Equal(t, core.ActiveState, p.State)
 	assert.Equal(t, expected, p.Frame)
