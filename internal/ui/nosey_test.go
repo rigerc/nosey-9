@@ -1,16 +1,17 @@
 package ui
 
 import (
-	tea "charm.land/bubbletea/v2"
 	"context"
 	"fmt"
+	"strings"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rigerc/nosey-9/internal/app"
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/installation"
-	"strings"
-	"testing"
 )
 
 func productModel() noseyModel {

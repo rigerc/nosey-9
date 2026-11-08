@@ -1,0 +1,398 @@
+package ui
+
+import (
+	"encoding/json"
+	"fmt"
+	"math"
+	"slices"
+	"strconv"
+	"strings"
+
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"github.com/atotto/clipboard"
+	"github.com/rigerc/nosey-9/internal/catalog"
+	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/installation"
+	"github.com/rigerc/nosey-9/internal/registry"
+)
+
+func (m *noseyModel) openForm(kind string, labels, values []string) {
+	m.modal = "form"
+	m.details = ""
+	m.form = noseyForm{kind: kind, labels: labels}
+	for i, value := range values {
+		input := textinput.New()
+		input.SetValue(value)
+		input.CharLimit = 512
+		input.Prompt = ""
+		input.SetWidth(60)
+		if i == 0 {
+			input.Focus()
+		}
+		m.form.inputs = append(m.form.inputs, input)
+	}
+	m.configureFormChoices()
+}
+func (m noseyModel) updateModal(key tea.KeyPressMsg) (noseyModel, tea.Cmd) {
+	if key.String() == "esc" {
+		m.modal = ""
+		m.err = nil
+		return m, nil
+	}
+	if m.modal == "sort" {
+		return m.updateSort(key)
+	}
+	if m.modal == "details" {
+		switch key.String() {
+		case "up", "k":
+			m.modalOffset = max(0, m.modalOffset-1)
+		case "down", "j":
+			m.modalOffset++
+		case "pgdown":
+			m.modalOffset += m.viewport.Height()
+		case "pgup":
+			m.modalOffset = max(0, m.modalOffset-m.viewport.Height())
+		}
+		return m, nil
+	}
+	if m.modal == "plan" {
+		switch key.String() {
+		case "a":
+			m.extraApproved = !m.extraApproved
+		case "c":
+			if err := m.plan.CommandsReady(); err != nil {
+				m.err = err
+				return m, nil
+			}
+			generation := m.generation
+			return m, func() tea.Msg {
+				lines := []string{}
+				for _, cmd := range m.plan.Commands {
+					lines = append(lines, installation.CommandText(cmd.Argv))
+				}
+				err := clipboard.WriteAll(strings.Join(lines, "\n"))
+				return noseyOperation{message: "Commands copied", err: err, generation: generation}
+			}
+		case "enter":
+			if m.action == "print" {
+				return m, nil
+			}
+			if m.plan.Approval.Required && !m.extraApproved {
+				m.err = fmt.Errorf("press a to explicitly approve the displayed source override before execution")
+				return m, nil
+			}
+			approval := ""
+			if m.plan.Approval.Digest != nil {
+				approval = *m.plan.Approval.Digest
+			}
+			m.loading = true
+			generation := m.generation
+			return m, func() tea.Msg {
+				err := m.session.Installer.Execute(m.ctx, m.plan, approval, true)
+				return noseyOperation{message: "Project installation verified", err: err, generation: generation}
+			}
+		}
+		return m, nil
+	}
+	switch key.String() {
+	case "tab", "shift+tab":
+		m.form.inputs[m.form.index].Blur()
+		delta := 1
+		if key.String() == "shift+tab" {
+			delta = len(m.form.inputs) - 1
+		}
+		m.form.index = (m.form.index + delta) % len(m.form.inputs)
+		m.form.inputs[m.form.index].Focus()
+		return m, textinput.Blink
+	case "enter", "ctrl+s":
+		return m.submitForm()
+	default:
+		if len(m.form.choices[m.form.index]) > 0 {
+			return m.updateChoiceField(key)
+		}
+		var cmd tea.Cmd
+		m.form.inputs[m.form.index], cmd = m.form.inputs[m.form.index].Update(key)
+		return m, cmd
+	}
+}
+func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
+	values := []string{}
+	for _, input := range m.form.inputs {
+		values = append(values, input.Value())
+	}
+	m.err = nil
+	switch m.form.kind {
+	case "trust":
+		if values[0] != m.session.Resolved.Fingerprint || values[0] == "" {
+			m.err = fmt.Errorf("fingerprint does not match")
+			return m, nil
+		}
+		if err := m.session.Store.Trust(values[0], false); err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.modal = ""
+		m.generation++
+		m.loading = true
+		return m, m.load()
+	case "registry":
+		refs, err := m.session.Store.UserRegistries()
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		index := slices.IndexFunc(refs, func(r domain.RegistryRef) bool { return r.ID == values[0] })
+		if index < 0 {
+			m.err = fmt.Errorf("only user-owned registry entries can be edited here")
+			return m, nil
+		}
+		if values[3] == "REMOVE" {
+			refs = slices.Delete(refs, index, index+1)
+		} else {
+			enabled, err := strconv.ParseBool(values[1])
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
+			priority, err := strconv.Atoi(values[2])
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
+			refs[index].Enabled = enabled
+			refs[index].Priority = priority
+			ttl, err := strconv.Atoi(values[6])
+			if err != nil {
+				m.err = err
+				return m, nil
+			}
+			refs[index].TTLHours = ttl
+			if refs[index].Source.Kind == "local" {
+				refs[index].Source.Path = values[4]
+			} else {
+				if err := registry.ValidateGit(values[4], values[5]); err != nil {
+					m.err = err
+					return m, nil
+				}
+				refs[index].Source.URI, refs[index].Source.Ref = values[4], values[5]
+			}
+		}
+		if err = m.session.Store.Registries(refs); err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.modal = ""
+		m.generation++
+		m.loading = true
+		return m, m.load()
+	case "filters":
+		f := m.filters[m.activeFilter()]
+		f.Query = values[0]
+		if m.tab == 0 && m.section == 1 {
+			f.RecommendationTechnologies = csv(values[1])
+		} else {
+			f.Technologies = csv(values[1])
+		}
+		f.Registries = csv(values[2])
+		f.Repositories = csv(values[3])
+		f.Statuses = csv(values[4])
+		f.Qualities = csv(values[5])
+		var err error
+		f.MinScore, err = parseNumber(values[6])
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		f.MinRepositoryAverage, err = parseNumber(values[7])
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		f.Priorities = csv(values[8])
+		f.ScoreState = values[9]
+		if !slices.Contains([]string{"any", "scored", "unscored"}, f.ScoreState) {
+			m.err = fmt.Errorf("score state must be any, scored or unscored")
+			return m, nil
+		}
+		if err := catalog.ValidateFilters(m.session.Catalog, f); err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.filters[m.activeFilter()] = f
+		m.modal = ""
+	case "setting":
+		key := m.form.labels[0]
+		data := []byte(values[0])
+		switch key {
+		case "installation.agents":
+			data, _ = json.Marshal(csv(values[0]))
+		case "installation.method", "installation.defaultMode", "installation.upstreamTelemetry", "ui.mode":
+			data, _ = json.Marshal(values[0])
+		case "detection.exclude":
+			data, _ = json.Marshal(csv(values[0]))
+		}
+		err := m.session.Store.Set(key, data, false)
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		if key == "ui.mode" {
+			m.session.Resolved.Settings.UI.Mode = values[0]
+			m.modal = ""
+			m.message = "Display mode saved; applies next launch."
+			return m, nil
+		}
+		m.modal = ""
+		m.generation++
+		m.loading = true
+		return m, m.load()
+	case "add":
+		path := values[1]
+		source := domain.RegistrySource{Kind: "git", URI: path}
+		if strings.HasPrefix(path, "/") {
+			source = domain.RegistrySource{Kind: "local", Path: path}
+		} else if err := registry.ValidateGit(path, ""); err != nil {
+			m.err = err
+			return m, nil
+		}
+		refs, err := m.session.Store.UserRegistries()
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		refs = append(refs, domain.RegistryRef{ID: values[0], Source: source, Enabled: true, Priority: 20})
+		if err = m.session.Store.Registries(refs); err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.modal = ""
+		m.generation++
+		m.loading = true
+		return m, m.load()
+	case "new":
+		opts := registry.InitOptions{Path: values[0], RegistryID: values[1], Version: "0.1.0"}
+		var err error
+		opts.CI, err = strconv.ParseBool(values[2])
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		opts.Git, err = strconv.ParseBool(values[3])
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		opts.Register, err = strconv.ParseBool(values[4])
+		if err != nil {
+			m.err = err
+			return m, nil
+		}
+		opts.GitHubRepo = strings.TrimSpace(values[5])
+		opts.Public = values[6] == "public"
+		if opts.GitHubRepo != "" && !registry.ValidGitHubRepo(opts.GitHubRepo) {
+			m.err = fmt.Errorf("GitHub repository must be OWNER/NAME")
+			return m, nil
+		}
+		m.modal = ""
+		m.loading = true
+		generation := m.generation
+		return m, func() tea.Msg {
+			r, err := m.session.Registry.Init(m.ctx, m.session.Catalog, opts)
+			message := "Created registry " + r.Path
+			if err == nil && opts.GitHubRepo != "" {
+				message += " and published https://github.com/" + opts.GitHubRepo
+			}
+			return noseyOperation{message: message, err: err, generation: generation}
+		}
+	}
+	return m, nil
+}
+
+// openNewRegistryForm opens the registry-creation form shared by the shortcut and the settings row.
+func (m *noseyModel) openNewRegistryForm() {
+	m.openForm("new", []string{"New absolute registry path", "Template registry ID", "GitHub CI: true or false", "Initialize Git: true or false", "Register for this user: true or false", "GitHub repository: OWNER/NAME or blank", "GitHub repository visibility"}, []string{"", "nosey:official", "false", "false", "false", "", "private"})
+	m.details = "Creates an empty registry. A GitHub repository needs git identity and an authenticated gh CLI."
+}
+func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
+	m.settingsAnchor = row.id
+	switch row.id {
+	case "display":
+		m.openDisplaySelect()
+	case "agents":
+		m.openForm("setting", []string{"installation.agents"}, []string{strings.Join(m.session.Resolved.Settings.Installation.Agents, ",")})
+	case "method":
+		m.openForm("setting", []string{"installation.method"}, []string{m.session.Resolved.Settings.Installation.Method})
+	case "ttl":
+		m.openForm("setting", []string{"updates.ttlHours"}, []string{strconv.Itoa(m.session.Resolved.Settings.Updates.TTL)})
+	case "mcp":
+		m.openForm("setting", []string{"detection.enableMcpPackage"}, []string{strconv.FormatBool(m.session.Resolved.Settings.Detection.MCP)})
+	case "mode":
+		m.openForm("setting", []string{"installation.defaultMode"}, []string{m.session.Resolved.Settings.Installation.Mode})
+	case "telemetry":
+		m.openForm("setting", []string{"installation.upstreamTelemetry"}, []string{m.session.Resolved.Settings.Installation.Telemetry})
+	case "verbose":
+		m.openForm("setting", []string{"installation.verbose"}, []string{strconv.FormatBool(m.session.Resolved.Settings.Installation.Verbose)})
+	case "bytes":
+		m.openForm("setting", []string{"detection.maxFileBytes"}, []string{strconv.FormatInt(m.session.Resolved.Settings.Detection.MaxBytes, 10)})
+	case "exclude":
+		m.openForm("setting", []string{"detection.exclude"}, []string{strings.Join(m.session.Resolved.Settings.Detection.Exclude, ",")})
+	case "trust":
+		m.openForm("trust", []string{"Type the full fingerprint to approve"}, []string{""})
+		m.details = m.session.Resolved.Fingerprint
+	case "revoke":
+		err := m.session.Store.Trust("", true)
+		m.err = err
+		if err == nil {
+			m.generation++
+			return m, m.load()
+		}
+	case "new":
+		m.openNewRegistryForm()
+	case "add":
+		m.openForm("add", []string{"Registry ID", "Absolute local path or Git URL"}, []string{"", ""})
+	default:
+		if row.kind == "pending" {
+			m.details = "Workspace: " + m.cwd + "\nFingerprint: " + m.session.Resolved.Fingerprint
+			m.modal = "details"
+		} else {
+			for _, ref := range m.session.Resolved.Settings.Registries {
+				if ref.ID != row.id {
+					continue
+				}
+				location := ref.Source.URI
+				if ref.Source.Kind == "local" {
+					location = ref.Source.Path
+				}
+				m.openForm("registry", []string{"ID", "Enabled: true or false", "Priority", "Remove: type REMOVE", "Source URL or absolute path", "Requested Git ref", "Refresh hours (0 inherits)"}, []string{ref.ID, strconv.FormatBool(ref.Enabled), strconv.Itoa(ref.Priority), "", location, ref.Source.Ref, strconv.Itoa(ref.TTLHours)})
+			}
+		}
+	}
+	return m, nil
+}
+func csv(value string) []string {
+	result := []string{}
+	for _, v := range strings.Split(value, ",") {
+		if v = strings.TrimSpace(v); v != "" {
+			result = append(result, v)
+		}
+	}
+	slices.Sort(result)
+	return slices.Compact(result)
+}
+func number(value *float64) string {
+	if value == nil {
+		return ""
+	}
+	return strconv.FormatFloat(*value, 'f', -1, 64)
+}
+func parseNumber(value string) (*float64, error) {
+	if value == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseFloat(value, 64)
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 100 {
+		return nil, fmt.Errorf("threshold must be 0..100")
+	}
+	return &v, nil
+}
