@@ -305,3 +305,36 @@ func TestCanonicalizePreservesUnknownFields(t *testing.T) {
 		t.Fatal("unknown field was dropped:", string(doc.canonical))
 	}
 }
+
+// The official registry's assessment tooling projects quality, score and
+// assessment onto each skill and repositoryScores onto the config. Generation
+// must keep them byte-stable and carry the repository averages into the manifest.
+func TestGeneratePreservesProjectedAssessments(t *testing.T) {
+	skills := `{"schemaVersion":2,"skills":[{"id":"go:skill","name":"Go Skill","source":{"kind":"git","uri":"owner/repo","skillName":"go"},"repositoryId":"owner:repo","quality":"good","score":88,"assessment":{"method":"automated","assessedAt":"2026-11-03","assessor":"skill-validator v1.8.0 + Open JEV model-v1"}}]}`
+	repositories := `{"schemaVersion":1,"repositories":[{"id":"owner:repo","name":"owner/repo","kind":"git","uri":"https://github.com/owner/repo"}]}`
+	config := strings.Replace(simpleConfig(""), `"manifest"`, `"repositoryScores":{"owner:repo":{"averageScore":88,"scoreCount":1}},"manifest"`, 1)
+	config = strings.Replace(config, `"mappings":"mappings.json"`, `"mappings":"mappings.json","repositories":"repositories.json"`, 1)
+	root := fixture(t, config, map[string]string{"technologies.json": goTech, "skills.json": skills, "mappings.json": goMappings, "repositories.json": repositories})
+	if _, err := Run(root, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	generated := readFile(t, root, "skills.json")
+	for _, want := range []string{`"quality": "good"`, `"score": 88`, `"method": "automated"`, `"assessedAt": "2026-11-03"`} {
+		if !bytes.Contains(generated, []byte(want)) {
+			t.Fatalf("skills.json lost %s:\n%s", want, generated)
+		}
+	}
+	if bytes.Index(generated, []byte(`"quality"`)) > bytes.Index(generated, []byte(`"assessment"`)) {
+		t.Fatal("projected field order was rewritten:", string(generated))
+	}
+	manifest := readFile(t, root, "nosey.registry.json")
+	if !bytes.Contains(manifest, []byte(`"owner:repo"`)) || !bytes.Contains(manifest, []byte(`"averageScore": 88`)) {
+		t.Fatal("repository scores did not reach the manifest:", string(manifest))
+	}
+	if _, err := Run(root, Options{Check: true}); err != nil {
+		t.Fatalf("generated output is not stable: %v", err)
+	}
+	if !bytes.Equal(generated, readFile(t, root, "skills.json")) {
+		t.Fatal("check mutated skills.json")
+	}
+}

@@ -14,12 +14,19 @@ space := $(empty) $(empty)
 CORE_COVERPKG = $(subst $(space),$(comma),$(strip $(CORE_PACKAGES)))
 comma := ,
 
-.PHONY: registry-check check fix format format-check lint test test-coverage build run skills audit hooks-install clean
+.PHONY: registry-check check fix format format-check tidy-check lint test test-coverage build smoke repro-check cross-build run skills audit hooks-install clean
 
-check: format-check lint registry-check test-coverage build
+# Release platforms; keep in sync with the release.yml matrix.
+CROSS_TARGETS := linux/amd64 linux/arm64
+
+check: format-check tidy-check lint registry-check test-coverage build smoke
 
 registry-check:
 	$(GO) run ./cmd/nosey registry generate registries/default --check
+	$(GO) run ./cmd/nosey registry validate registries/default --standalone
+
+tidy-check:
+	$(GO) mod tidy -diff
 
 fix: format
 
@@ -60,6 +67,29 @@ test-coverage:
 build:
 	@mkdir -p dist
 	$(GO) build -trimpath -o $(BIN) ./cmd/nosey
+
+# The built binary must start and report the version declared in package.toml.
+smoke: build
+	@want="$$(sed -n 's/^version *= *"\(.*\)"/\1/p' internal/package/package.toml)"; \
+	got="$$($(BIN) --version 2>&1)"; \
+	if [ "$$got" != "$$want" ]; then echo "version mismatch: binary $$got, package.toml $$want" >&2; exit 1; fi; \
+	$(BIN) --help > /dev/null
+
+# Two clean builds of the same sources must be byte-identical.
+repro-check:
+	@mkdir -p dist
+	CGO_ENABLED=0 $(GO) build -trimpath -o dist/repro-a ./cmd/nosey
+	CGO_ENABLED=0 $(GO) build -trimpath -o dist/repro-b ./cmd/nosey
+	cmp dist/repro-a dist/repro-b
+	@echo 'Reproducible build: OK'
+
+# Every release platform (Linux only) must at least compile before a tag is pushed.
+cross-build:
+	@set -e; for target in $(CROSS_TARGETS); do \
+	  os="$${target%/*}"; arch="$${target#*/}"; \
+	  echo "building $$os/$$arch"; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch $(GO) build -trimpath -o /dev/null ./cmd/nosey; \
+	done
 
 run:
 	$(GO) run ./cmd/nosey

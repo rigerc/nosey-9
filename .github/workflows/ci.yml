@@ -7,20 +7,95 @@ on:
     branches: [main]
   schedule:
     - cron: '17 7 * * 1'
+  workflow_dispatch:
+  # release.yml runs the same checks before it builds anything.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  quality:
-    name: Go quality, coverage and build
+  lint:
+    name: Format, tidy and lint
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Install golangci-lint builder for anti-slop-go
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.15.0
+          install-only: true
+      # `golangci-lint custom` compiles the plugin linter on every run; reuse it
+      # until .custom-gcl.yml (which pins both versions) changes.
+      - name: Restore the custom linter
+        id: custom-gcl
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: custom-gcl
+          key: custom-gcl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.custom-gcl.yml') }}
+      - name: Mark the cached linter as up to date for make
+        if: steps.custom-gcl.outputs.cache-hit == 'true'
+        run: touch custom-gcl
+      - name: Check formatting, go.mod/go.sum tidiness and lint
+        run: make format-check tidy-check lint
+
+  test:
+    name: Tests and coverage
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Run race tests and coverage gates
+        run: make test-coverage
+      - name: Summarize coverage
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo '### Coverage'
+            for profile in coverage.out core-coverage.out; do
+              if [ -f "$profile" ]; then
+                echo "- \`$profile\`: $(go tool cover -func="$profile" | tail -n 1 | awk '{print $NF}')"
+              fi
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage profiles
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage
+          path: |
+            coverage.out
+            core-coverage.out
+          retention-days: 7
+          if-no-files-found: ignore
+
+  registry:
+    name: Official registry
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -31,13 +106,29 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-      - name: Install golangci-lint builder for anti-slop-go
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+      - name: Check generated output and validate the registry
+        run: make registry-check
+
+  build:
+    name: Build, smoke test and reproducibility
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          version: v2.15.0
-          install-only: true
-      - name: Verify all application checks
-        run: make check
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Build and smoke-test the binary
+        run: make smoke
+      - name: Verify the build is reproducible
+        run: make repro-check
+      - name: Compile every release platform
+        run: make cross-build
 
   dependency_review:
     name: New dependency vulnerability review
@@ -51,15 +142,16 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          submodules: true
       - name: Reject new high-severity advisories
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
           fail-on-severity: high
 
-  vulnerability_report:
-    name: Weekly Go vulnerability report
-    if: github.event_name == 'schedule'
+  vulnerability:
+    name: Go vulnerability scan
+    # Weekly, and on pull requests that change the dependency set. A failing
+    # scheduled run notifies maintainers, unlike a log warning.
+    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -67,16 +159,24 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          submodules: true
+          fetch-depth: 0
+      - name: Detect dependency changes
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = schedule ] || ! git diff --quiet "origin/$BASE_REF...HEAD" -- go.mod go.sum; then
+            echo 'scan=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'scan=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Scan reachable vulnerabilities
-        id: govulncheck
-        continue-on-error: true
+        if: steps.scope.outputs.scan == 'true'
         uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1
         with:
           go-version-file: go.mod
-      - name: Report existing advisories
-        if: steps.govulncheck.outcome == 'failure'
-        run: echo '::warning::govulncheck found advisories or could not complete. Review its output.'
 
   workflow_security:
     name: GitHub Actions security
@@ -88,7 +188,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          submodules: true
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
@@ -106,19 +205,17 @@ jobs:
   ci_result:
     name: CI result
     if: always()
-    needs: [quality, dependency_review, vulnerability_report, workflow_security]
+    needs: [lint, test, registry, build, dependency_review, vulnerability, workflow_security]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Require successful applicable checks
         env:
-          QUALITY: ${{ needs.quality.result }}
-          DEPENDENCY: ${{ needs.dependency_review.result }}
-          VULNERABILITY: ${{ needs.vulnerability_report.result }}
-          WORKFLOWS: ${{ needs.workflow_security.result }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
         shell: bash
         run: |
           set -euo pipefail
-          for result in "$QUALITY" "$DEPENDENCY" "$VULNERABILITY" "$WORKFLOWS"; do
+          for result in $RESULTS; do
             case "$result" in
               success|skipped) ;;
               *) echo "::error::Applicable CI job finished with $result"; exit 1 ;;
