@@ -288,16 +288,13 @@ func (s Service) Plan(ctx context.Context, c domain.Catalog, recs catalog.Recomm
 			if err := registry.ValidateGit(logical, skill.Source.Ref); err != nil {
 				return p, err
 			}
-			root, sha, err := s.gitSource(ctx, logical, skill.Source.Ref)
+			sha, err := s.gitSource(ctx, logical, skill.Source.Ref)
 			if err != nil {
 				return p, err
 			}
-			tree = root
 			revision = &sha
-			hash, err = treeHash(root)
-			if err != nil {
-				return p, err
-			}
+			// The resolved commit SHA is the content identity; the upstream skills CLI fetches that exact revision.
+			hash = sha
 			actual = logical + "#" + sha
 		}
 		item := Item{sid, skill.Source.SkillName, actual, logical, rid, ref, revision, repositoryID, provenance, chosen, method, "planned"}
@@ -401,17 +398,19 @@ func Digest(p Plan) (string, error) {
 
 // mustJSON handles only an already decoded JSON object; Marshal cannot fail for RawMessage values validated above.
 func mustJSON(value map[string]json.RawMessage) []byte { data, _ := json.Marshal(value); return data }
-func (s Service) gitSource(ctx context.Context, uri, ref string) (string, string, error) {
+
+// gitSource resolves ref to a commit SHA without checking out or hashing the repository contents.
+func (s Service) gitSource(ctx context.Context, uri, ref string) (string, error) {
 	key := storage.Hash([]byte(uri + "#" + ref))
 	dir := filepath.Join(s.Store.Cache, "skill-sources", key)
 	lock, err := storage.Acquire(ctx, dir+".lock")
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	defer lock.Close()
 	root := filepath.Join(dir, "checkout")
 	if err := os.MkdirAll(filepath.Dir(root), 0o700); err != nil {
-		return "", "", err
+		return "", err
 	}
 	env := []string{"GIT_TERMINAL_PROMPT=0", "GIT_ALLOW_PROTOCOL=https:ssh", "GIT_CONFIG_GLOBAL=" + os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_LFS_SKIP_SMUDGE=1"}
 	remote := uri
@@ -421,7 +420,7 @@ func (s Service) gitSource(ctx context.Context, uri, ref string) (string, string
 	if _, err := os.Stat(filepath.Join(root, ".git")); errors.Is(err, os.ErrNotExist) {
 		_, err = s.run(ctx, "", env, "git", "-c", "core.hooksPath="+os.DevNull, "clone", "--no-checkout", "--depth=1", remote, root)
 		if err != nil {
-			return "", "", fmt.Errorf("skill source unavailable: %w", err)
+			return "", fmt.Errorf("skill source unavailable: %w", err)
 		}
 	}
 	if ref == "" {
@@ -429,37 +428,17 @@ func (s Service) gitSource(ctx context.Context, uri, ref string) (string, string
 	}
 	_, err = s.run(ctx, root, env, "git", "-c", "core.hooksPath="+os.DevNull, "fetch", "--depth=1", "origin", ref)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	_, err = s.run(ctx, root, env, "git", "-c", "core.hooksPath="+os.DevNull, "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false", "checkout", "--detach", "FETCH_HEAD")
+	out, err := s.run(ctx, root, env, "git", "rev-parse", "FETCH_HEAD^{commit}")
 	if err != nil {
-		return "", "", err
-	}
-	out, err := s.run(ctx, root, env, "git", "rev-parse", "HEAD")
-	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	sha := strings.TrimSpace(string(out.Stdout))
 	if !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(sha) {
-		return "", "", fmt.Errorf("invalid resolved Git revision")
+		return "", fmt.Errorf("invalid resolved Git revision")
 	}
-	snapshot := filepath.Join(dir, sha)
-	if _, err = os.Stat(snapshot); errors.Is(err, os.ErrNotExist) {
-		if err = copyTree(root, snapshot); err != nil {
-			return "", "", err
-		}
-	} else if err != nil {
-		return "", "", err
-	}
-	fresh, err := treeHash(root)
-	if err != nil {
-		return "", "", err
-	}
-	saved, err := treeHash(snapshot)
-	if err != nil || fresh != saved {
-		return "", "", fmt.Errorf("skill source snapshot integrity failure")
-	}
-	return snapshot, sha, nil
+	return sha, nil
 }
 func treeHash(root string) (string, error) {
 	var b strings.Builder
