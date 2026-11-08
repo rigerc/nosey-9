@@ -14,7 +14,7 @@ require (
 	github.com/charmbracelet/x/exp/teatest/v2 v2.0.0-20260901172002-a5dee49b2863
 	github.com/dlclark/regexp2 v1.11.5
 	github.com/fatih/structs v1.1.0
-	github.com/go-viper/mapstructure/v2 v2.4.0
+	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/hashicorp/hcl/v2 v2.24.0
 	github.com/knadh/koanf/parsers/toml/v2 v2.2.2
 	github.com/knadh/koanf/providers/confmap v1.0.1
