@@ -1,0 +1,57 @@
+name: Bump official registry
+
+# Keeps the registries/default submodule on the official registry's main branch.
+# The registry's own quality and score refreshes land there continuously, so
+# this opens (or updates) one review PR whenever main has moved.
+on:
+  schedule:
+    - cron: '43 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bump-registry
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    if: github.repository == 'rigerc/nosey-9'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: true
+      - name: Move the submodule to the registry's main
+        id: bump
+        run: |
+          set -euo pipefail
+          old="$(git rev-parse HEAD:registries/default)"
+          git submodule update --init --remote registries/default
+          new="$(git -C registries/default rev-parse HEAD)"
+          echo "old=$old" >> "$GITHUB_OUTPUT"
+          echo "new=$new" >> "$GITHUB_OUTPUT"
+          {
+            echo "Bumps \`registries/default\` from \`${old:0:7}\` to \`${new:0:7}\`."
+            echo
+            git -C registries/default log --no-merges --format='- %s (%h)' "$old..$new" | head -n 50
+          } > "$RUNNER_TEMP/bump-body.md"
+      - name: Open or update the bump PR
+        if: steps.bump.outputs.old != steps.bump.outputs.new
+        uses: peter-evans/create-pull-request@84ae59a2cdc2258d6fa0732dd66352dddae2a412 # v7.0.9
+        with:
+          token: ${{ github.token }}
+          branch: automation/bump-registry
+          base: main
+          delete-branch: true
+          add-paths: registries/default
+          commit-message: 'chore: bump official registry'
+          title: 'chore: bump official registry'
+          body-path: ${{ runner.temp }}/bump-body.md
