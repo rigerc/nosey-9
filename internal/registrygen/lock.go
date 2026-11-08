@@ -1,9 +1,7 @@
 package registrygen
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
 	"os"
 
 	"github.com/rigerc/nosey-9/internal/storage"
@@ -63,19 +61,6 @@ func readLock(root string) (Lock, bool, error) {
 	return lock, true, nil
 }
 
-// equal compares two locks by their canonical bytes.
-func (l Lock) equal(other Lock) (bool, error) {
-	a, err := l.encode()
-	if err != nil {
-		return false, err
-	}
-	b, err := other.encode()
-	if err != nil {
-		return false, err
-	}
-	return bytes.Equal(a, b), nil
-}
-
 // revisionFor carries a previously resolved revision forward for an upstream role.
 func revisionFor(old Lock, path string) string {
 	entry, ok := old.Files[path]
@@ -91,7 +76,7 @@ func fullRevision(value string) bool {
 		return false
 	}
 	for _, r := range value {
-		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
 			return false
 		}
 	}
@@ -100,6 +85,3 @@ func fullRevision(value string) bool {
 
 // hashBytes is package-local for readability in generation summaries.
 func hashBytes(data []byte) string { return storage.Hash(data) }
-
-// describeLock is used in diagnostics when the computed lock differs.
-func describeLock() string { return fmt.Sprintf("%s is stale", LockName) }

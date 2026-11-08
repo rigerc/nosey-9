@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -30,7 +31,7 @@ func writeFile(t *testing.T, root, name, data string) {
 
 func readFile(t *testing.T, root, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(root, name))
+	data, err := os.ReadFile(filepath.Join(root, name)) //nolint:gosec // test helper reads fixture files under t.TempDir
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +70,7 @@ func TestGenerateIsDeterministicAndCanonical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slicesEqual(first.ChangedFiles, []string{"mappings.json", "nosey.registry.json", "nosey.registry.lock.json", "skills.json", "technologies.json"}) {
+	if !slices.Equal(first.ChangedFiles, []string{"mappings.json", "nosey.registry.json", "nosey.registry.lock.json", "skills.json", "technologies.json"}) {
 		t.Fatalf("unexpected first write: %v", first.ChangedFiles)
 	}
 	techs := readFile(t, root, "technologies.json")
@@ -110,7 +111,7 @@ func TestCheckReportsDriftAndGenerateRepairsIt(t *testing.T) {
 	writeFile(t, root, "skills.json", string(original)+"\n\n")
 	_, err := Run(root, Options{Check: true})
 	var drift *DriftError
-	if !errors.As(err, &drift) || !slicesEqual(drift.Paths, []string{"skills.json"}) {
+	if !errors.As(err, &drift) || !slices.Equal(drift.Paths, []string{"skills.json"}) {
 		t.Fatalf("expected skills drift, got %v", err)
 	}
 	if !bytes.Equal(readFile(t, root, "skills.json"), append(original, '\n', '\n')) {
@@ -120,7 +121,7 @@ func TestCheckReportsDriftAndGenerateRepairsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slicesEqual(result.ChangedFiles, []string{"skills.json"}) {
+	if !slices.Equal(result.ChangedFiles, []string{"skills.json"}) {
 		t.Fatal("repair did not report the changed file:", result.ChangedFiles)
 	}
 	if _, err = Run(root, Options{Check: true}); err != nil {
@@ -136,7 +137,7 @@ func TestCheckReportsManifestAndLockDrift(t *testing.T) {
 	writeFile(t, root, "nosey.registry.json", "{\n  \"schemaVersion\": 1\n}\n")
 	_, err := Run(root, Options{Check: true})
 	var drift *DriftError
-	if !errors.As(err, &drift) || !slicesEqual(drift.Paths, []string{"nosey.registry.json"}) {
+	if !errors.As(err, &drift) || !slices.Equal(drift.Paths, []string{"nosey.registry.json"}) {
 		t.Fatalf("expected manifest drift, got %v", err)
 	}
 	if _, err = Run(root, Options{}); err != nil {
@@ -146,7 +147,7 @@ func TestCheckReportsManifestAndLockDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = Run(root, Options{Check: true})
-	if !errors.As(err, &drift) || !slicesEqual(drift.Paths, []string{LockName}) {
+	if !errors.As(err, &drift) || !slices.Equal(drift.Paths, []string{LockName}) {
 		t.Fatalf("expected lock drift, got %v", err)
 	}
 }
@@ -223,7 +224,7 @@ func TestRefreshReplacesUpstreamAndRelocks(t *testing.T) {
 	if fetcher.calls != 1 {
 		t.Fatal("upstream was not fetched once")
 	}
-	if !slicesEqual(result.ChangedFiles, []string{"mappings.json", "nosey.registry.lock.json"}) {
+	if !slices.Equal(result.ChangedFiles, []string{"mappings.json", "nosey.registry.lock.json"}) {
 		t.Fatal("unexpected refresh changes:", result.ChangedFiles)
 	}
 	lock, exists, err := readLock(root)
@@ -293,18 +294,6 @@ func TestManifestKeepsTopLevelOrder(t *testing.T) {
 		}
 		last = index
 	}
-}
-
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func TestCanonicalizePreservesUnknownFields(t *testing.T) {
