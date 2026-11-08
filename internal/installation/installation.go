@@ -35,7 +35,14 @@ type PrerequisiteError struct{ Reason string }
 
 func (e PrerequisiteError) Error() string { return e.Reason }
 
-var safeSkillName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+var (
+	safeSkillName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	fullSHARef    = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
+	resolvedSHA   = regexp.MustCompile(`^[a-f0-9]{40}$`)
+)
+
+// staleLockAge bounds how long a crashed run may block later project operations.
+const staleLockAge = time.Hour
 
 // Service coordinates source resolution, approval and project installation.
 type Service struct {
@@ -325,7 +332,7 @@ func (s Service) Plan(ctx context.Context, c domain.Catalog, recs catalog.Recomm
 				p.Overrides = append(p.Overrides, Override{sid, "source", nil, skill.RegistryID, "Custom registry installation source requires review"})
 			}
 		}
-		if skill.Source.Kind == "git" && (ref == nil || !regexp.MustCompile(`^[a-fA-F0-9]{40}$`).MatchString(*ref)) {
+		if skill.Source.Kind == "git" && (ref == nil || !fullSHARef.MatchString(*ref)) {
 			p.Approval.Required = true
 		}
 	}
@@ -418,7 +425,7 @@ func (s Service) gitSource(ctx context.Context, uri, ref string) (string, error)
 		remote = "https://github.com/" + remote
 	}
 	if _, err := os.Stat(filepath.Join(root, ".git")); errors.Is(err, os.ErrNotExist) {
-		_, err = s.run(ctx, "", env, "git", "-c", "core.hooksPath="+os.DevNull, "clone", "--no-checkout", "--depth=1", remote, root)
+		_, err = s.run(ctx, "", env, "git", "-c", "core.hooksPath="+os.DevNull, "clone", "--no-checkout", "--depth=1", "--filter=blob:none", remote, root)
 		if err != nil {
 			return "", fmt.Errorf("skill source unavailable: %w", err)
 		}
@@ -435,7 +442,7 @@ func (s Service) gitSource(ctx context.Context, uri, ref string) (string, error)
 		return "", err
 	}
 	sha := strings.TrimSpace(string(out.Stdout))
-	if !regexp.MustCompile(`^[a-f0-9]{40}$`).MatchString(sha) {
+	if !resolvedSHA.MatchString(sha) {
 		return "", fmt.Errorf("invalid resolved Git revision")
 	}
 	return sha, nil
@@ -506,16 +513,15 @@ func (s Service) Execute(ctx context.Context, p Plan, approval string, confirmed
 	if err = projectRoot.MkdirAll(".nosey", 0o700); err != nil {
 		return err
 	}
-	lock, err := projectRoot.OpenFile(".nosey/operation.lock", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	release, err := acquireProjectLock(projectRoot)
 	if err != nil {
-		return fmt.Errorf("another project operation is active or its lock path is unsafe: %w", err)
+		return err
 	}
-	_ = lock.Close()
-	defer func() { _ = projectRoot.Remove(".nosey/operation.lock") }()
+	defer release()
 	for _, f := range p.Approval.Registries {
 		root, ok := p.registryRoots[f.ID]
 		if !ok {
-			continue
+			return PolicyError{Reason: "registry " + f.ID + " cannot be re-verified; regenerate the plan"}
 		}
 		hash, err := treeHash(root)
 		if err != nil || hash != f.Hash {
@@ -560,53 +566,83 @@ func (s Service) Execute(ctx context.Context, p Plan, approval string, confirmed
 	if err = s.requirePrerequisites(ctx); err != nil {
 		return err
 	}
+	records, _ := s.read(ctx)
+	locked, _ := s.readLock()
+	done := []string{}
+	fail := func(err error) error {
+		if len(done) == 0 {
+			return err
+		}
+		return fmt.Errorf("%w (already installed and verified: %s)", err, strings.Join(done, ", "))
+	}
 	for i, cmd := range p.Commands {
-		if s.alreadyInstalled(ctx, p.Items[i]) {
-			if err = s.receipt(p.Items[i]); err != nil {
-				return err
+		item := p.Items[i]
+		if s.alreadyInstalled(item, records, locked) {
+			if err = s.receipt(item); err != nil {
+				return fail(err)
 			}
+			done = append(done, item.SkillName)
 			continue
 		}
 		out, runErr := s.run(ctx, p.Workspace, s.env(), cmd.Argv[0], cmd.Argv[1:]...)
 		if runErr != nil {
-			return fmt.Errorf("installation failed for %s: %w", p.Items[i].SkillName, runErr)
+			return fail(fmt.Errorf("installation failed for %s: %w", item.SkillName, runErr))
 		}
 		var installed []upstreamItem
 		if err = json.Unmarshal(out.Stdout, &installed); err != nil {
-			return fmt.Errorf("invalid upstream installation result: %w", err)
+			return fail(fmt.Errorf("invalid upstream installation result: %w", err))
 		}
-		item := p.Items[i]
 		matched := false
 		for _, record := range installed {
-			if record.Name == item.SkillName && record.Status == "installed" && record.Scope == "project" && agentEvidence(record.Agents, item.Agents) && normalizeSource(record.Source, p.Workspace) == normalizeSource(item.Source, p.Workspace) && (item.Revision == nil || record.Ref != nil && *record.Ref == *item.Revision || filepath.IsAbs(item.Source)) {
+			if record.Name == item.SkillName && record.Status == "installed" && record.Scope == "project" && agentEvidence(record.Agents, item.Agents) && s.sourceMatchesItem(record, item.Source) && (item.Revision == nil || record.Ref != nil && *record.Ref == *item.Revision || filepath.IsAbs(item.Source)) {
 				matched = true
 			}
 		}
 		if !matched {
-			return fmt.Errorf("per-skill installation success not established: %s", item.SkillName)
+			return fail(fmt.Errorf("per-skill installation success not established: %s", item.SkillName))
 		}
-		inventory, readErr := s.read(ctx)
-		if readErr != nil {
-			return readErr
+		// Re-read once per install: the reconciliation below and the next item's skip check share this snapshot.
+		if records, err = s.read(ctx); err != nil {
+			return fail(err)
+		}
+		if locked, err = s.readLock(); err != nil {
+			return fail(err)
 		}
 		verified := false
-		locked, lockErr := s.readLock()
-		if lockErr != nil {
-			return lockErr
-		}
-		for _, record := range inventory {
-			if record.Name == item.SkillName && record.Scope == "project" && agentEvidence(record.Agents, item.Agents) && s.verifiedRecord(record, locked) && normalizeSource(record.Source, p.Workspace) == normalizeSource(item.Source, p.Workspace) {
+		for _, record := range records {
+			if record.Name == item.SkillName && record.Scope == "project" && agentEvidence(record.Agents, item.Agents) && s.verifiedRecord(record, locked) && locked.Skills[record.Name].method() == item.Method && s.sourceMatchesItem(record, item.Source) {
 				verified = true
 			}
 		}
 		if !verified {
-			return fmt.Errorf("post-install verification unknown: %s", item.SkillName)
+			return fail(fmt.Errorf("post-install verification unknown: %s", item.SkillName))
 		}
 		if err = s.receipt(item); err != nil {
-			return err
+			return fail(err)
 		}
+		done = append(done, item.SkillName)
 	}
 	return nil
+}
+
+// acquireProjectLock takes the project operation lock, reclaiming one left behind by a crashed run.
+func acquireProjectLock(root *os.Root) (func(), error) {
+	const name = ".nosey/operation.lock"
+	for attempt := 0; ; attempt++ {
+		f, err := root.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, _ = fmt.Fprintf(f, "pid=%d\nstarted=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339))
+			_ = f.Close()
+			return func() { _ = root.Remove(name) }, nil
+		}
+		info, statErr := root.Lstat(name)
+		if attempt == 0 && errors.Is(err, os.ErrExist) && statErr == nil && info.Mode().IsRegular() && time.Since(info.ModTime()) > staleLockAge {
+			if rmErr := root.Remove(name); rmErr == nil || errors.Is(rmErr, os.ErrNotExist) {
+				continue
+			}
+		}
+		return nil, fmt.Errorf("another project operation is active or its lock path is unsafe (stale locks older than %s are reclaimed automatically; otherwise remove %s): %w", staleLockAge, name, err)
+	}
 }
 func copyTree(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
@@ -712,7 +748,7 @@ func (s Service) Inventory(ctx context.Context, c domain.Catalog) Inventory {
 	locked, lockErr := s.readLock()
 	result.Complete = lockErr == nil || len(items) == 0
 	if lockErr != nil && len(items) > 0 {
-		result.Diagnostics = append(result.Diagnostics, domain.Diagnostic{Code: "W_INVENTORY_UNKNOWN", Severity: "warning", Message: "Project lock attribution is unavailable or malformed"})
+		result.Diagnostics = append(result.Diagnostics, domain.Diagnostic{Code: "W_INVENTORY_UNKNOWN", Severity: "warning", Message: "Project lock attribution unavailable: " + lockErr.Error() + "; fix or delete skills-lock.json"})
 	}
 	for _, item := range items {
 		if item.Scope != "project" {

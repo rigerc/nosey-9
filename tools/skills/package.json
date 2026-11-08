@@ -1,0 +1,8 @@
+{
+  "name": "nosey-skills-pin",
+  "private": true,
+  "description": "Tracks the upstream skills CLI version Nosey pins. Never installed at runtime; Dependabot bumps it and the sync-skills-pin workflow updates the Go constants.",
+  "devDependencies": {
+    "skills": "1.7.6"
+  }
+}

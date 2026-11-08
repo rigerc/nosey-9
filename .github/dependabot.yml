@@ -14,3 +14,12 @@ updates:
     cooldown:
       default-days: 30
     open-pull-requests-limit: 5
+  # Tracks the upstream skills CLI that Nosey pins. The sync-skills-pin workflow
+  # copies an accepted bump into the Go constants on the Dependabot branch.
+  - package-ecosystem: npm
+    directory: /tools/skills
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 30
+    open-pull-requests-limit: 5
