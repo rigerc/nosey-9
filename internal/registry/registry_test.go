@@ -197,6 +197,56 @@ func TestInitCreatesEmptyRegistryAndOptionalCI(t *testing.T) {
 	}
 }
 
+func TestInitReportsOutdatedTemplateWithoutConfig(t *testing.T) {
+	src, err := filepath.Abs(filepath.Join("..", "..", "registries", "default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err = os.CopyFS(root, os.DirFS(src)); err != nil {
+		t.Fatal(err)
+	}
+	descriptor := filepath.Join(root, "templates", "registry", "empty", "nosey.template.json")
+	data, err := os.ReadFile(descriptor) //nolint:gosec // test fixture under t.TempDir
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err = json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var kept []any
+	files, ok := doc["files"].([]any)
+	if !ok {
+		t.Fatal("template descriptor has no files list")
+	}
+	for _, f := range files {
+		entry, ok := f.(map[string]any)
+		if ok && entry["destination"] != "nosey.registry.config.json" {
+			kept = append(kept, f)
+		}
+	}
+	doc["files"] = kept
+	if err = storage.JSON(descriptor, doc); err != nil {
+		t.Fatal(err)
+	}
+	cfg := settings.Defaults()
+	cfg.Registries = []domain.RegistryRef{{ID: "nosey:official", Source: domain.RegistrySource{Kind: "local", Path: root}, Enabled: true}}
+	service := Service{}
+	c, err := service.Load(context.Background(), settings.Resolved{Settings: cfg}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "out")
+	_, err = service.Init(context.Background(), c, InitOptions{Path: target, Version: "test"})
+	if err == nil || !strings.Contains(err.Error(), "registry update") {
+		t.Fatalf("expected actionable outdated-template error, got %v", err)
+	}
+	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
+		t.Fatal("failed init left a destination")
+	}
+}
+
 func TestReadOnlyCacheInspectionTracksFreshness(t *testing.T) {
 	source := fixtureRegistry(t, `{"schemaVersion":2,"technologies":[]}`, `{"schemaVersion":2,"skills":[]}`, `{"schemaVersion":2,"mappings":[]}`)
 	service := Service{Store: settings.Store{Cache: t.TempDir()}, Runner: &fakeGitRunner{source: source}}

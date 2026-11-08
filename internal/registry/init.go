@@ -141,6 +141,9 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 			ciProviders = append(ciProviders, ci.Provider)
 		}
 	}
+	if _, err = os.Stat(filepath.Join(stage, registrygen.ConfigName)); err != nil {
+		return result, fmt.Errorf("template registry %s provides an outdated %q template without %s; run `nosey registry update` to refresh it", result.SourceRegistryID, templateID, registrygen.ConfigName)
+	}
 	id := "local:" + regexp.MustCompile(`[^A-Za-z0-9._:-]+`).ReplaceAllString(filepath.Base(target), "-")
 	if err = rewriteConfig(stage, id, filepath.Base(target)); err != nil {
 		return result, err
