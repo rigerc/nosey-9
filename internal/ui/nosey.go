@@ -484,7 +484,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 		case "n":
 			if m.tab == 3 {
-				m.openForm("new", []string{"New absolute registry path", "Template registry ID", "GitHub CI: true or false", "Initialize Git: true or false", "Register for this user: true or false"}, []string{"", "nosey:official", "false", "false", "false"})
+				m.openNewRegistryForm()
 			}
 		case "?":
 			m.modal = "details"
@@ -794,7 +794,7 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 	case "new":
 		opts := registry.InitOptions{Path: values[0], RegistryID: values[1], Version: "0.1.0"}
 		var err error
-		opts.GitHub, err = strconv.ParseBool(values[2])
+		opts.CI, err = strconv.ParseBool(values[2])
 		if err != nil {
 			m.err = err
 			return m, nil
@@ -809,14 +809,30 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 			m.err = err
 			return m, nil
 		}
+		opts.GitHubRepo = strings.TrimSpace(values[5])
+		opts.Public = values[6] == "public"
+		if opts.GitHubRepo != "" && !registry.ValidGitHubRepo(opts.GitHubRepo) {
+			m.err = fmt.Errorf("GitHub repository must be OWNER/NAME")
+			return m, nil
+		}
 		m.modal = ""
 		m.loading = true
 		return m, func() tea.Msg {
 			r, err := m.session.Registry.Init(m.ctx, m.session.Catalog, opts)
-			return noseyOperation{message: "Created registry " + r.Path, err: err}
+			message := "Created registry " + r.Path
+			if err == nil && opts.GitHubRepo != "" {
+				message += " and published https://github.com/" + opts.GitHubRepo
+			}
+			return noseyOperation{message: message, err: err}
 		}
 	}
 	return m, nil
+}
+
+// openNewRegistryForm opens the registry-creation form shared by the shortcut and the settings row.
+func (m *noseyModel) openNewRegistryForm() {
+	m.openForm("new", []string{"New absolute registry path", "Template registry ID", "GitHub CI: true or false", "Initialize Git: true or false", "Register for this user: true or false", "GitHub repository: OWNER/NAME or blank", "GitHub repository visibility"}, []string{"", "nosey:official", "false", "false", "false", "", "private"})
+	m.details = "Creates an empty registry. A GitHub repository needs git identity and an authenticated gh CLI."
 }
 func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
 	m.settingsAnchor = row.id
@@ -852,7 +868,7 @@ func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
 			return m, m.load()
 		}
 	case "new":
-		m.openForm("new", []string{"New absolute registry path", "Template registry ID", "GitHub CI: true or false", "Initialize Git: true or false", "Register for this user: true or false"}, []string{"", "nosey:official", "false", "false", "false"})
+		m.openNewRegistryForm()
 	case "add":
 		m.openForm("add", []string{"Registry ID", "Absolute local path or Git URL"}, []string{"", ""})
 	default:

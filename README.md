@@ -53,7 +53,7 @@ nosey registry list --json
 nosey registry init /absolute/path/to/new-registry --ci github --yes
 ```
 
-`registry init` creates an empty, regenerable registry from the template provider's `empty` template; `--ci github` adds a validation/regeneration workflow. Run `nosey registry generate PATH` after editing its JSON files (`--check` verifies without writing; `nosey registry refresh PATH` updates files that declare an upstream).
+`registry init` creates an empty, regenerable registry from the template provider's `empty` template; `--ci github` adds a validation/regeneration workflow, and `--github OWNER/NAME [--public]` commits it and creates and pushes a GitHub repository with the `gh` CLI (private by default; needs a git identity and `gh auth login`). Run `nosey registry generate PATH` after editing its JSON files (`--check` verifies without writing; `nosey registry refresh PATH` updates files that declare an upstream).
 
 Project-proposed registries require user-owned trust approval. `nosey trust` displays the workspace, proposals and fingerprint for interactive review; `nosey trust --yes` explicitly approves the current proposals noninteractively. Use `nosey trust --revoke` to revoke approval. Changes revoke that approval. Registry trust and installation-plan approval are separate decisions. MCP inspection is opt-in; dotenv evidence includes key names only.
 

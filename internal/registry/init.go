@@ -21,9 +21,19 @@ import (
 // InitOptions selects the published empty template and explicit output actions.
 type InitOptions struct {
 	Path, RegistryID, Version string
-	GitHub                    bool
-	Register, Git             bool
+	// CI adds the template's GitHub Actions workflow.
+	CI bool
+	// GitHubRepo, as OWNER/NAME, creates and pushes a GitHub repository with gh.
+	GitHubRepo string
+	// Public makes the GitHub repository public; it is private otherwise.
+	Public        bool
+	Register, Git bool
 }
+
+var githubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$`)
+
+// ValidGitHubRepo reports whether repo is an OWNER/NAME GitHub repository slug.
+func ValidGitHubRepo(repo string) bool { return githubRepoPattern.MatchString(repo) }
 
 // InitResult is the versioned registry-generation envelope.
 type InitResult struct {
@@ -58,6 +68,12 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 	result := InitResult{Version: 2, Diagnostics: []domain.Diagnostic{}, Files: []string{}, TemplateID: templateID, SourceRegistryID: opts.RegistryID, CreatedBy: opts.Version}
 	if result.SourceRegistryID == "" {
 		result.SourceRegistryID = "nosey:official"
+	}
+	if opts.GitHubRepo != "" && !ValidGitHubRepo(opts.GitHubRepo) {
+		return result, fmt.Errorf("invalid GitHub repository %q (expected OWNER/NAME)", opts.GitHubRepo)
+	}
+	if opts.Public && opts.GitHubRepo == "" {
+		return result, fmt.Errorf("public visibility requires a GitHub repository")
 	}
 	root, ok := c.Roots[result.SourceRegistryID]
 	if !ok {
@@ -129,7 +145,7 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 		result.Files = append(result.Files, file.Destination)
 	}
 	ciProviders := []string{}
-	if opts.GitHub {
+	if opts.CI {
 		for _, ci := range template.CI {
 			if ci.Provider != "github" {
 				return result, fmt.Errorf("unsupported CI provider %s", ci.Provider)
@@ -188,11 +204,6 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 	result.Path = target
 	result.Valid = true
 	slices.Sort(result.Files)
-	if opts.Git {
-		if _, err = s.run(ctx, target, nil, "git", "init"); err != nil {
-			return result, fmt.Errorf("registry created; optional git init failed: %w", err)
-		}
-	}
 	if opts.Register {
 		refs, err := s.Store.UserRegistries()
 		if err != nil {
@@ -203,7 +214,38 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 			return result, fmt.Errorf("registry created; optional registration failed: %w", err)
 		}
 	}
+	switch {
+	case opts.GitHubRepo != "":
+		if err = s.publishGitHub(ctx, target, opts); err != nil {
+			return result, fmt.Errorf("registry created; GitHub repository creation failed: %w", err)
+		}
+	case opts.Git:
+		if _, err = s.run(ctx, target, nil, "git", "init"); err != nil {
+			return result, fmt.Errorf("registry created; optional git init failed: %w", err)
+		}
+	}
 	return result, nil
+}
+
+// publishGitHub commits the new registry and creates a GitHub repository from it.
+// It requires git with a configured identity and an authenticated gh CLI.
+func (s Service) publishGitHub(ctx context.Context, dir string, opts InitOptions) error {
+	visibility := "--private"
+	if opts.Public {
+		visibility = "--public"
+	}
+	steps := [][]string{
+		{"git", "init", "-b", "main"},
+		{"git", "add", "-A"},
+		{"git", "commit", "-m", "Initial registry"},
+		{"gh", "repo", "create", opts.GitHubRepo, visibility, "--source", ".", "--remote", "origin", "--push"},
+	}
+	for _, step := range steps {
+		if _, err := s.run(ctx, dir, nil, step[0], step[1:]...); err != nil {
+			return fmt.Errorf("%s: %w", strings.Join(step[:min(len(step), 2)], " "), err)
+		}
+	}
+	return nil
 }
 
 // rewriteConfig sets the staged registry identity and removes any seed source.

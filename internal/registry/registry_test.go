@@ -11,6 +11,7 @@ import (
 	"github.com/rigerc/nosey-9/internal/storage"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -175,7 +176,7 @@ func TestInitCreatesEmptyRegistryAndOptionalCI(t *testing.T) {
 		t.Fatal("generated registry drifted immediately:", err)
 	}
 	withCI := filepath.Join(t.TempDir(), "with-ci")
-	r, err = service.Init(context.Background(), c, InitOptions{Path: withCI, GitHub: true, Version: "test"})
+	r, err = service.Init(context.Background(), c, InitOptions{Path: withCI, CI: true, Version: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,5 +321,73 @@ func TestInitOptionalActionsRegisterOnlyGeneratedDirectory(t *testing.T) {
 	refs, err := store.UserRegistries()
 	if err != nil || len(refs) != 1 || refs[0].Source.Path != target {
 		t.Fatal("optional registration lost generated origin", refs, err)
+	}
+}
+
+type recordingRunner struct {
+	calls  [][]string
+	failOn string
+}
+
+func (r *recordingRunner) Run(_ context.Context, _ string, _ []string, name string, args ...string) (process.Output, error) {
+	r.calls = append(r.calls, append([]string{name}, args...))
+	if name == r.failOn {
+		return process.Output{}, fmt.Errorf("%s failed", name)
+	}
+	return process.Output{}, nil
+}
+
+func initWithRunner(t *testing.T, runner process.Executor, opts InitOptions) (InitResult, error) {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", "..", "registries", "default"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := settings.Defaults()
+	cfg.Registries = []domain.RegistryRef{{ID: "nosey:official", Source: domain.RegistrySource{Kind: "local", Path: root}, Enabled: true}}
+	service := Service{Runner: runner}
+	c, err := service.Load(context.Background(), settings.Resolved{Settings: cfg}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts.Path = filepath.Join(t.TempDir(), "reg")
+	opts.Version = "test"
+	return service.Init(context.Background(), c, opts)
+}
+
+func TestInitCreatesGitHubRepository(t *testing.T) {
+	for visibility, public := range map[string]bool{"--private": false, "--public": true} {
+		runner := &recordingRunner{}
+		if _, err := initWithRunner(t, runner, InitOptions{GitHubRepo: "owner/my-registry", Public: public, CI: true}); err != nil {
+			t.Fatal(err)
+		}
+		want := [][]string{
+			{"git", "init", "-b", "main"},
+			{"git", "add", "-A"},
+			{"git", "commit", "-m", "Initial registry"},
+			{"gh", "repo", "create", "owner/my-registry", visibility, "--source", ".", "--remote", "origin", "--push"},
+		}
+		if !reflect.DeepEqual(runner.calls, want) {
+			t.Fatalf("calls = %v, want %v", runner.calls, want)
+		}
+	}
+}
+
+func TestInitGitHubRepositoryValidationAndFailure(t *testing.T) {
+	for _, repo := range []string{"no-slash", "-bad/name", "owner/", "owner/na me", "a/b/c"} {
+		runner := &recordingRunner{}
+		if _, err := initWithRunner(t, runner, InitOptions{GitHubRepo: repo}); err == nil || len(runner.calls) != 0 {
+			t.Fatalf("repo %q accepted: %v %v", repo, err, runner.calls)
+		}
+	}
+	if _, err := initWithRunner(t, &recordingRunner{}, InitOptions{Public: true}); err == nil {
+		t.Fatal("public without repository accepted")
+	}
+	result, err := initWithRunner(t, &recordingRunner{failOn: "gh"}, InitOptions{GitHubRepo: "owner/repo"})
+	if err == nil || !strings.Contains(err.Error(), "registry created; GitHub repository creation failed: gh repo") {
+		t.Fatalf("unexpected error %v", err)
+	}
+	if !result.Valid {
+		t.Fatal("local registry should still be reported valid")
 	}
 }

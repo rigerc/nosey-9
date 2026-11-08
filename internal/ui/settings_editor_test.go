@@ -103,10 +103,17 @@ func TestSettingsRetainFreeformInputsAndTemplateChoices(t *testing.T) {
 		}
 	}
 	m, _ = m.setting(noseyRow{kind: "setting", id: "new"})
-	for _, field := range []int{2, 3, 4} {
+	for _, field := range []int{2, 3, 4, 6} {
 		if len(m.form.choices[field]) != 2 {
 			t.Fatal("template/boolean field remained freeform", field)
 		}
+	}
+	if len(m.form.inputs) != 7 || len(m.form.choices[5]) != 0 || m.form.inputs[6].Value() != "private" {
+		t.Fatal("new registry form lost GitHub repository fields", len(m.form.inputs))
+	}
+	lines, _ := m.settingsFormLines()
+	if rendered := ansi.Strip(strings.Join(lines, "\n")); !strings.Contains(rendered, "GitHub repository (blank for none)") || !strings.Contains(rendered, "Repository visibility") {
+		t.Fatal("GitHub fields are not labeled")
 	}
 	if m.settingsAnchor != "new" || !strings.Contains(ansi.Strip(m.View().Content), "New registry") {
 		t.Fatal("registry form lost its settings anchor")

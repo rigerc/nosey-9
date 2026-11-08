@@ -692,10 +692,19 @@ func registryCommand(o *cliOptions) *cobra.Command {
 	opts := registry.InitOptions{Version: resolvedVersion()}
 	yes, jsonInit := false, false
 	ci := ""
-	initCmd := &cobra.Command{Use: "init PATH", Short: "Create an empty registry from the published template", Args: cobra.ExactArgs(1)}
+	initCmd := &cobra.Command{
+		Use:   "init PATH",
+		Short: "Create an empty registry from the published template",
+		Example: `  nosey registry init ./my-registry --yes
+  nosey registry init ./my-registry --ci github --register --yes
+  nosey registry init ./my-registry --ci github --github owner/my-registry --yes`,
+		Args: cobra.ExactArgs(1),
+	}
 	initCmd.Flags().StringVar(&opts.RegistryID, "template-registry", "", "configured template provider ID (official by default)")
 	initCmd.Flags().StringVar(&ci, "ci", "", "include a CI workflow (github)")
 	initCmd.Flags().BoolVar(&opts.Git, "git", false, "initialize Git after successful creation")
+	initCmd.Flags().StringVar(&opts.GitHubRepo, "github", "", "create and push a GitHub repository OWNER/NAME with the gh CLI (private unless --public)")
+	initCmd.Flags().BoolVar(&opts.Public, "public", false, "make the --github repository public")
 	initCmd.Flags().BoolVar(&opts.Register, "register", false, "register the local result in user settings")
 	initCmd.Flags().BoolVar(&yes, "yes", false, "confirm registry file creation")
 	initCmd.Flags().BoolVar(&jsonInit, "json", false, "emit registry-init JSON v2")
@@ -715,7 +724,13 @@ func registryCommand(o *cliOptions) *cobra.Command {
 		if ci != "" && ci != "github" {
 			return fmt.Errorf("unsupported CI provider %q (supported: github)", ci)
 		}
-		opts.GitHub = ci == "github"
+		opts.CI = ci == "github"
+		if opts.GitHubRepo != "" && !registry.ValidGitHubRepo(opts.GitHubRepo) {
+			return fmt.Errorf("invalid --github value %q (expected OWNER/NAME)", opts.GitHubRepo)
+		}
+		if opts.Public && opts.GitHubRepo == "" {
+			return fmt.Errorf("--public requires --github")
+		}
 		s, err := o.session(cmd.Context(), false)
 		if err != nil {
 			return err
@@ -729,6 +744,9 @@ func registryCommand(o *cliOptions) *cobra.Command {
 			return emit(cmd, "registry-init-output.schema.json", result)
 		}
 		cmd.Printf("Created %s from %s\n", result.Path, result.SourceRegistryID)
+		if opts.GitHubRepo != "" {
+			cmd.Printf("Published https://github.com/%s\n", opts.GitHubRepo)
+		}
 		return nil
 	}
 	root.AddCommand(initCmd)

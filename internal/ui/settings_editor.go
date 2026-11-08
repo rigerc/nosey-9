@@ -51,6 +51,7 @@ func (m *noseyModel) configureFormChoices() {
 		}
 		slices.SortFunc(m.form.choices[1], func(a, b sortOption) int { return strings.Compare(a.id, b.id) })
 		m.form.choices[2], m.form.choices[3], m.form.choices[4] = boolean, boolean, boolean
+		m.form.choices[6] = []sortOption{{"private", "Private"}, {"public", "Public"}}
 	}
 	for field, options := range m.form.choices {
 		if m.form.multiple[field] {
@@ -117,7 +118,7 @@ func (m noseyModel) updateChoiceField(key tea.KeyPressMsg) (noseyModel, tea.Cmd)
 func settingFieldLabel(label string) string {
 	names := map[string]string{
 		"ui.mode": "Display mode (next launch)", "installation.agents": "Target agents", "installation.method": "Install method", "installation.defaultMode": "Default install action", "installation.upstreamTelemetry": "Upstream telemetry", "installation.verbose": "Verbose installation", "detection.enableMcpPackage": "MCP inspection", "updates.ttlHours": "Refresh interval (hours)", "detection.maxFileBytes": "Maximum inspected file (bytes)", "detection.exclude": "Excluded paths (comma separated)",
-		"Enabled: true or false": "Enabled", "Remove: type REMOVE": "Action", "Template registry ID": "Template registry", "GitHub CI: true or false": "GitHub CI", "Initialize Git: true or false": "Initialize Git", "Register for this user: true or false": "Register for this user",
+		"Enabled: true or false": "Enabled", "Remove: type REMOVE": "Action", "Template registry ID": "Template registry", "GitHub CI: true or false": "GitHub CI", "Initialize Git: true or false": "Initialize Git", "Register for this user: true or false": "Register for this user", "GitHub repository: OWNER/NAME or blank": "GitHub repository (blank for none)", "GitHub repository visibility": "Repository visibility",
 	}
 	if name, ok := names[label]; ok {
 		return name

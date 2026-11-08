@@ -95,7 +95,7 @@ func TestIncompleteStrictAndUsageErrors(t *testing.T) {
 	session, _ := fixtureSession(t)
 	session.Resolved.Settings.Detection.MaxBytes = 1
 	open := func(context.Context, string, string, bool) (app.Session, error) { return session, nil }
-	for _, args := range [][]string{{"install", "local:workspace-style", "--agent", "*", "--dry-run"}, {"install", "local:workspace-style", "--json"}, {"scan", "--quality", "invented", "--json"}, {"scan", "--sort-skills", "invented"}, {"registry", "init", filepath.Join(t.TempDir(), "new")}} {
+	for _, args := range [][]string{{"install", "local:workspace-style", "--agent", "*", "--dry-run"}, {"install", "local:workspace-style", "--json"}, {"scan", "--quality", "invented", "--json"}, {"scan", "--sort-skills", "invented"}, {"registry", "init", filepath.Join(t.TempDir(), "new")}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--public"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--github", "not-a-slug"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--ci", "gitlab"}} {
 		cmd := newCommandTree(open)
 		var out bytes.Buffer
 		cmd.SetOut(&out)
