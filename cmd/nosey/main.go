@@ -2,8 +2,9 @@
 package main
 
 import (
-	"github.com/rigerc/nosey-9/internal/storage"
 	"os"
+
+	"github.com/rigerc/nosey-9/internal/storage"
 )
 
 func main() {

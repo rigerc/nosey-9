@@ -4,6 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
 	"github.com/rigerc/nosey-9/internal/app"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/installation"
@@ -11,10 +16,6 @@ import (
 	"github.com/rigerc/nosey-9/internal/registry"
 	"github.com/rigerc/nosey-9/internal/settings"
 	"github.com/rigerc/nosey-9/internal/storage"
-	"os"
-	"path/filepath"
-	"strings"
-	"testing"
 )
 
 type emptyInventoryRunner struct{ calls int }
