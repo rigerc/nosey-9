@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: 22
       - name: Test the site generator
-        run: node --test site/test/
+        run: node --test site/test/*.test.mjs
       - name: Build site
         run: node site/build.mjs registries/default dist/site
       - name: Configure Pages
