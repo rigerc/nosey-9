@@ -320,3 +320,16 @@ func TestSymbolicRefIdentityRequiresMatchingResolvedReceipt(t *testing.T) {
 		t.Fatal("receipt attributed a different Git revision")
 	}
 }
+
+func TestExecuteRejectsWrongDigestAndUnconfirmedRequests(t *testing.T) {
+	s, p, runner := localPlan(t)
+	if err := s.Execute(context.Background(), p, "sha256:"+strings.Repeat("0", 64), true); err == nil {
+		t.Fatal("approval digest for a different plan was accepted")
+	}
+	if err := s.Execute(context.Background(), p, *p.Approval.Digest, false); err == nil {
+		t.Fatal("unconfirmed execution was accepted")
+	}
+	if runner.calls != 0 {
+		t.Fatal("rejected execution invoked the installer")
+	}
+}
