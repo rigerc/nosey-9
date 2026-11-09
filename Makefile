@@ -53,8 +53,7 @@ test:
 	$(GO) test -race ./...
 
 test-coverage:
-	$(GO) test -race ./...
-	$(GO) test -race -covermode=atomic -coverpkg=$(CORE_COVERPKG) -coverprofile=core-coverage.out ./cmd/nosey ./internal/ui $(CORE_PACKAGES)
+	$(GO) test -race -covermode=atomic -coverpkg=$(CORE_COVERPKG) -coverprofile=core-coverage.out ./...
 	@$(GO) tool cover -func=core-coverage.out | awk -v min=$(COVERAGE_MIN) \
 	  '/^total:/ { gsub(/%/, "", $$3); printf "Core coverage: %.1f%% (minimum: %s%%)\n", $$3, min; found=1; if ($$3 + 0 < min) exit 1 } END { if (!found) exit 1 }'
 

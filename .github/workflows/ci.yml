@@ -19,90 +19,131 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    name: Format, tidy and lint
-    if: github.event_name != 'schedule'
+  quality:
+    name: Quality and security
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-      - name: Install golangci-lint builder for anti-slop-go
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
-        with:
-          version: v2.15.0
-          install-only: true
-      # `golangci-lint custom` compiles the plugin linter on every run; reuse it
-      # until .custom-gcl.yml (which pins both versions) changes.
-      - name: Restore the custom linter
-        id: custom-gcl
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: custom-gcl
-          key: custom-gcl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.custom-gcl.yml') }}
-      - name: Mark the cached linter as up to date for make
-        if: steps.custom-gcl.outputs.cache-hit == 'true'
-        run: touch custom-gcl
-      - name: Check formatting, go.mod/go.sum tidiness and lint
-        run: make format-check tidy-check lint
-
-  changes:
-    name: Detect Go-relevant changes
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      go: ${{ steps.scope.outputs.go }}
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Check whether tests can be affected
+      - name: Select applicable checks
         id: scope
         env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          set -euo pipefail
-          # Code, dependencies, the registry the tests read, and the build/CI
-          # definitions that decide how tests run. Docs-only PRs skip the suite.
-          pattern='^(cmd|internal|tests|third_party|registries)/|^tools/skills/|^go\.(mod|sum)$|^Makefile$|^\.golangci\.yml$|^\.custom-gcl\.yml$|^\.github/workflows/ci\.yml$'
-          if git diff --name-only "origin/$BASE_REF...HEAD" | grep -Eq "$pattern"; then
-            echo 'go=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'go=false' >> "$GITHUB_OUTPUT"
-            echo 'No Go-relevant changes; skipping the test suite.' >> "$GITHUB_STEP_SUMMARY"
-          fi
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/ci-scope.sh
+      - name: Set up Go
+        if: steps.scope.outputs.go == 'true' || steps.scope.outputs.workflows == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      # Rebuild the custom linter when its config or Go dependencies change.
+      - name: Restore the custom linter
+        if: steps.scope.outputs.go == 'true'
+        id: custom-gcl
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: custom-gcl
+          key: custom-gcl-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.custom-gcl.yml', 'go.mod') }}
+      - name: Install golangci-lint builder for anti-slop-go
+        if: steps.scope.outputs.go == 'true' && steps.custom-gcl.outputs.cache-hit != 'true'
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.15.0
+          install-only: true
+      - name: Mark the cached linter as up to date for make
+        if: steps.scope.outputs.go == 'true' && steps.custom-gcl.outputs.cache-hit == 'true'
+        run: touch custom-gcl
+      - name: Check formatting, go.mod/go.sum tidiness and lint
+        if: steps.scope.outputs.go == 'true'
+        run: make format-check tidy-check lint
+      - name: Reject new high-severity advisories
+        if: steps.scope.outputs.dependencies == 'true'
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+      - name: Scan reachable vulnerabilities
+        if: steps.scope.outputs.go_dependencies == 'true'
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1
+        with:
+          go-version-file: go.mod
+      - name: Test CI check selection
+        if: steps.scope.outputs.workflows == 'true'
+        run: bash .github/scripts/ci-scope.test.sh
+      - name: Validate workflows (actionlint)
+        if: steps.scope.outputs.workflows == 'true'
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color
+      - name: Scan workflows (zizmor)
+        if: steps.scope.outputs.workflows == 'true'
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          version: v1.32.0
+          advanced-security: false
+          min-severity: medium
+          min-confidence: medium
 
   test:
-    name: Tests and coverage
-    # Always runs on pushes to main, releases (workflow_call) and
-    # manual runs; on pull requests only when the change can affect tests.
-    needs: changes
-    if: ${{ always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.changes.outputs.go == 'true') }}
+    name: Tests and integration
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          submodules: true # tests read the official registry
+          fetch-depth: 0
+      - name: Select applicable checks
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/ci-scope.sh
+      - name: Check out the official registry
+        if: steps.scope.outputs.go == 'true'
+        run: git submodule update --init registries/default
       - name: Set up Go
+        if: steps.scope.outputs.go == 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
       - name: Run race tests and coverage gates
+        if: steps.scope.outputs.go == 'true'
         run: make test-coverage
+      - name: Smoke-test the binary
+        if: steps.scope.outputs.go == 'true'
+        run: make smoke
+      - name: Validate the official registry
+        if: steps.scope.outputs.go == 'true'
+        run: make registry-check
+      - name: Set up Node
+        if: steps.scope.outputs.upstream == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Test both upstream CLI backends
+        if: steps.scope.outputs.upstream == 'true'
+        env:
+          NOSEY_UPSTREAM_INTEGRATION: '1'
+        run: |
+          set -euo pipefail
+          NOSEY_UPSTREAM_BACKEND=npx go test ./internal/installation -run '^TestUpstream' -count=1 -v
+          npm install --global --ignore-scripts "skills@$(jq -r '.devDependencies.skills' tools/skills/package.json)"
+          NOSEY_UPSTREAM_BACKEND=installed go test ./internal/installation -run '^TestUpstream' -count=1 -v
+      - name: Verify the build is reproducible
+        if: github.event_name != 'pull_request'
+        run: make repro-check
+      - name: Compile every release platform
+        if: github.event_name != 'pull_request'
+        run: make cross-build
       - name: Summarize coverage
-        if: always()
+        if: always() && steps.scope.outputs.go == 'true'
         run: |
           set -euo pipefail
           {
@@ -114,7 +155,7 @@ jobs:
             done
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage profiles
-        if: always()
+        if: always() && steps.scope.outputs.go == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage
@@ -124,154 +165,10 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  registry:
-    name: Official registry
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-          submodules: true
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-      - name: Check generated output and validate the registry
-        run: make registry-check
-
-  upstream:
-    name: Real skills CLI (${{ matrix.backend }})
-    # Exercises the launcher and the real pinned CLI in disposable projects.
-    needs: changes
-    if: ${{ always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.changes.outputs.go == 'true') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        backend: [npx, installed]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-      - name: Set up Node
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '22'
-      - name: Install the pinned CLI
-        if: matrix.backend == 'installed'
-        run: npm install --global --ignore-scripts "skills@$(jq -r '.devDependencies.skills' tools/skills/package.json)"
-      - name: Run integration tests
-        env:
-          NOSEY_UPSTREAM_INTEGRATION: '1'
-          NOSEY_UPSTREAM_BACKEND: ${{ matrix.backend }}
-        run: go test ./internal/installation -run '^TestUpstream' -count=1 -v
-
-  build:
-    name: Build, smoke test and reproducibility
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-      - name: Build and smoke-test the binary
-        run: make smoke
-      - name: Verify the build is reproducible
-        run: make repro-check
-      - name: Compile every release platform
-        run: make cross-build
-
-  dependency_review:
-    name: New dependency vulnerability review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - name: Reject new high-severity advisories
-        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
-        with:
-          fail-on-severity: high
-
-  vulnerability:
-    name: Go vulnerability scan
-    # Weekly, and on pull requests that change the dependency set. A failing
-    # scheduled run notifies maintainers, unlike a log warning.
-    if: github.event_name == 'schedule' || github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - name: Detect dependency changes
-        id: scope
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT" = schedule ] || ! git diff --quiet "origin/$BASE_REF...HEAD" -- go.mod go.sum; then
-            echo 'scan=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'scan=false' >> "$GITHUB_OUTPUT"
-          fi
-      - name: Scan reachable vulnerabilities
-        if: steps.scope.outputs.scan == 'true'
-        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1
-        with:
-          go-version-file: go.mod
-
-  workflow_security:
-    name: GitHub Actions security
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        with:
-          go-version-file: go.mod
-      - name: Validate workflows (actionlint)
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11 -color
-      - name: Scan workflows (zizmor)
-        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
-        with:
-          version: v1.32.0
-          advanced-security: false
-          min-severity: medium
-          min-confidence: medium
-
   ci_result:
     name: CI result
     if: always()
-    needs: [lint, changes, test, upstream, registry, build, dependency_review, vulnerability, workflow_security]
+    needs: [quality, test]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
