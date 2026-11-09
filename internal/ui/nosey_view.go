@@ -33,16 +33,13 @@ func (m noseyModel) View() tea.View {
 	lines := []string{}
 	switch {
 	case m.loading && m.modal == "install":
-		status := "Preparing installer…"
-		if m.install.running && m.install.index >= 0 {
-			status = fmt.Sprintf("Installing source %d of %d: %s", m.install.index+1, len(m.install.commands), sourceLabel(m.install.commands[m.install.index]))
-		}
-		if m.install.cancelled {
-			status = "Cancelling installation…"
-		}
-		lines = append(lines, ansi.Hardwrap(m.busy.View()+" "+status, max(10, m.width-2), true))
+		// Progress renders inside the install page so it never covers its content.
 	case m.loading:
-		lines = append(lines, m.busy.View()+" Loading workspace…  ·  q Quit")
+		label := "Loading workspace…"
+		if m.busyLabel != "" {
+			label = m.busyLabel
+		}
+		lines = append(lines, m.busy.View()+" "+label+"  ·  q Quit")
 	}
 	if m.err != nil && (m.modal == "" || m.modal == "install") {
 		lines = append(lines, ansi.Hardwrap(m.styles.warn.Render("Error: "+storage.Safe(m.err.Error())), max(10, m.width-2), true))
@@ -98,13 +95,8 @@ func (m noseyModel) View() tea.View {
 			rows := m.rows()
 			cursor := m.cursor[m.tab]
 			if m.tab == 0 {
-				lines = append(lines, technologyStrip(rows, cursor, m.width-2, m.styles)...)
-				start := 0
-				for start < len(rows) && (rows[start].kind == "technology" || rows[start].kind == "heading" && rows[start].id == "technologies") {
-					start++
-				}
-				rows = rows[start:]
-				cursor -= start
+				title, names := m.technologyChips()
+				lines = append(lines, technologyStrip(title, names, m.width-2, m.styles)...)
 			}
 			lines = append(lines, resultWindow(rows, cursor, 0, max(1, m.viewport.Height()-len(lines)), m.width-2, m.styles)...)
 		}
@@ -138,7 +130,7 @@ func (m noseyModel) View() tea.View {
 		}
 	}
 	if m.tab == 2 {
-		footer = "↑↓ Move · r Refresh inventory · ? Help · Tab Section · q Quit"
+		footer = "↑↓ Move · r Refresh inventory · u Check updates · ? Help · Tab Section · q Quit"
 	}
 	if m.tab == 3 {
 		footer = "↑↓ Move · Enter Edit · a Add existing · n New registry · Tab Section · q Quit"

@@ -140,6 +140,11 @@
             "fullscreen",
             "inline"
           ]
+        },
+        "collapseRepos": {
+          "type": "boolean",
+          "default": false,
+          "description": "Start repository groups collapsed in Scan and Explore results."
         }
       }
     }

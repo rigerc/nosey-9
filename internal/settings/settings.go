@@ -32,7 +32,8 @@ type Settings struct {
 	Version    int                  `json:"schemaVersion"`
 	Registries []domain.RegistryRef `json:"registries"`
 	UI         struct {
-		Mode string `json:"mode"`
+		Mode          string `json:"mode"`
+		CollapseRepos bool   `json:"collapseRepos"`
 	} `json:"ui"`
 	Updates struct {
 		TTL int `json:"ttlHours"`

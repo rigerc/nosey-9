@@ -3,10 +3,12 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rigerc/nosey-9/internal/installation"
@@ -156,6 +158,7 @@ func (m noseyModel) applyInstallStep(done installStepDone) (noseyModel, tea.Cmd)
 		m.install.cancel()
 	}
 	m.install.running = false
+	m.updates = nil
 	m.message, m.warning = "", ""
 	if done.err != nil {
 		m.warning = fmt.Sprintf("Stopped at %s: %v; %s not started.", sourceLabel(m.install.commands[done.index]), done.err, countLabel(total-done.index-1, "later source"))
@@ -168,6 +171,32 @@ func (m noseyModel) applyInstallStep(done installStepDone) (noseyModel, tea.Cmd)
 	return m, m.load()
 }
 
+// installStatus describes what the installer is doing; it renders inside the page, never over it.
+func (m noseyModel) installStatus() string {
+	switch {
+	case m.install.cancelled:
+		return m.busy.View() + " " + m.styles.warn.Render("Cancelling installation…")
+	case m.install.running && m.install.index >= 0:
+		return m.busy.View() + " " + m.styles.accent.Render(fmt.Sprintf("Installing source %d of %d", m.install.index+1, len(m.install.commands)))
+	case m.install.running:
+		return m.busy.View() + " " + m.styles.accent.Render("Preparing installer…")
+	}
+	return ""
+}
+
+// sourceMarker shows a source's progress: done, running, or waiting.
+func (m noseyModel) sourceMarker(i int) string {
+	switch {
+	case !m.install.running:
+		return m.styles.muted.Render("•")
+	case i < m.install.index:
+		return m.styles.good.Render("✓")
+	case i == m.install.index:
+		return m.busy.View()
+	}
+	return m.styles.muted.Render("○")
+}
+
 func (m noseyModel) installPageLines() []string {
 	skills := 0
 	for _, command := range m.install.commands {
@@ -177,13 +206,18 @@ func (m noseyModel) installPageLines() []string {
 	if m.install.printOnly {
 		intro = "Print mode: nothing runs here. Copy the commands to run them yourself."
 	}
-	lines := []string{m.styles.heading.Render(fmt.Sprintf("Install %s from %s", countLabel(skills, "skill"), countLabel(len(m.install.commands), "source"))), intro, ""}
-	for _, command := range m.install.commands {
-		lines = append(lines, sourceLabel(command))
+	width := max(10, m.width-2)
+	lines := []string{m.styles.title.Render(fmt.Sprintf("Install %s from %s", countLabel(skills, "skill"), countLabel(len(m.install.commands), "source")))}
+	if status := m.installStatus(); status != "" {
+		lines = append(lines, status)
+	}
+	lines = append(lines, m.styles.muted.Render(intro), "")
+	for i, command := range m.install.commands {
+		lines = append(lines, m.sourceMarker(i)+" "+m.styles.repo.Render(sourceLabel(command)))
 		for _, skill := range command.Skills {
-			line := "  " + storage.Safe(skill.Name)
+			line := "    " + m.styles.accent.Render("▪") + " " + storage.Safe(skill.Name)
 			if skill.Required {
-				line += "  (required)"
+				line += " " + m.styles.badge.Render("(required)")
 			}
 			lines = append(lines, line)
 		}
@@ -192,14 +226,24 @@ func (m noseyModel) installPageLines() []string {
 	if configured := m.install.agents; len(configured) > 0 {
 		agents = strings.Join(configured, ", ")
 	}
-	lines = append(lines, "", "Scope: project", "Agents: "+storage.Safe(agents), "Method: "+m.session.Resolved.Settings.Installation.Method)
+	detail := func(key, value string) string { return m.styles.heading.Render(key+":") + " " + value }
+	summary := strings.Join([]string{detail("Scope", "project"), detail("Agents", storage.Safe(agents)), detail("Method", m.session.Resolved.Settings.Installation.Method)}, "\n")
+	lines = append(lines, "", m.installBox(summary, width))
 	if m.install.printOnly {
-		lines = append(lines, "")
+		lines = append(lines, "", m.styles.heading.Render("Commands"))
 		for _, command := range m.install.commands {
 			lines = append(lines, storage.Safe(command.Text()))
 		}
 	}
-	return strings.Split(ansi.Hardwrap(strings.Join(lines, "\n"), max(10, m.width-2), true), "\n")
+	return strings.Split(ansi.Hardwrap(strings.Join(lines, "\n"), width, true), "\n")
+}
+
+func (m noseyModel) installBox(text string, width int) string {
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1).Width(max(1, min(width, 72)))
+	if os.Getenv("NO_COLOR") == "" {
+		box = box.BorderForeground(lipgloss.Color("#94A3B8"))
+	}
+	return box.Render(text)
 }
 
 func sourceLabel(command installation.AddCommand) string {

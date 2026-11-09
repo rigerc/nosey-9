@@ -358,3 +358,40 @@ func TestStaleBackgroundResultDoesNotStartAnotherSource(t *testing.T) {
 		t.Fatal("stale result changed install")
 	}
 }
+
+func TestInstallProgressIsPartOfThePageNotAnOverlay(t *testing.T) {
+	m, _ := installModel(t, nil)
+	m = openedInstall(t, m)
+	m, cmd := m.updateInstallPage("enter")
+	if !strings.Contains(screenText(m), "Preparing installer") || strings.Contains(screenText(m), "Loading workspace") {
+		t.Fatal(screenText(m))
+	}
+	ready, ok := cmd().(installReady)
+	if !ok {
+		t.Fatal("unexpected preparation message")
+	}
+	m, _ = m.applyInstallReady(ready)
+	first := strings.Split(screenText(m), "\n")
+	screen := screenText(m)
+	for _, want := range []string{"Install 3 skills from 2 sources", "Installing source 1 of 2", "owner/one @aaaaaaa", "alpha", "owner/two @aaaaaaa", "gamma", "Agents: codex, claude-code"} {
+		if !strings.Contains(screen, want) {
+			t.Fatal(want, screen)
+		}
+	}
+	titleAt, statusAt := -1, -1
+	for i, line := range first {
+		if strings.Contains(line, "Install 3 skills") {
+			titleAt = i
+		}
+		if strings.Contains(line, "Installing source 1 of 2") {
+			statusAt = i
+		}
+	}
+	if titleAt < 0 || statusAt != titleAt+1 {
+		t.Fatal("progress is not directly under the page title", titleAt, statusAt)
+	}
+	m, _ = m.applyInstallStep(installStepDone{generation: m.generation, index: 0})
+	if !strings.Contains(screenText(m), "✓ owner/one") || !strings.Contains(screenText(m), "Installing source 2 of 2") {
+		t.Fatal("finished source not marked", screenText(m))
+	}
+}

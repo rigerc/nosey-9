@@ -93,24 +93,24 @@ func searchResultGroups(c domain.Catalog, result catalog.SearchResult) []resultG
 	}
 	return groups
 }
-func resultRows(groups []resultGroup, collapsed, selected map[string]bool) []noseyRow {
+func resultRows(groups []resultGroup, collapsed func(string) bool, selected map[string]bool) []noseyRow {
 	rows := []noseyRow{}
 	for _, g := range groups {
 		key := "tech:" + g.id
-		rows = append(rows, noseyRow{"group", key, disclosure(collapsed[key]) + selectionMark(groupSkills(g), selected) + " " + g.name})
-		if collapsed[key] {
+		rows = append(rows, noseyRow{"group", key, disclosure(collapsed(key)) + selectionMark(groupSkills(g), selected) + " " + g.name})
+		if collapsed(key) {
 			continue
 		}
 		for _, r := range g.repositories {
 			key := "repo:" + g.id + ":" + r.id
-			label := "    " + disclosure(collapsed[key]) + selectionMark(r.skills, selected) + " " + r.name
+			label := "    " + disclosure(collapsed(key)) + selectionMark(r.skills, selected) + " " + r.name
 			if r.average != nil {
 				label += fmt.Sprintf("  [repo %.0f/100]", *r.average)
 			} else {
 				label += "  [repo unscored]"
 			}
 			rows = append(rows, noseyRow{"group", key, label})
-			if collapsed[key] {
+			if collapsed(key) {
 				continue
 			}
 			for _, s := range r.skills {
