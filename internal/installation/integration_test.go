@@ -78,8 +78,18 @@ func TestUpstreamBuildInstallAndInventoryForLocalRegistry(t *testing.T) {
 		t.Fatalf("%+v", inventory)
 	}
 	for _, item := range inventory.Skills {
-		if item.Status != "installed" || item.SkillID == nil || item.Unmanaged || !slices.Contains(item.Agents, "codex") || !slices.Contains(item.Agents, "claude-code") {
+		if item.Status != "installed" || item.SkillID == nil || item.Unmanaged || !slices.Contains(item.Agents, "claude-code") {
 			t.Fatalf("%+v", item)
+		}
+	}
+	// Upstream lists universal agents such as Codex only when it detects the
+	// agent on the host. Verify payloads directly so a clean CI runner is valid.
+	for _, name := range []string{"nosey-alpha", "nosey-beta"} {
+		for _, dir := range []string{".agents", ".claude"} {
+			path := filepath.Join(s.Store.Workspace, dir, "skills", name, "SKILL.md")
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("installed payload %s: %v", path, err)
+			}
 		}
 	}
 	if _, err = os.Stat(filepath.Join(s.Store.Workspace, ".nosey")); !os.IsNotExist(err) {
