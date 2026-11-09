@@ -291,7 +291,7 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 // openNewRegistryForm opens the registry-creation form shared by the shortcut and the settings row.
 func (m *noseyModel) openNewRegistryForm() {
 	m.openForm("new", []string{"New absolute registry path", "Template registry ID", "GitHub CI: true or false", "Initialize Git: true or false", "Register for this user: true or false", "GitHub repository: OWNER/NAME or blank", "GitHub repository visibility"}, []string{"", "nosey:official", "false", "false", "false", "", "private"})
-	m.details = "Creates an empty registry. A GitHub repository needs git identity and an authenticated gh CLI."
+	m.details = "Creates an empty registry. A GitHub repository needs a Git identity and a GitHub token (GITHUB_TOKEN, GH_TOKEN or gh auth login)."
 }
 func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
 	m.settingsAnchor = row.id

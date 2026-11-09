@@ -3,15 +3,19 @@ package registrygen
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
-	"strings"
+	"time"
 
 	"github.com/rigerc/nosey-9/internal/contracts"
 	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/gitclient"
 	"github.com/rigerc/nosey-9/internal/gitpolicy"
-	"github.com/rigerc/nosey-9/internal/process"
+)
+
+const (
+	upstreamBudget    = 45 * time.Second
+	upstreamFileLimit = 16 << 20
 )
 
 // Fetcher resolves one declared upstream file to a full revision and its bytes.
@@ -19,9 +23,10 @@ type Fetcher interface {
 	Fetch(ctx context.Context, upstream Upstream) (revision string, data []byte, err error)
 }
 
-// GitFetcher fetches a single file from a hardened temporary Git repository.
+// GitFetcher fetches a single file through a hardened temporary repository.
 type GitFetcher struct {
-	Runner  process.Executor
+	// Client performs the retrieval; nil uses a Hardened client under TempDir.
+	Client  *gitclient.Client
 	TempDir string
 }
 
@@ -30,44 +35,29 @@ func (g GitFetcher) Fetch(ctx context.Context, upstream Upstream) (string, []byt
 	if err := gitpolicy.Validate(upstream.URL, upstream.Ref); err != nil {
 		return "", nil, fmt.Errorf("upstream %s: %w", upstream.URL, err)
 	}
-	runner := g.Runner
-	if runner == nil {
-		runner = process.Runner{Limit: 16 << 20}
+	ctx, cancel := context.WithTimeout(ctx, upstreamBudget)
+	defer cancel()
+	client := g.Client
+	if client == nil {
+		client = gitclient.New(gitclient.Options{Policy: gitclient.Hardened(), Credentials: gitclient.SharedCredentials(), TempDir: g.TempDir})
 	}
-	dir, err := os.MkdirTemp(g.TempDir, "nosey-refresh-")
+	repo, err := client.Temporary(ctx, upstream.URL, gitclient.TemporaryOptions{})
 	if err != nil {
 		return "", nil, err
 	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	run := func(args ...string) (process.Output, error) {
-		return runner.Run(ctx, dir, gitpolicy.HardenedEnv(), "git", gitpolicy.HardenedArgs(args...)...)
-	}
-	if _, err = run("init", "--quiet"); err != nil {
-		return "", nil, err
-	}
-	if _, err = run("remote", "add", "origin", upstream.URL); err != nil {
-		return "", nil, err
-	}
-	requested := upstream.Ref
-	if requested == "" {
-		requested = "HEAD"
-	}
-	if _, err = run("fetch", "--quiet", "--depth=1", "origin", requested); err != nil {
-		return "", nil, err
-	}
-	out, err := run("rev-parse", "FETCH_HEAD")
+	defer func() { _ = repo.Close() }()
+	revision, err := repo.FetchRef(ctx, upstream.Ref)
 	if err != nil {
 		return "", nil, err
 	}
-	revision := strings.TrimSpace(string(out.Stdout))
 	if len(revision) != 40 {
 		return "", nil, fmt.Errorf("upstream %s: invalid resolved revision %q", upstream.URL, revision)
 	}
-	out, err = run("show", revision+":"+upstream.Path)
+	data, err := repo.ReadFile(ctx, revision, upstream.Path, upstreamFileLimit)
 	if err != nil {
 		return "", nil, err
 	}
-	return revision, out.Stdout, nil
+	return revision, data, nil
 }
 
 // Refresh fetches every declared upstream, then generates and relocks the

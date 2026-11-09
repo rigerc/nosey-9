@@ -6,7 +6,6 @@ import (
 	"github.com/rigerc/nosey-9/internal/detection"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/installation"
-	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/registry"
 	"github.com/rigerc/nosey-9/internal/settings"
 )
@@ -52,7 +51,7 @@ func Configure(cwd, config string) (Session, error) {
 	return configure(store, resolved), nil
 }
 func configure(store settings.Store, resolved settings.Resolved) Session {
-	return Session{Store: store, Resolved: resolved, Registry: registry.Service{Store: store, Runner: process.Runner{}}, Installer: installation.Service{Store: store, Settings: resolved.Settings, Runner: process.Runner{}}}
+	return Session{Store: store, Resolved: resolved, Registry: registry.Service{Store: store}, Installer: installation.Service{Store: store, Settings: resolved.Settings}}
 }
 
 // Scan detects and recommends before applying presentation-only projections.

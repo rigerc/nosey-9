@@ -5,14 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/rigerc/nosey-9/internal/gitpolicy"
-	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/gitclient"
 )
+
+// fetchBudget bounds one remote fetch, including materializing the tree.
+const fetchBudget = 5 * time.Minute
 
 var fullSHA = regexp.MustCompile(`^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$`)
 
@@ -46,7 +47,8 @@ type FetchError struct {
 	Stage string
 	Ref   string
 	Err   error
-	// Stderr is the bounded Git error output, if any.
+	// Stderr is additional Git error output, if any. The native client reports
+	// everything through Err, so it is normally empty.
 	Stderr string
 }
 
@@ -62,40 +64,31 @@ func (e *FetchError) Unwrap() error { return e.Err }
 // ErrCommitMismatch is wrapped by a FetchError when a full-SHA ref resolves to another commit.
 var ErrCommitMismatch = errors.New("fetched commit does not match the requested SHA")
 
-// Fetcher clones sources into temporary directories with Git.
+// Fetcher fetches sources into temporary directories with the native Git client.
 type Fetcher struct {
-	// Exec runs Git; nil uses a process.Runner with a five minute timeout.
-	Exec process.Executor
 	// TempDir is the parent of temporary checkouts; empty uses os.TempDir.
 	TempDir string
-	// Git is the git binary; empty uses "git".
-	Git string
+	// Client performs the Git operations; nil uses a Hardened client (https and ssh).
+	Client *gitclient.Client
 
-	// allowFile lets the credentialed fetch use the file transport. It is unexported so
-	// only this package's tests can enable it; production code cannot.
-	allowFile bool
+	// reportedCommit replaces the resolved commit before verification, so tests can
+	// exercise the mismatch check.
+	reportedCommit func(string) string
 }
 
-func (f Fetcher) exec() process.Executor {
-	if f.Exec != nil {
-		return f.Exec
+func (f Fetcher) client() *gitclient.Client {
+	if f.Client != nil {
+		return f.Client
 	}
-	return process.Runner{Timeout: 5 * time.Minute, Limit: 1 << 20}
+	return gitclient.New(gitclient.Options{Policy: gitclient.Hardened(), Credentials: gitclient.SharedCredentials(), TempDir: f.TempDir})
 }
 
-func (f Fetcher) git() string {
-	if f.Git != "" {
-		return f.Git
-	}
-	return "git"
-}
-
-// Fetch resolves src and returns a checkout of the requested ref. Git runs
-// as: a hardened init, a hardened remote add, a credentialed shallow fetch of
-// the ref (the only command that sees the user's Git configuration) and a
-// hardened detached checkout of FETCH_HEAD. A full-SHA ref must equal the
-// checked-out HEAD or the fetch fails; there is no fallback to another revision.
-// The temporary directory is removed on any failure and by Checkout.Close.
+// Fetch resolves src and returns a checkout of the requested ref: a plain tree
+// without a .git directory. It fetches the ref shallowly into a private
+// repository and writes the commit's tree, running no hooks, filters or
+// submodule recursion, within a five minute budget. A full-SHA ref must equal the
+// resulting commit or the fetch fails; there is no fallback to another revision.
+// Temporary directories are removed on any failure and by Checkout.Close.
 func (f Fetcher) Fetch(ctx context.Context, src Source) (*Checkout, error) {
 	parsed, err := ParseSource(src)
 	if err != nil {
@@ -111,6 +104,8 @@ func (f Fetcher) Fetch(ctx context.Context, src Source) (*Checkout, error) {
 		}
 		return &Checkout{Dir: parsed.LocalPath, Ref: src.Ref, Parsed: parsed}, nil
 	}
+	ctx, cancel := context.WithTimeout(ctx, fetchBudget)
+	defer cancel()
 	dir, err := os.MkdirTemp(f.TempDir, "nosey-skills-")
 	if err != nil {
 		return nil, err
@@ -124,50 +119,29 @@ func (f Fetcher) Fetch(ctx context.Context, src Source) (*Checkout, error) {
 	return &Checkout{Dir: dir, Ref: src.Ref, Commit: commit, Parsed: parsed, closer: cleanup}, nil
 }
 
-// pinned makes git use exactly this repository and working tree, ignoring any
-// GIT_DIR or discovery from the caller's environment.
-func pinned(dir string) []string {
-	return []string{"GIT_DIR=" + filepath.Join(dir, ".git"), "GIT_WORK_TREE=" + dir, "GIT_CONFIG_COUNT=0"}
-}
-
 func (f Fetcher) run(ctx context.Context, dir string, p ParsedSource) (string, error) {
-	hardenedEnv := append(gitpolicy.HardenedEnv(), pinned(dir)...)
-	step := func(stage string, env []string, args []string) (string, error) {
-		out, err := f.exec().Run(ctx, dir, env, f.git(), args...)
-		if err != nil {
-			if cerr := ctx.Err(); cerr != nil {
-				err = cerr
-			}
-			return "", &FetchError{Stage: stage, Ref: p.Ref, Err: err, Stderr: string(out.Stderr)}
-		}
-		return strings.TrimSpace(string(out.Stdout)), nil
+	failed := func(stage string, err error) error {
+		return &FetchError{Stage: stage, Ref: p.Ref, Err: err}
 	}
-	if _, err := step("init", hardenedEnv, gitpolicy.HardenedArgs("init", "--quiet")); err != nil {
-		return "", err
-	}
-	if _, err := step("remote", hardenedEnv, gitpolicy.HardenedArgs("remote", "add", "origin", p.URL)); err != nil {
-		return "", err
-	}
-	ref := p.Ref
-	if ref == "" {
-		ref = "HEAD"
-	}
-	fetchEnv := append(gitpolicy.CredentialedEnv(), pinned(dir)...)
-	if f.allowFile {
-		fetchEnv = append(fetchEnv, "GIT_ALLOW_PROTOCOL=file:https:ssh")
-	}
-	if _, err := step("fetch", fetchEnv, gitpolicy.CredentialedArgs("fetch", "--quiet", "--depth=1", "--no-tags", "--no-recurse-submodules", "origin", ref)); err != nil {
-		return "", err
-	}
-	if _, err := step("checkout", hardenedEnv, gitpolicy.HardenedArgs("checkout", "--quiet", "--detach", "FETCH_HEAD")); err != nil {
-		return "", err
-	}
-	head, err := step("verify", hardenedEnv, gitpolicy.HardenedArgs("rev-parse", "HEAD"))
+	repo, err := f.client().Temporary(ctx, p.URL, gitclient.TemporaryOptions{})
 	if err != nil {
-		return "", err
+		return "", failed("init", err)
 	}
-	if fullSHA.MatchString(p.Ref) && !strings.EqualFold(head, p.Ref) {
-		return "", &FetchError{Stage: "verify", Ref: p.Ref, Err: fmt.Errorf("%w: requested %s, got %s", ErrCommitMismatch, p.Ref, head)}
+	defer func() { _ = repo.Close() }()
+	commit, err := repo.FetchRef(ctx, p.Ref)
+	if err != nil {
+		return "", failed("fetch", err)
 	}
-	return head, nil
+	// Links stay verbatim, as a Git checkout left them: Discover confines reads with
+	// os.Root and the copier warns about and skips links that leave the skill.
+	if err = repo.MaterializeVerbatimLinks(ctx, commit, dir); err != nil {
+		return "", failed("checkout", err)
+	}
+	if f.reportedCommit != nil {
+		commit = f.reportedCommit(commit)
+	}
+	if fullSHA.MatchString(p.Ref) && !strings.EqualFold(commit, p.Ref) {
+		return "", failed("verify", fmt.Errorf("%w: requested %s, got %s", ErrCommitMismatch, p.Ref, commit))
+	}
+	return commit, nil
 }

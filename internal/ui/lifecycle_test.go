@@ -21,7 +21,7 @@ var newSHA = strings.Repeat("b", 40)
 // but untracked.
 func lifecycleModel(t *testing.T) noseyModel {
 	t.Helper()
-	m, _ := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
+	m := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
 	// installModel always configures a dirFetcher.
 	fetcher := m.session.Installer.Fetcher.(dirFetcher)
 	newOne := t.TempDir()

@@ -167,10 +167,40 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  native_runtime:
+    name: Native runtime without git or gh
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select applicable checks
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash .github/scripts/ci-scope.sh
+      - name: Set up Go
+        if: steps.scope.outputs.go == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      # The check runs the built binary with a PATH holding neither git nor gh.
+      - name: Run the binary with a sanitized PATH
+        if: steps.scope.outputs.go == 'true'
+        run: make native-runtime-check
+
   ci_result:
     name: CI result
     if: always()
-    needs: [quality, test]
+    needs: [quality, test, native_runtime]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

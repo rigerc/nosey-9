@@ -1,6 +1,9 @@
 package detection
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -9,7 +12,7 @@ import (
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
-	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/gitclient"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
 
@@ -24,16 +27,56 @@ func (e *engine) excluded(path string) bool {
 	return false
 }
 
-func (e *engine) walk() error {
-	out, err := (process.Runner{Timeout: 5 * time.Second, Limit: 4 << 20}).Run(e.ctx, e.root, nil, "git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ".")
-	names := []string{}
+// UnsupportedRepositoryError reports a repository whose storage format Nosey
+// cannot read. Scanning fails instead of walking the tree, because a walk would
+// silently ignore the repository's .gitignore rules.
+type UnsupportedRepositoryError struct {
+	Root string
+	Err  error
+}
+
+func (e *UnsupportedRepositoryError) Error() string {
+	return fmt.Sprintf("cannot scan %s: this Git repository uses SHA-256 objects or reftable refs, which Nosey cannot read; "+
+		"use a SHA-1 repository with the files ref backend (reftable can be converted with: git refs migrate --ref-format=files)", e.Root)
+}
+
+// Unwrap exposes the classified gitclient error.
+func (e *UnsupportedRepositoryError) Unwrap() error { return e.Err }
+
+// listRepositoryFiles lists the workspace like git ls-files --cached --others
+// --exclude-standard. It needs no network, so no credentials are looked up. Any
+// error except unsupported storage sends the caller to the plain walk.
+func (e *engine) listRepositoryFiles() ([]string, error) {
+	ctx, cancel := context.WithTimeout(e.ctx, 5*time.Second)
+	defer cancel()
+	repo, err := gitclient.New(gitclient.Options{Policy: gitclient.Hardened()}).OpenUser(e.root)
+	var listed []string
 	if err == nil {
-		for _, name := range strings.Split(string(out.Stdout), "\x00") {
-			if name != "" && filepath.IsLocal(name) {
-				names = append(names, filepath.ToSlash(name))
-			}
+		listed, err = repo.ListWorktreeFiles(ctx, e.root)
+	}
+	if err != nil {
+		if gitclient.KindOf(err) == gitclient.KindUnsupportedFormat {
+			return nil, &UnsupportedRepositoryError{Root: e.root, Err: err}
 		}
-	} else {
+		return nil, err
+	}
+	names := make([]string, 0, len(listed))
+	for _, name := range listed {
+		if name != "" && filepath.IsLocal(name) {
+			names = append(names, filepath.ToSlash(name))
+		}
+	}
+	return names, nil
+}
+
+func (e *engine) walk() error {
+	names, err := e.listRepositoryFiles()
+	if err != nil {
+		var unsupported *UnsupportedRepositoryError
+		if errors.As(err, &unsupported) {
+			return err
+		}
+		names = []string{}
 		err = filepath.WalkDir(e.root, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				e.truncated = true

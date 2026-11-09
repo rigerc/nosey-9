@@ -21,7 +21,8 @@ func studioCommand(o *cliOptions) *cobra.Command {
 			"is unavailable. Use --local to edit the checkout as it stands.\n\n" +
 			"Edits stay in a draft outside the registry until you apply them to the\n" +
 			"working tree or publish them. Publishing replays the draft on the remote\n" +
-			"default branch in a temporary worktree and opens a pull request with gh.\n\n" +
+			"default branch in a temporary repository and opens a pull request through\n" +
+			"the GitHub API (needs GITHUB_TOKEN, GH_ENTERPRISE_TOKEN or a gh login).\n\n" +
 			"--registry-checks also runs the registry's own Node scripts before writing.\n" +
 			"They execute code from that checkout, so only use it on a registry you\n" +
 			"trust. On the official registry it enables skill deletion, repository\n" +

@@ -138,14 +138,6 @@ func errText(err error) string {
 	return storage.Safe(err.Error())
 }
 
-// Prepare checks the project and the Git prerequisite before any source runs.
-func (s Service) Prepare(ctx context.Context) error {
-	if err := s.Preflight(); err != nil {
-		return err
-	}
-	return s.requireGit(ctx)
-}
-
 // Operation is one lifecycle operation holding the workspace operation lock. Create it with
 // Service.Begin and always Close it. The lock is a kernel advisory lock, so it is also
 // released when the process dies.
@@ -156,10 +148,10 @@ type Operation struct {
 	mu    sync.Mutex
 }
 
-// Begin runs the project preflight and Git check, takes the operation lock and re-checks the
+// Begin runs the project preflight, takes the operation lock and re-checks the
 // project under it. A busy lock is a PolicyError saying another Nosey operation is running.
 func (s Service) Begin(ctx context.Context) (*Operation, error) {
-	if err := s.Prepare(ctx); err != nil {
+	if err := s.Preflight(); err != nil {
 		return nil, err
 	}
 	table, err := s.agentTable()

@@ -15,19 +15,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/installation"
-	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/settings"
 	"github.com/rigerc/nosey-9/internal/skillkit"
 )
 
 var testSHA = strings.Repeat("a", 40)
-
-type installRunner struct{ calls int }
-
-func (r *installRunner) Run(context.Context, string, []string, string, ...string) (process.Output, error) {
-	r.calls++
-	return process.Output{Stdout: []byte("git version 2.50.0")}, nil
-}
 
 // dirFetcher serves prepared directories instead of cloning; the key is "uri#ref".
 type dirFetcher map[string]string
@@ -74,7 +66,7 @@ func fixtureSkill(id, name, uri string) domain.Skill {
 }
 
 // installModel returns a model with two selected skills from one source and one from another.
-func installModel(t *testing.T, mutate func(*settings.Settings)) (noseyModel, *installRunner) {
+func installModel(t *testing.T, mutate func(*settings.Settings)) noseyModel {
 	t.Helper()
 	m := productModel()
 	m.width, m.height = 100, 30
@@ -85,7 +77,6 @@ func installModel(t *testing.T, mutate func(*settings.Settings)) (noseyModel, *i
 	if mutate != nil {
 		mutate(&cfg)
 	}
-	runner := &installRunner{}
 	m.session.Resolved.Settings = cfg
 	workspace, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -97,7 +88,7 @@ func installModel(t *testing.T, mutate func(*settings.Settings)) (noseyModel, *i
 	writeFixtureSkill(t, two, "gamma")
 	m.session.Store = settings.Store{Workspace: workspace, Data: t.TempDir()}
 	m.session.Installer = installation.Service{
-		Store: m.session.Store, Runner: runner, Home: t.TempDir(),
+		Store: m.session.Store, Home: t.TempDir(),
 		Fetcher: dirFetcher{"https://github.com/owner/one#" + testSHA: one, "owner/two#" + testSHA: two},
 	}
 	m.session.Catalog.Skills = map[string]domain.Skill{
@@ -106,7 +97,7 @@ func installModel(t *testing.T, mutate func(*settings.Settings)) (noseyModel, *i
 		"c": fixtureSkill("c", "gamma", "owner/two"),
 	}
 	m.selected = map[string]bool{"a": true, "b": true, "c": true}
-	return m, runner
+	return m
 }
 
 func openedInstall(t *testing.T, m noseyModel) noseyModel {
@@ -131,7 +122,7 @@ func updateModel(t *testing.T, m noseyModel, msg tea.Msg) (noseyModel, tea.Cmd) 
 }
 
 func TestInstallPageGroupsSkillsAndRunsNothing(t *testing.T) {
-	m, runner := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
+	m := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
 	m = openedInstall(t, m)
 	screen := screenText(m)
 	for _, want := range []string{"Install 3 skills from 2 sources", "Confirm once", "owner/one @aaaaaaa", "alpha", "beta", "owner/two @aaaaaaa", "gamma", "Agents: codex, claude-code", "Enter Start"} {
@@ -142,16 +133,16 @@ func TestInstallPageGroupsSkillsAndRunsNothing(t *testing.T) {
 	if plan := m.install.plans[0]; plan.Method != "copy" || !slices.Equal(plan.Agents, []string{"claude-code", "codex"}) {
 		t.Fatal(plan)
 	}
-	if runner.calls != 0 {
+	if !lockFree(t, m) {
 		t.Fatal("opening the page started an operation")
 	}
 }
 
 func TestInstallChoosesAgentsOnceBeforeReview(t *testing.T) {
-	m, runner := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = nil })
+	m := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = nil })
 	m = productUpdate(t, m, keypress('i'))
-	if m.modal != "form" || m.form.kind != "install-agents" || runner.calls != 0 {
-		t.Fatal(m.modal, runner.calls)
+	if m.modal != "form" || m.form.kind != "install-agents" {
+		t.Fatal(m.modal)
 	}
 	m, cmd := m.submitForm()
 	if cmd != nil || m.err == nil || m.modal != "form" {
@@ -167,22 +158,22 @@ func TestInstallChoosesAgentsOnceBeforeReview(t *testing.T) {
 			t.Fatal(plan.Agents)
 		}
 	}
-	if len(m.session.Resolved.Settings.Installation.Agents) != 0 || runner.calls != 0 {
+	if len(m.session.Resolved.Settings.Installation.Agents) != 0 {
 		t.Fatal("agent choice persisted or launched installer")
 	}
 }
 
 func TestInstallAgentChoiceCanBeCancelled(t *testing.T) {
-	m, runner := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = nil })
+	m := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = nil })
 	m = productUpdate(t, m, keypress('i'))
 	m = productUpdate(t, m, keypress(tea.KeyEsc))
-	if m.modal != "" || runner.calls != 0 || len(m.selected) != 3 {
-		t.Fatal(m.modal, runner.calls, m.selected)
+	if m.modal != "" || len(m.selected) != 3 {
+		t.Fatal(m.modal, m.selected)
 	}
 }
 
 func TestInstallErrorsNameTheCauseAndStayOnTheList(t *testing.T) {
-	m, _ := installModel(t, nil)
+	m := installModel(t, nil)
 	m.session.Catalog.Skills["c"] = fixtureSkill("c", "alpha", "owner/two")
 	m = productUpdate(t, m, keypress('i'))
 	if m.modal != "" || m.err == nil || !strings.Contains(screenText(m), "both install as") {
@@ -191,7 +182,7 @@ func TestInstallErrorsNameTheCauseAndStayOnTheList(t *testing.T) {
 }
 
 func TestInstallPageOwnsTabAndEscapeCancels(t *testing.T) {
-	m, _ := installModel(t, nil)
+	m := installModel(t, nil)
 	m = openedInstall(t, m)
 	m = productUpdate(t, m, keypress(tea.KeyTab))
 	if m.tab != 0 || m.modal != "install" || !strings.Contains(screenText(m), "Install 3 skills") {
@@ -204,7 +195,7 @@ func TestInstallPageOwnsTabAndEscapeCancels(t *testing.T) {
 }
 
 func TestLongInstallPageWrapsAndScrolls(t *testing.T) {
-	m, _ := installModel(t, nil)
+	m := installModel(t, nil)
 	m.width = 40
 	m.session.Catalog.Skills = map[string]domain.Skill{}
 	m.selected = map[string]bool{}
@@ -234,7 +225,7 @@ func TestLongInstallPageWrapsAndScrolls(t *testing.T) {
 }
 
 func TestInstallRunsEachSourceUnderOneLockThenReloads(t *testing.T) {
-	m, runner := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
+	m := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
 	m = openedInstall(t, m)
 	generation := m.generation
 	m, cmd := m.updateInstallPage("enter")
@@ -242,7 +233,7 @@ func TestInstallRunsEachSourceUnderOneLockThenReloads(t *testing.T) {
 		t.Fatal("Enter did not start preparing")
 	}
 	ready, ok := cmd().(installReady)
-	if !ok || ready.err != nil || ready.op == nil || runner.calls == 0 {
+	if !ok || ready.err != nil || ready.op == nil {
 		t.Fatalf("%+v", ready)
 	}
 	if lockFree(t, m) {
@@ -280,7 +271,7 @@ func TestInstallRunsEachSourceUnderOneLockThenReloads(t *testing.T) {
 }
 
 func TestInstallFailureStopsReleasesTheLockAndSurvivesTheReload(t *testing.T) {
-	m, _ := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
+	m := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
 	m.session.Installer.Fetcher = dirFetcher{} // every fetch fails
 	m = openedInstall(t, m)
 	m, cmd := m.updateInstallPage("enter")
@@ -309,7 +300,7 @@ func TestInstallFailureStopsReleasesTheLockAndSurvivesTheReload(t *testing.T) {
 }
 
 func TestInstallSurfacesSkippedAgentsAndKeepsPartialResults(t *testing.T) {
-	m, _ := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = []string{"codex", "windsurf"} })
+	m := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = []string{"codex", "windsurf"} })
 	m = openedInstall(t, m)
 	m, cmd := m.updateInstallPage("enter")
 	// Pressing enter first returns the command that prepares the operation.
@@ -324,17 +315,17 @@ func TestInstallSurfacesSkippedAgentsAndKeepsPartialResults(t *testing.T) {
 }
 
 func TestInstallPreparationFailureKeepsThePageOpen(t *testing.T) {
-	m, _ := installModel(t, nil)
+	m := installModel(t, nil)
 	m = openedInstall(t, m)
 	m.loading = true
-	m, cmd := updateModel(t, m, installReady{generation: m.generation, err: installation.PrerequisiteError{Reason: "git missing"}})
-	if cmd != nil || m.loading || m.modal != "install" || !strings.Contains(screenText(m), "git missing") {
+	m, cmd := updateModel(t, m, installReady{generation: m.generation, err: installation.PrerequisiteError{Reason: "unsupported agent"}})
+	if cmd != nil || m.loading || m.modal != "install" || !strings.Contains(screenText(m), "unsupported agent") {
 		t.Fatal(m.loading, m.modal, screenText(m))
 	}
 }
 
 func TestInstallPageHasNoPrintOrCopyAndStartsOnEnter(t *testing.T) {
-	m, _ := installModel(t, nil)
+	m := installModel(t, nil)
 	m = openedInstall(t, m)
 	screen := screenText(m)
 	for _, want := range []string{"Enter Start", "owner/one", "alpha", "Agents: codex, claude-code", "Method: symlink"} {
@@ -358,7 +349,7 @@ func TestInstallPageHasNoPrintOrCopyAndStartsOnEnter(t *testing.T) {
 }
 
 func TestInstallWithoutAgentsAsksForThem(t *testing.T) {
-	m, _ := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = nil })
+	m := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = nil })
 	m = productUpdate(t, m, keypress('i'))
 	if m.modal == "install" || m.form.kind != "install-agents" {
 		t.Fatal("install opened without agents", m.modal, m.form.kind)
@@ -366,7 +357,7 @@ func TestInstallWithoutAgentsAsksForThem(t *testing.T) {
 }
 
 func TestInventoryClearsInstalledSelectionsFromAnyTab(t *testing.T) {
-	m, _ := installModel(t, nil)
+	m := installModel(t, nil)
 	id := "c"
 	m.session.Store = settings.Store{}
 	m, _ = updateModel(t, m, noseyInventory{generation: m.generation, inventory: installation.Inventory{Complete: true, Skills: []installation.InventoryItem{{SkillID: &id, Name: "gamma", Status: "installed"}}}})
@@ -376,7 +367,7 @@ func TestInventoryClearsInstalledSelectionsFromAnyTab(t *testing.T) {
 }
 
 func TestOutdatedSkillsShowUpdateAvailableAndStaySelectable(t *testing.T) {
-	m, _ := installModel(t, nil)
+	m := installModel(t, nil)
 	m.selected = map[string]bool{}
 	m.tab = 1
 	m.filters[1].Query = "gamma"
@@ -401,7 +392,7 @@ func TestOutdatedSkillsShowUpdateAvailableAndStaySelectable(t *testing.T) {
 func TestBackgroundInstallKeepsUIResponsiveAndCancels(t *testing.T) {
 	for _, key := range []string{"esc", "ctrl+c"} {
 		t.Run(key, func(t *testing.T) {
-			m, _ := installModel(t, nil)
+			m := installModel(t, nil)
 			m = openedInstall(t, m)
 			m, cmd := m.updateInstallPage("enter")
 			ready, ok := cmd().(installReady)
@@ -443,7 +434,7 @@ func TestBackgroundInstallKeepsUIResponsiveAndCancels(t *testing.T) {
 }
 
 func TestCancelDuringInstallerPreparationStartsNoSource(t *testing.T) {
-	m, _ := installModel(t, nil)
+	m := installModel(t, nil)
 	m = openedInstall(t, m)
 	m, cmd := m.updateInstallPage("enter")
 	m, _ = m.cancelInstall()
@@ -461,7 +452,7 @@ func TestCancelDuringInstallerPreparationStartsNoSource(t *testing.T) {
 }
 
 func TestStaleBackgroundResultDoesNotStartAnotherSource(t *testing.T) {
-	m, _ := installModel(t, nil)
+	m := installModel(t, nil)
 	m = openedInstall(t, m)
 	m.generation++
 	op, err := m.installer().Begin(context.Background())
@@ -479,7 +470,7 @@ func TestStaleBackgroundResultDoesNotStartAnotherSource(t *testing.T) {
 }
 
 func TestInstallProgressIsPartOfThePageNotAnOverlay(t *testing.T) {
-	m, _ := installModel(t, nil)
+	m := installModel(t, nil)
 	m = openedInstall(t, m)
 	m, cmd := m.updateInstallPage("enter")
 	if !strings.Contains(screenText(m), "Preparing installer") || strings.Contains(screenText(m), "Loading workspace") {

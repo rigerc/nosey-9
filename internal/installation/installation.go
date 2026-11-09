@@ -9,7 +9,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/gitclient"
 	"github.com/rigerc/nosey-9/internal/settings"
 	"github.com/rigerc/nosey-9/internal/skillkit"
 )
@@ -19,7 +19,7 @@ type PolicyError struct{ Reason string }
 
 func (e PolicyError) Error() string { return e.Reason }
 
-// PrerequisiteError marks a missing or incompatible prerequisite, such as Git.
+// PrerequisiteError marks a missing or incompatible prerequisite, such as an unsupported agent.
 type PrerequisiteError struct{ Reason string }
 
 func (e PrerequisiteError) Error() string { return e.Reason }
@@ -38,8 +38,8 @@ type SourceFetcher interface {
 type Service struct {
 	Store    settings.Store
 	Settings settings.Settings
-	// Runner runs the Git prerequisite probe; nil uses a process.Runner.
-	Runner process.Executor
+	// Credentials feeds the doctor diagnostics; nil uses gitclient.SharedCredentials.
+	Credentials *gitclient.Credentials
 	// Fetcher fetches git sources; nil uses a skillkit.Fetcher with its own timeouts.
 	Fetcher SourceFetcher
 	// LockTimeout bounds waiting for another Nosey operation in the same workspace; zero uses ten seconds.
@@ -59,14 +59,6 @@ type Options struct {
 }
 
 func unique(v []string) []string { v = slices.Clone(v); slices.Sort(v); return slices.Compact(v) }
-
-func (s Service) run(ctx context.Context, dir string, env []string, name string, args ...string) (process.Output, error) {
-	runner := s.Runner
-	if runner == nil {
-		runner = process.Runner{}
-	}
-	return runner.Run(ctx, dir, env, name, args...)
-}
 
 func (s Service) fetcher() SourceFetcher {
 	if s.Fetcher != nil {

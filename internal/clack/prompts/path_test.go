@@ -2,6 +2,7 @@ package prompts_test
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,6 +14,8 @@ import (
 )
 
 func TestPathInitialState(t *testing.T) {
+	// The default value is the working directory, and a long one would wrap the frame.
+	t.Chdir(string(filepath.Separator))
 	p := prompts.PathModel(prompts.PathParams{Message: message})
 	p.Init()
 

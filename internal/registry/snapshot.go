@@ -8,14 +8,17 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/rigerc/nosey-9/internal/contracts"
 	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/gitclient"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
+
+// snapshotBudget bounds one retrieval: what the clone and fetch commands it
+// replaces were each allowed, 45 seconds.
+const snapshotBudget = 90 * time.Second
 
 // Snapshot identifies one validated data source and immutable Git revision.
 type Snapshot struct {
@@ -108,29 +111,7 @@ func (s Service) Resolve(ctx context.Context, ref domain.RegistryRef, ttl int, r
 		return Snapshot{}, err
 	}
 	defer func() { _ = os.RemoveAll(stage) }()
-	uri := ref.Source.URI
-	if !strings.Contains(uri, ":") && !strings.HasPrefix(uri, "git@") {
-		uri = "https://github.com/" + uri
-	}
-	env := []string{"GIT_TERMINAL_PROMPT=0", "GIT_ALLOW_PROTOCOL=https:ssh", "GIT_LFS_SKIP_SMUDGE=1", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}
-	args := []string{"-c", "core.hooksPath=" + os.DevNull, "-c", "protocol.ext.allow=never", "-c", "submodule.recurse=false", "clone", "--no-checkout", "--depth=1", uri, stage}
-	_, err = s.run(ctx, "", env, "git", args...)
-	if err == nil {
-		requested := ref.Source.Ref
-		if requested == "" {
-			requested = "HEAD"
-		}
-		_, err = s.run(ctx, stage, env, "git", "-c", "core.hooksPath="+os.DevNull, "fetch", "--depth=1", "origin", requested)
-	}
-	if err == nil {
-		_, err = s.run(ctx, stage, env, "git", "-c", "core.hooksPath="+os.DevNull, "-c", "filter.lfs.smudge=", "-c", "filter.lfs.required=false", "checkout", "--detach", "FETCH_HEAD")
-	}
-	var revision string
-	if err == nil {
-		out, runErr := s.run(ctx, stage, env, "git", "rev-parse", "HEAD")
-		err = runErr
-		revision = strings.TrimSpace(string(out.Stdout))
-	}
+	revision, err := s.export(ctx, ref.Source, stage)
 	if err == nil {
 		err = validateSource(stage)
 	}
@@ -200,12 +181,29 @@ func validateSource(root string) error {
 	return nil
 }
 
-func (s Service) run(ctx context.Context, dir string, env []string, name string, args ...string) (process.Output, error) {
-	runner := s.Runner
-	if runner == nil {
-		runner = process.Runner{}
+// export materializes the source's requested revision into dest. Symlinks are
+// kept verbatim: one that leaves the tree cannot fail the whole snapshot, and
+// storage.Read refuses to follow it when validateSource reads a declared file.
+func (s Service) export(ctx context.Context, source domain.RegistrySource, dest string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, snapshotBudget)
+	defer cancel()
+	client := s.Git
+	if client == nil {
+		client = gitclient.New(gitclient.Options{Policy: gitclient.Hardened(), Credentials: gitclient.SharedCredentials()})
 	}
-	return runner.Run(ctx, dir, env, name, args...)
+	repo, err := client.Temporary(ctx, source.URI, gitclient.TemporaryOptions{})
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = repo.Close() }()
+	commit, err := repo.FetchRef(ctx, source.Ref)
+	if err != nil {
+		return "", err
+	}
+	if err = repo.MaterializeVerbatimLinks(ctx, commit, dest); err != nil {
+		return "", err
+	}
+	return commit, nil
 }
 
 // Inspect reports cache freshness without fetching or writing application data.

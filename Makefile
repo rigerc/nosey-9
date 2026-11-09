@@ -6,13 +6,13 @@ COVERAGE_MIN ?= 80
 # Name of the generated agent skill for this CLI.
 SKILL_NAME ?= $(notdir $(BIN))
 # Core services have a shared coverage gate; CLI/TUI tests exercise the same services.
-CORE_PACKAGES := ./internal/app ./internal/catalog ./internal/registrygen ./internal/registrypins ./internal/contracts ./internal/detection ./internal/installation ./internal/process ./internal/registry ./internal/settings ./internal/storage
+CORE_PACKAGES := ./internal/app ./internal/catalog ./internal/registrygen ./internal/registrypins ./internal/contracts ./internal/detection ./internal/gitclient ./internal/githubclient ./internal/installation ./internal/process ./internal/registry ./internal/settings ./internal/storage
 empty :=
 space := $(empty) $(empty)
 CORE_COVERPKG = $(subst $(space),$(comma),$(strip $(CORE_PACKAGES)))
 comma := ,
 
-.PHONY: registry-check scaffold-check check fix format format-check tidy-check lint test test-coverage build smoke repro-check cross-build run skills audit hooks-install clean
+.PHONY: native-runtime-check registry-check scaffold-check check fix format format-check tidy-check lint test test-coverage build smoke repro-check cross-build run skills audit hooks-install clean
 
 # Release platforms; keep in sync with the release.yml matrix.
 CROSS_TARGETS := linux/amd64 linux/arm64
@@ -71,6 +71,15 @@ smoke: build
 	got="$$($(BIN) --version 2>&1)"; \
 	if [ "$$got" != "$$want" ]; then echo "version mismatch: binary $$got, package.toml $$want" >&2; exit 1; fi; \
 	$(BIN) --help > /dev/null
+
+# The binary must run with no git or gh anywhere on PATH. Its scratch home stays
+# under dist/, so make clean covers it.
+native-runtime-check: build
+	@home="$(abspath dist/native-runtime-home)"; mkdir -p "$$home"; \
+	bin="$(abspath $(BIN))"; \
+	env -i PATH=/nonexistent HOME="$$home" XDG_RUNTIME_DIR="$$home" "$$bin" --version >/dev/null; \
+	env -i PATH=/nonexistent HOME="$$home" XDG_RUNTIME_DIR="$$home" "$$bin" --cwd "$$home" doctor
+	$(GO) test ./cmd/nosey -run '^(TestRuntimeWithoutGitExecutable|TestRuntimeWithoutGhExecutable|TestDoctorWithoutGit|TestNativeLocalInstallation)$$' -count=1
 
 # Two clean builds of the same sources must be byte-identical.
 repro-check:
