@@ -91,7 +91,7 @@ func TestNoseyExploreDuplicateRowsShareSelectionAndHiddenSelectionPersists(t *te
 	skill.Source = domain.Source{Kind: "git", URI: "owner/repo", SkillName: "shared"}
 	m.session.Catalog.Skills["s"] = skill
 	m = productUpdate(t, m, keypress('i'))
-	if m.modal != "install" || m.err != nil || len(m.install.commands) != 1 || m.install.commands[0].Skills[0].ID != "s" {
+	if m.modal != "install" || m.err != nil || len(m.install.plans) != 1 || m.install.plans[0].Skills[0].ID != "s" {
 		t.Fatal("hidden selection did not reach the install page", m.modal, m.err)
 	}
 }

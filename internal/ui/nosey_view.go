@@ -131,7 +131,16 @@ func (m noseyModel) View() tea.View {
 		}
 	}
 	if m.tab == 2 {
-		footer = "↑↓ Move · r Refresh inventory · u Check updates · ? Help · Tab Section · q Quit"
+		footer = "↑↓ Move · r Refresh inventory · u Check updates"
+		if item, ok := m.cursorInventory(); ok {
+			if m.canUpdate(item) {
+				footer += " · U Update"
+			}
+			if m.canRemove(item) {
+				footer += " · d Remove"
+			}
+		}
+		footer += " · ? Help · Tab Section · q Quit"
 	}
 	if m.tab == 3 {
 		footer = "↑↓ Move · Enter Edit · a Add existing · n New registry · Tab Section · q Quit"
@@ -142,12 +151,9 @@ func (m noseyModel) View() tea.View {
 			footer = "↑↓ Choose · Enter Apply · Esc Cancel"
 		}
 		if m.modal == "install" {
-			footer = "Enter Start · c Copy commands · ↑↓ Scroll · Esc Cancel"
+			footer = "Enter Start · ↑↓ Scroll · Esc Cancel"
 			if m.install.running {
-				footer = "Esc / Ctrl+C Cancel install · ↑↓ Scroll"
-			}
-			if m.install.printOnly {
-				footer = "c Copy commands · ↑↓ Scroll · Esc Close"
+				footer = "Esc / Ctrl+C Cancel " + m.install.action() + " · ↑↓ Scroll"
 			}
 		}
 	}

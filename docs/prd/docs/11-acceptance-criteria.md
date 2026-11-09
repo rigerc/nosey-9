@@ -84,7 +84,7 @@
 
 **AC-40:** Git source URI/ref and template/local paths reject adversarial CLI options and traversal at schema and semantic layers; clone disable-hook/filter protocols and external symlinks.
 
-**AC-41:** Pinned Skills CLI invocations use validated argv without a shell or unsupported `--` separator; Node/version compatibility and missing features fail safely. Upstream parser/JSON behavior requires version-pinned integration proof before implementation sign-off.
+**AC-41:** Native installation runs Git with validated URI and ref arguments, no shell and hardened configuration, and needs no Node.js, npm or Skills CLI. A missing Git fails safely with exit 6. Disk layout, `skills-lock.json` and `computedHash` match `skills@1.7.6`; this is proven by goldens captured from the real CLI and by an opt-in integration test against the official pin. Workspace code is never executed.
 
 **AC-42:** Installed identity uses canonical logical origin/requested ref and upstream frontmatter name, not a temporary cache path. `list --json` agent display names and upstream tracking states map conservatively to Nosey agent IDs and installed states; ambiguity yields `unknown`, and unmatched installed skills appear unmanaged.
 

@@ -1,0 +1,79 @@
+adal	AdaL	.adal/skills	
+aider-desk	AiderDesk	.aider-desk/skills	
+amp	Amp	.agents/skills	
+antigravity	Antigravity	.agents/skills	showInUniversalPrompt=false
+antigravity-cli	Antigravity CLI	.agents/skills	showInUniversalPrompt=false
+astrbot	AstrBot	data/skills	
+augment	Augment	.augment/skills	
+autohand-code	Autohand Code CLI	.autohand/skills	
+bob	IBM Bob	.bob/skills	
+claude-code	Claude Code	.claude/skills	createProjectSkillsDirByDefault=true
+cline	Cline	.agents/skills	
+codearts-agent	CodeArts Agent	.codeartsdoer/skills	
+codebuddy	CodeBuddy	.codebuddy/skills	
+codemaker	Codemaker	.codemaker/skills	
+codestudio	Code Studio	.codestudio/skills	
+codex	Codex	.agents/skills	
+command-code	Command Code	.commandcode/skills	
+continue	Continue	.continue/skills	
+cortex	Cortex Code	.cortex/skills	
+crush	Crush	.crush/skills	
+cursor	Cursor	.agents/skills	
+deepagents	Deep Agents	.agents/skills	showInUniversalPrompt=false
+devin	Devin for Terminal	.devin/skills	
+dexto	Dexto	.agents/skills	showInUniversalPrompt=false
+droid	Droid	.agents/skills	
+eve	Eve	agent/skills	
+firebender	Firebender	.agents/skills	showInUniversalPrompt=false
+forgecode	ForgeCode	.forge/skills	
+fx	fx	.agents/skills	
+gemini-cli	Gemini CLI	.agents/skills	
+github-copilot	GitHub Copilot	.agents/skills	
+goose	Goose	.goose/skills	
+grok	Grok Build	.grok/skills	
+hermes-agent	Hermes Agent	.hermes/skills	
+iflow-cli	iFlow CLI	.iflow/skills	
+inference-sh	inference.sh	.inferencesh/skills	
+jazz	Jazz	.jazz/skills	
+junie	Junie	.junie/skills	
+kilo	Kilo Code	.agents/skills	
+kimchi	Kimchi	.kimchi/skills	
+kimi-code-cli	Kimi Code CLI	.agents/skills	
+kiro-cli	Kiro CLI	.kiro/skills	
+kode	Kode	.kode/skills	
+lingma	Lingma	.lingma/skills	
+loaf	Loaf	.agents/skills	showInUniversalPrompt=false
+mcpjam	MCPJam	.mcpjam/skills	
+minimax-code	MiniMax Code	.minimax/skills	
+mistral-vibe	Mistral Vibe	.vibe/skills	
+moxby	Moxby	.moxby/skills	
+mux	Mux	.mux/skills	
+neovate	Neovate	.neovate/skills	
+ona	Ona	.ona/skills	
+openclaw	OpenClaw	skills	
+opencode	OpenCode	.agents/skills	
+openhands	OpenHands	.openhands/skills	
+pi	Pi	.agents/skills	
+pochi	Pochi	.pochi/skills	
+posit-assistant	Posit Assistant	.posit/assistant/skills	
+promptscript	PromptScript	.agents/skills	showInUniversalPrompt=false
+qoder-cn	Qoder CN	.qoder/skills	
+qoder	Qoder	.qoder/skills	
+qwen-code	Qwen Code	.qwen/skills	
+reasonix	Reasonix	.reasonix/skills	
+replit	Replit	.agents/skills	showInUniversalList=false
+roo	Roo Code	.roo/skills	
+rovodev	Rovo Dev	.rovodev/skills	
+sarvam-code	Sarvam Code	.agents/skills	showInUniversalPrompt=false
+tabnine-cli	Tabnine CLI	.tabnine/agent/skills	
+terramind	Terramind	.terramind/skills	
+tinycloud	Tinycloud	.tinycloud/skills	
+trae-cn	Trae CN	.trae/skills	
+trae	Trae	.trae/skills	
+universal	Universal	.agents/skills	showInUniversalList=false
+warp	Warp	.agents/skills	
+windsurf	Windsurf	.windsurf/skills	
+zcode	ZCode	.zcode/skills	
+zed	Zed	.agents/skills	
+zencoder	Zencoder	.zencoder/skills	
+zenflow	Zenflow	.zencoder/skills	

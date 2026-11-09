@@ -42,3 +42,26 @@ func HardenedArgs(args ...string) []string {
 		"-c", "submodule.recurse=false",
 	}, args...)
 }
+
+// CredentialedEnv is the environment for the one Git command that must see the
+// user's global Git configuration so credential helpers, SSH settings and URL
+// rewrites work for private repositories. Unlike HardenedEnv it does not null
+// the user configuration, so callers must run only a network fetch with it,
+// never a checkout: a fetch executes no smudge or clean filters. It still
+// disables terminal prompts and LFS smudge and restricts transports to HTTPS
+// and SSH. Pair it with CredentialedArgs.
+func CredentialedEnv() []string {
+	return []string{
+		"GIT_TERMINAL_PROMPT=0",
+		"GIT_ALLOW_PROTOCOL=https:ssh",
+		"GIT_LFS_SKIP_SMUDGE=1",
+	}
+}
+
+// CredentialedArgs prefixes Git arguments for the credentialed fetch. It applies
+// HardenedArgs, so command-line settings override hooks, the ext transport and
+// submodule recursion even if the user configuration enables them, and turns off
+// automatic maintenance that could otherwise run after the fetch.
+func CredentialedArgs(args ...string) []string {
+	return HardenedArgs(append([]string{"-c", "gc.auto=0", "-c", "maintenance.auto=false"}, args...)...)
+}

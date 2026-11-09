@@ -1,89 +1,32 @@
 package installation
 
-import "maps"
+import (
+	"github.com/rigerc/nosey-9/internal/skillkit"
+)
 
-// Agent display names from skills@1.7.6 (vercel-labs/skills, MIT).
-var agents = map[string]string{
-	"aider-desk":      "AiderDesk",
-	"amp":             "Amp",
-	"antigravity":     "Antigravity",
-	"antigravity-cli": "Antigravity CLI",
-	"astrbot":         "AstrBot",
-	"autohand-code":   "Autohand Code CLI",
-	"augment":         "Augment",
-	"bob":             "IBM Bob",
-	"claude-code":     "Claude Code",
-	"openclaw":        "OpenClaw",
-	"cline":           "Cline",
-	"codearts-agent":  "CodeArts Agent",
-	"codebuddy":       "CodeBuddy",
-	"codemaker":       "Codemaker",
-	"codestudio":      "Code Studio",
-	"codex":           "Codex",
-	"command-code":    "Command Code",
-	"continue":        "Continue",
-	"cortex":          "Cortex Code",
-	"crush":           "Crush",
-	"cursor":          "Cursor",
-	"deepagents":      "Deep Agents",
-	"devin":           "Devin for Terminal",
-	"dexto":           "Dexto",
-	"droid":           "Droid",
-	"eve":             "Eve",
-	"firebender":      "Firebender",
-	"forgecode":       "ForgeCode",
-	"fx":              "fx",
-	"gemini-cli":      "Gemini CLI",
-	"github-copilot":  "GitHub Copilot",
-	"goose":           "Goose",
-	"grok":            "Grok Build",
-	"hermes-agent":    "Hermes Agent",
-	"inference-sh":    "inference.sh",
-	"jazz":            "Jazz",
-	"junie":           "Junie",
-	"iflow-cli":       "iFlow CLI",
-	"kilo":            "Kilo Code",
-	"kimchi":          "Kimchi",
-	"kimi-code-cli":   "Kimi Code CLI",
-	"kiro-cli":        "Kiro CLI",
-	"kode":            "Kode",
-	"lingma":          "Lingma",
-	"loaf":            "Loaf",
-	"mcpjam":          "MCPJam",
-	"minimax-code":    "MiniMax Code",
-	"mistral-vibe":    "Mistral Vibe",
-	"moxby":           "Moxby",
-	"mux":             "Mux",
-	"opencode":        "OpenCode",
-	"openhands":       "OpenHands",
-	"ona":             "Ona",
-	"pi":              "Pi",
-	"posit-assistant": "Posit Assistant",
-	"qoder":           "Qoder",
-	"qoder-cn":        "Qoder CN",
-	"qwen-code":       "Qwen Code",
-	"replit":          "Replit",
-	"reasonix":        "Reasonix",
-	"rovodev":         "Rovo Dev",
-	"roo":             "Roo Code",
-	"sarvam-code":     "Sarvam Code",
-	"tabnine-cli":     "Tabnine CLI",
-	"terramind":       "Terramind",
-	"tinycloud":       "Tinycloud",
-	"trae":            "Trae",
-	"trae-cn":         "Trae CN",
-	"warp":            "Warp",
-	"windsurf":        "Windsurf",
-	"zed":             "Zed",
-	"zcode":           "ZCode",
-	"zencoder":        "Zencoder",
-	"zenflow":         "Zenflow",
-	"neovate":         "Neovate",
-	"pochi":           "Pochi",
-	"promptscript":    "PromptScript",
-	"adal":            "AdaL",
-	"universal":       "Universal",
+// agentTable returns the built-in agents plus the custom agents from user settings.
+func (s Service) agentTable() (skillkit.AgentTable, error) {
+	custom := make([]skillkit.CustomAgent, 0, len(s.Settings.Installation.CustomAgents))
+	for _, a := range s.Settings.Installation.CustomAgents {
+		custom = append(custom, skillkit.CustomAgent{ID: a.ID, Name: a.Name, SkillsDir: a.SkillsDir})
+	}
+	table, err := skillkit.NewAgentTable(s.home(), custom)
+	if err != nil {
+		return skillkit.AgentTable{}, PolicyError{Reason: "invalid custom agent: " + err.Error()}
+	}
+	return table, nil
 }
 
-// AgentNames returns the pinned installer agent IDs and their display names.
-func AgentNames() map[string]string { return maps.Clone(agents) }
+// AgentNames returns every supported agent ID with its display name, custom agents included.
+// An invalid custom agent set falls back to the built-in agents.
+func (s Service) AgentNames() map[string]string {
+	table, err := s.agentTable()
+	if err != nil {
+		table, _ = skillkit.NewAgentTable(s.home(), nil)
+	}
+	names := map[string]string{}
+	for _, a := range table.All() {
+		names[a.ID] = a.Name
+	}
+	return names
+}

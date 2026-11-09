@@ -1,61 +1,74 @@
 package installation
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
-	"github.com/charmbracelet/x/ansi"
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/registry"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
 
-// AddSkill is one skill installed by an AddCommand.
+// AddSkill is one skill installed by a SourcePlan.
 type AddSkill struct {
 	ID, Name string
 	// Required marks a skill pulled in by another selection rather than chosen directly.
 	Required bool
+	// Reasons say why an update touches the skill; empty for installs.
+	Reasons []string
+	// RequiredBy names the installed skills that pull in a newly required skill during an
+	// update; it decides which locations the skill is installed to.
+	RequiredBy []string
+	// Targets describes where an update writes, for the confirmation: "path (copy|symlink)".
+	Targets []string
 }
 
-// AddCommand is one upstream `skills add` invocation for a single source.
-type AddCommand struct {
+// SourcePlan is the install of several skills from one source and ref for one set of agents.
+type SourcePlan struct {
+	// Source is a git URI or, for registry-local skills, an absolute directory.
 	Source string
+	// Ref is the requested git ref; empty means the default branch.
 	Ref    string
 	Skills []AddSkill
-	Args   []string
+	Agents []string
+	// Method is "symlink" or "copy".
+	Method string
 }
 
-// Build turns a catalog selection into one `skills add` per source. It performs no I/O.
-func (s Service) Build(c domain.Catalog, recs catalog.Recommendations, opts Options) ([]AddCommand, error) {
-	if s.Settings.Installation.Version != Version {
-		return nil, PrerequisiteError{Reason: "only skills@" + Version + " is supported"}
+// Local reports whether the source is a directory inside a local registry.
+func (p SourcePlan) Local() bool { return filepath.IsAbs(p.Source) }
+
+func (p SourcePlan) names() []string {
+	names := make([]string, 0, len(p.Skills))
+	for _, skill := range p.Skills {
+		names = append(names, skill.Name)
 	}
-	chosen := unique(opts.Agents)
-	if len(chosen) == 0 {
-		chosen = unique(s.Settings.Installation.Agents)
+	return names
+}
+
+// Build turns a catalog selection into one SourcePlan per source. It performs no I/O.
+func (s Service) Build(c domain.Catalog, recs catalog.Recommendations, opts Options) ([]SourcePlan, error) {
+	chosen, method := s.Agents(opts)
+	table, err := s.agentTable()
+	if err != nil {
+		return nil, err
 	}
 	for _, id := range chosen {
-		if _, ok := agents[id]; !ok {
+		if _, ok := table.Get(id); !ok {
 			return nil, PrerequisiteError{Reason: "unsupported agent " + id}
 		}
 	}
-	if opts.Yes && len(chosen) == 0 {
-		return nil, fmt.Errorf("non-interactive install requires --agent or configured installation.agents")
-	}
-	method := opts.Method
-	if method == "" {
-		method = s.Settings.Installation.Method
+	if len(chosen) == 0 {
+		if opts.Yes {
+			return nil, PolicyError{Reason: "non-interactive install requires --agent or configured installation.agents"}
+		}
+		return nil, PolicyError{Reason: "select at least one target agent"}
 	}
 	if method != "copy" && method != "symlink" {
-		return nil, fmt.Errorf("invalid installation method")
+		return nil, PolicyError{Reason: "invalid installation method"}
 	}
 	selected := unique(opts.IDs)
 	ordered, err := dependencyOrder(c, recs, selected)
@@ -68,7 +81,7 @@ func (s Service) Build(c domain.Catalog, recs catalog.Recommendations, opts Opti
 	if err = checkSelection(c, recs, ordered, opts.IgnoreConflicts); err != nil {
 		return nil, err
 	}
-	commands := []AddCommand{}
+	plans := []SourcePlan{}
 	bySource := map[string]int{}
 	for _, id := range ordered {
 		required := !slices.Contains(selected, id)
@@ -76,20 +89,20 @@ func (s Service) Build(c domain.Catalog, recs catalog.Recommendations, opts Opti
 			continue
 		}
 		skill := c.Skills[id]
-		source, ref, arg, err := addSource(c, skill)
+		source, ref, err := addSource(c, skill)
 		if err != nil {
 			return nil, err
 		}
-		at, ok := bySource[arg]
+		key := source + "#" + ref
+		at, ok := bySource[key]
 		if !ok {
-			at = len(commands)
-			bySource[arg] = at
-			commands = append(commands, AddCommand{Source: source, Ref: ref})
+			at = len(plans)
+			bySource[key] = at
+			plans = append(plans, SourcePlan{Source: source, Ref: ref, Agents: slices.Clone(chosen), Method: method})
 		}
-		commands[at].Skills = append(commands[at].Skills, AddSkill{ID: id, Name: skill.Source.SkillName, Required: required})
-		commands[at].Args = addArgs(arg, commands[at].Skills, chosen, method, opts.Yes)
+		plans[at].Skills = append(plans[at].Skills, AddSkill{ID: id, Name: skill.Source.SkillName, Required: required})
 	}
-	return commands, nil
+	return plans, nil
 }
 
 // dependencyOrder walks catalog and mapping requirements, dependencies first.
@@ -173,165 +186,63 @@ func checkSelection(c domain.Catalog, recs catalog.Recommendations, ordered []st
 	return nil
 }
 
-func addSource(c domain.Catalog, skill domain.Skill) (source, ref, arg string, err error) {
+func addSource(c domain.Catalog, skill domain.Skill) (source, ref string, err error) {
 	if !safeSkillName.MatchString(skill.Source.SkillName) {
-		return "", "", "", fmt.Errorf("unsafe upstream skill name %q", skill.Source.SkillName)
+		return "", "", fmt.Errorf("unsafe upstream skill name %q", skill.Source.SkillName)
 	}
 	if skill.Source.Kind == "local" {
 		root := c.Roots[skill.RegistryID]
 		if !filepath.IsAbs(root) || !filepath.IsLocal(skill.Source.Path) {
-			return "", "", "", fmt.Errorf("local skill path must remain inside registry")
+			return "", "", fmt.Errorf("local skill path must remain inside registry")
 		}
-		path := filepath.Join(root, skill.Source.Path)
-		return path, "", path, nil
+		return filepath.Join(root, skill.Source.Path), "", nil
 	}
 	if err = registry.ValidateGit(skill.Source.URI, skill.Source.Ref); err != nil {
-		return "", "", "", err
+		return "", "", err
 	}
-	arg = skill.Source.URI
-	if skill.Source.Ref != "" {
-		arg += "#" + skill.Source.Ref
-	}
-	return skill.Source.URI, skill.Source.Ref, arg, nil
+	return skill.Source.URI, skill.Source.Ref, nil
 }
 
-func addArgs(source string, skills []AddSkill, chosen []string, method string, yes bool) []string {
-	args := []string{"add", source, "--full-depth", "--skill"}
-	for _, skill := range skills {
-		args = append(args, skill.Name)
+// Summary describes what a confirmed source will install, for the confirmation prompt.
+// Values are sanitized for terminal display.
+func (p SourcePlan) Summary() string {
+	names := make([]string, 0, len(p.Skills))
+	for _, skill := range p.Skills {
+		name := storage.Safe(skill.Name)
+		if skill.Required {
+			name += " (required)"
+		}
+		names = append(names, name)
 	}
-	if len(chosen) > 0 {
-		args = append(append(args, "--agent"), chosen...)
+	ref := p.Ref
+	if ref == "" {
+		ref = "default branch"
 	}
-	if method == "copy" {
-		args = append(args, "--copy")
-	}
-	if yes {
-		args = append(args, "--yes")
-	}
-	return args
+	return fmt.Sprintf("Source: %s\n  Ref: %s\n  Skills: %s\n  Agents: %s\n  Method: %s",
+		storage.Safe(p.Source), storage.Safe(ref), strings.Join(names, ", "), storage.Safe(strings.Join(p.Agents, ", ")), p.Method)
 }
 
-// Text returns the shell-escaped command for a user to run themselves.
-func (c AddCommand) Text() string {
-	parts := []string{}
-	for _, arg := range append([]string{"npx", "--yes", "skills@" + Version}, c.Args...) {
-		parts = append(parts, "'"+strings.ReplaceAll(arg, "'", "'\\''")+"'")
+// Agents returns the agent IDs and method a Build with these options and settings selects.
+func (s Service) Agents(opts Options) (agents []string, method string) {
+	agents = unique(opts.Agents)
+	if len(agents) == 0 {
+		agents = unique(s.Settings.Installation.Agents)
 	}
-	return strings.Join(parts, " ")
+	method = opts.Method
+	if method == "" {
+		method = s.Settings.Installation.Method
+	}
+	return agents, method
 }
 
-// Prepare checks the project and resolves the CLI before any source runs.
-func (s Service) Prepare(ctx context.Context) (CLI, error) {
-	if err := s.Preflight(); err != nil {
-		return CLI{}, err
-	}
-	if err := s.requirePrerequisites(ctx); err != nil {
-		return CLI{}, err
-	}
-	return s.resolveCLI(ctx)
-}
-
-// RunSource runs a confirmed source without terminal access and verifies its lock entries.
-// Output is bounded by the runner; only a short, sanitized failure detail is returned.
-func (s Service) RunSource(ctx context.Context, cli CLI, command AddCommand) error {
-	if !slices.Contains(command.Args, "--yes") {
-		return PolicyError{Reason: "background installation requires --yes"}
-	}
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if s.Runner == nil {
-		s.Runner = process.Runner{}
-	}
-	if runner, ok := s.Runner.(process.Runner); ok {
-		if runner.Timeout == 0 {
-			runner.Timeout = 5 * time.Minute
+// Label is a short, sanitized description of the source and ref for progress output.
+func (p SourcePlan) Label() string {
+	label := strings.TrimSuffix(strings.TrimPrefix(p.Source, "https://github.com/"), ".git")
+	if ref := p.Ref; ref != "" {
+		if len(ref) == 40 {
+			ref = ref[:7]
 		}
-		if runner.Limit == 0 {
-			runner.Limit = 256 << 10
-		}
-		s.Runner = runner
+		label += " @" + ref
 	}
-	name, args := cli.argv(command.Args...)
-	out, err := s.run(ctx, s.Store.Workspace, s.env(), name, args...)
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	if err != nil {
-		detail := strings.TrimSpace(string(out.Stderr))
-		if detail == "" {
-			detail = strings.TrimSpace(string(out.Stdout))
-		}
-		detail = storage.Safe(ansi.Strip(detail))
-		if len(detail) > 2000 {
-			detail = string([]rune(detail)[max(0, len([]rune(detail))-1000):])
-		}
-		if detail != "" {
-			return fmt.Errorf("%w: %s", err, detail)
-		}
-		return err
-	}
-	return s.VerifyInstall(command)
-}
-
-// Install runs each command on the terminal and stops at the first failure.
-func (s Service) Install(ctx context.Context, commands []AddCommand) error {
-	cli, err := s.Prepare(ctx)
-	if err != nil {
-		return err
-	}
-	attach := s.Attach
-	if attach == nil {
-		attach = process.RunAttached
-	}
-	for i, command := range commands {
-		name, args := cli.argv(command.Args...)
-		if err = attach(ctx, s.Store.Workspace, s.env(), name, args...); err != nil {
-			return fmt.Errorf("skills add failed for %s: %w (%d later sources not started)", command.Source, err, len(commands)-i-1)
-		}
-		if err = s.VerifyInstall(command); err != nil {
-			return fmt.Errorf("%w (%d later sources not started)", err, len(commands)-i-1)
-		}
-	}
-	return nil
-}
-
-// VerifyInstall catches what a zero exit hides: without prompts, upstream skips skills it cannot find.
-// Interactive runs are excluded because a cancelled prompt also exits zero and is not a failure.
-func (s Service) VerifyInstall(command AddCommand) error {
-	if !slices.Contains(command.Args, "--yes") {
-		return nil
-	}
-	lock, err := s.readLock()
-	if err != nil {
-		return fmt.Errorf("skills add for %s left no usable lock: %w", command.Source, err)
-	}
-	missing := []string{}
-	for _, skill := range command.Skills {
-		if _, ok := lock.Skills[skill.Name]; !ok {
-			missing = append(missing, skill.Name)
-		}
-	}
-	if len(missing) > 0 {
-		return fmt.Errorf("skills CLI did not install %s from %s", strings.Join(missing, ", "), command.Source)
-	}
-	return nil
-}
-
-// Preflight refuses project roots and lock states the installer must not touch.
-func (s Service) Preflight() error {
-	if home, err := os.UserHomeDir(); err == nil && samePath(home, s.Store.Workspace) {
-		return PolicyError{Reason: "refusing to install into the home directory; run from a project directory"}
-	}
-	if _, err := s.readLock(); err != nil && !errors.Is(err, errLockMissing) {
-		return PolicyError{Reason: err.Error() + "; fix or delete it before installing"}
-	}
-	return nil
-}
-
-func samePath(a, b string) bool {
-	left, leftErr := filepath.EvalSymlinks(a)
-	right, rightErr := filepath.EvalSymlinks(b)
-	return leftErr == nil && rightErr == nil && left == right
+	return storage.Safe(label)
 }

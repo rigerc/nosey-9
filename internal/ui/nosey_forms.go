@@ -199,7 +199,7 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 		switch key {
 		case "installation.agents":
 			data, _ = json.Marshal(csv(values[0]))
-		case "installation.method", "installation.defaultMode", "installation.upstreamTelemetry", "ui.mode":
+		case "installation.method", "ui.mode":
 			data, _ = json.Marshal(values[0])
 		case "detection.exclude":
 			data, _ = json.Marshal(csv(values[0]))
@@ -308,10 +308,6 @@ func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
 		m.openForm("setting", []string{"updates.ttlHours"}, []string{strconv.Itoa(m.session.Resolved.Settings.Updates.TTL)})
 	case "mcp":
 		m.openForm("setting", []string{"detection.enableMcpPackage"}, []string{strconv.FormatBool(m.session.Resolved.Settings.Detection.MCP)})
-	case "mode":
-		m.openForm("setting", []string{"installation.defaultMode"}, []string{m.session.Resolved.Settings.Installation.Mode})
-	case "telemetry":
-		m.openForm("setting", []string{"installation.upstreamTelemetry"}, []string{m.session.Resolved.Settings.Installation.Telemetry})
 	case "bytes":
 		m.openForm("setting", []string{"detection.maxFileBytes"}, []string{strconv.FormatInt(m.session.Resolved.Settings.Detection.MaxBytes, 10)})
 	case "exclude":

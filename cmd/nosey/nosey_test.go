@@ -7,8 +7,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rigerc/nosey-9/internal/app"
 	"github.com/rigerc/nosey-9/internal/domain"
@@ -16,23 +18,25 @@ import (
 	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/registry"
 	"github.com/rigerc/nosey-9/internal/settings"
+	"github.com/rigerc/nosey-9/internal/skillkit"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
 
-type emptyInventoryRunner struct{ calls int }
-
-func (r *emptyInventoryRunner) Run(_ context.Context, _ string, _ []string, _ string, args ...string) (process.Output, error) {
-	r.calls++
-	if len(args) > 0 && args[len(args)-1] == "--version" {
-		v := "v22.20.0"
-		if len(args) > 1 {
-			v = installation.Version
-		}
-		return process.Output{Stdout: []byte(v)}, nil
-	}
-	return process.Output{Stdout: []byte(`[]`)}, nil
+// gitRunner answers the Git prerequisite probe so tests do not depend on the machine.
+type gitRunner struct {
+	calls int
+	err   error
 }
-func fixtureSession(t *testing.T) (app.Session, *emptyInventoryRunner) {
+
+func (r *gitRunner) Run(_ context.Context, _ string, _ []string, name string, _ ...string) (process.Output, error) {
+	r.calls++
+	if r.err != nil {
+		return process.Output{}, r.err
+	}
+	return process.Output{Stdout: []byte(name + " version 2.50.0")}, nil
+}
+
+func fixtureSession(t *testing.T) (app.Session, *gitRunner) {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
@@ -57,10 +61,8 @@ func fixtureSession(t *testing.T) (app.Session, *emptyInventoryRunner) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &emptyInventoryRunner{}
-	return app.Session{Store: store, Resolved: resolved, Catalog: catalog, Registry: reg, Installer: installation.Service{Store: store, Settings: cfg, Runner: runner, Resolver: func(context.Context) (installation.CLI, error) {
-		return installation.CLI{Name: "npx", Args: []string{"--yes", "skills@" + installation.Version}, Backend: "npx"}, nil
-	}}}, runner
+	runner := &gitRunner{}
+	return app.Session{Store: store, Resolved: resolved, Catalog: catalog, Registry: reg, Installer: installation.Service{Store: store, Settings: cfg, Runner: runner, Home: t.TempDir()}}, runner
 }
 func TestMachineCommandsAndNonTTYContracts(t *testing.T) {
 	session, _ := fixtureSession(t)
@@ -118,7 +120,7 @@ func TestIncompleteStrictAndUsageErrors(t *testing.T) {
 	session, _ := fixtureSession(t)
 	session.Resolved.Settings.Detection.MaxBytes = 1
 	open := func(context.Context, string, string, bool) (app.Session, error) { return session, nil }
-	for _, args := range [][]string{{"install", "local:workspace-style", "--agent", "*", "--print"}, {"scan", "--quality", "invented", "--json"}, {"scan", "--sort-skills", "invented"}, {"registry", "init", filepath.Join(t.TempDir(), "new")}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--public"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--github", "not-a-slug"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--ci", "gitlab"}, {"registry", "pins", "update", t.TempDir(), "--quarantine", "maybe"}, {"registry", "pins", "check", t.TempDir()}, {"registry", "ci", "update", t.TempDir()}} {
+	for _, args := range [][]string{{"install", "local:workspace-style", "--agent", "*", "--yes"}, {"scan", "--quality", "invented", "--json"}, {"scan", "--sort-skills", "invented"}, {"registry", "init", filepath.Join(t.TempDir(), "new")}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--public"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--github", "not-a-slug"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--ci", "gitlab"}, {"registry", "pins", "update", t.TempDir(), "--quarantine", "maybe"}, {"registry", "pins", "check", t.TempDir()}, {"registry", "ci", "update", t.TempDir()}} {
 		cmd := newCommandTree(open)
 		var out bytes.Buffer
 		cmd.SetOut(&out)
@@ -135,87 +137,139 @@ func TestIncompleteStrictAndUsageErrors(t *testing.T) {
 
 const fixtureSkill = "local:workspace-style"
 
-type attachCall struct {
-	dir  string
-	name string
-	args []string
-}
-
-// runInstall executes `nosey install` against the fixture and records terminal-attached runs.
-func runInstall(t *testing.T, session app.Session, attachErr error, args ...string) ([]attachCall, string, error) {
+// runInstall executes `nosey install` against the fixture.
+func runInstall(t *testing.T, session app.Session, args ...string) (string, error) {
 	t.Helper()
-	calls := []attachCall{}
-	session.Installer.Attach = func(_ context.Context, dir string, _ []string, name string, argv ...string) error {
-		calls = append(calls, attachCall{dir, name, argv})
-		return attachErr
-	}
 	cmd := newCommandTree(func(context.Context, string, string, bool) (app.Session, error) { return session, nil })
 	var out bytes.Buffer
 	cmd.SetOut(&out)
 	cmd.SetErr(&out)
 	cmd.SetArgs(append([]string{"--cwd", session.Store.Workspace, "install"}, args...))
 	err := cmd.Execute()
-	return calls, out.String(), err
+	return out.String(), err
 }
 
-func TestInstallYesRunsTheSkillsCLIInTheWorkspace(t *testing.T) {
-	session, _ := fixtureSession(t)
-	lock := `{"version":1,"skills":{"` + session.Catalog.Skills[fixtureSkill].Source.SkillName + `":{"source":"local"}}}`
-	if err := storage.Write(filepath.Join(session.Store.Workspace, "skills-lock.json"), []byte(lock)); err != nil {
-		t.Fatal(err)
-	}
-	calls, out, err := runInstall(t, session, nil, fixtureSkill, "--agent", "codex", "--yes", "--copy")
+func skillName(session app.Session) string {
+	return session.Catalog.Skills[fixtureSkill].Source.SkillName
+}
+
+func TestInstallYesInstallsIntoTheWorkspaceAndReportsProgress(t *testing.T) {
+	session, runner := fixtureSession(t)
+	out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--yes", "--copy")
 	if err != nil {
 		t.Fatal(err, out)
 	}
-	if len(calls) != 1 || calls[0].dir != session.Store.Workspace || calls[0].name != "npx" {
-		t.Fatalf("%+v", calls)
-	}
-	joined := strings.Join(calls[0].args, " ")
-	for _, want := range []string{"add ", "--skill", "--agent codex", "--copy", "--yes"} {
-		if !strings.Contains(joined, want) {
-			t.Fatal(want, joined)
+	for _, want := range []string{"[1/1] Installing " + skillName(session), "installed " + skillName(session) + " for codex"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q in\n%s", want, out)
 		}
+	}
+	installed := filepath.Join(session.Store.Workspace, ".agents", "skills", skillName(session), "SKILL.md")
+	if _, err = os.Stat(installed); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.ReadFile(filepath.Join(session.Store.Workspace, "skills-lock.json"))
+	if err != nil || !strings.Contains(string(lock), `"`+skillName(session)+`"`) || !strings.Contains(string(lock), `"sourceType": "local"`) {
+		t.Fatal(string(lock), err)
 	}
 	if _, err = os.Stat(filepath.Join(session.Store.Workspace, ".nosey")); !os.IsNotExist(err) {
 		t.Fatal("install wrote nosey project state", err)
 	}
+	if runner.calls == 0 {
+		t.Fatal("the Git prerequisite was not checked")
+	}
 }
 
-func TestInstallFailureExitsFive(t *testing.T) {
+func TestInstallSurfacesSkippedAgents(t *testing.T) {
 	session, _ := fixtureSession(t)
-	_, _, err := runInstall(t, session, errors.New("exit status 1"), fixtureSkill, "--agent", "codex", "--yes")
-	if err == nil || exitCode(err) != 5 {
+	out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--agent", "windsurf", "--yes")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !strings.Contains(out, "skipped windsurf for "+skillName(session)) || !strings.Contains(out, "project directory does not exist") {
+		t.Fatal(out)
+	}
+	if _, err = os.Stat(filepath.Join(session.Store.Workspace, ".windsurf")); !os.IsNotExist(err) {
+		t.Fatal("a skipped agent's directory was created")
+	}
+}
+
+func TestInstallFailureExitsFiveAndKeepsCompletedWork(t *testing.T) {
+	session, _ := fixtureSession(t)
+	session.Installer.Settings.Installation.CustomAgents = []settings.CustomAgent{{ID: "blocked", Name: "Blocked", SkillsDir: ".blocked/skills"}}
+	if err := os.WriteFile(filepath.Join(session.Store.Workspace, ".blocked"), []byte("in the way"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func TestInstallPrintRunsNothing(t *testing.T) {
-	for name, mutate := range map[string]func(*app.Session) []string{
-		"flag": func(*app.Session) []string { return []string{"--print"} },
-		"setting": func(s *app.Session) []string {
-			s.Resolved.Settings.Installation.Mode = "print"
-			return nil
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			session, runner := fixtureSession(t)
-			extra := mutate(&session)
-			calls, out, err := runInstall(t, session, nil, append([]string{fixtureSkill, "--agent", "codex"}, extra...)...)
-			if err != nil {
-				t.Fatal(err, out)
-			}
-			if len(calls) != 0 || runner.calls != 0 {
-				t.Fatal("print ran the skills CLI", calls, runner.calls)
-			}
-			if !strings.HasPrefix(out, "'npx' '--yes' 'skills@"+installation.Version+"' 'add' ") {
-				t.Fatal(out)
-			}
-		})
+	out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--agent", "blocked", "--yes", "--copy")
+	if err == nil || exitCode(err) != 5 {
+		t.Fatal(err, out)
+	}
+	if !strings.Contains(out, "failed for blocked") {
+		t.Fatal(out)
+	}
+	if _, err = os.Stat(filepath.Join(session.Store.Workspace, "skills-lock.json")); err != nil {
+		t.Fatal("completed work was not recorded:", err)
 	}
 }
 
-func TestInstallRefusesWithoutRunningTheCLI(t *testing.T) {
+// lockSaboteur makes the lock unwritable after the final preflight, then fetches normally.
+type lockSaboteur struct{ workspace string }
+
+func (l lockSaboteur) Fetch(ctx context.Context, src skillkit.Source) (*skillkit.Checkout, error) {
+	if err := os.Mkdir(filepath.Join(l.workspace, "skills-lock.json"), 0o750); err != nil {
+		return nil, err
+	}
+	return skillkit.Fetcher{}.Fetch(ctx, src)
+}
+
+func TestInstallWithAFailedLockWriteExitsFive(t *testing.T) {
+	session, _ := fixtureSession(t)
+	session.Installer.Fetcher = lockSaboteur{session.Store.Workspace}
+	out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--yes", "--copy")
+	if err == nil || exitCode(err) != 5 || !strings.Contains(err.Error(), "skills-lock.json could not be updated") {
+		t.Fatal("an unrecorded install was not reported as incomplete:", err, out)
+	}
+}
+
+func TestInstallExitCodesForPolicyPrerequisiteAndBusyWorkspace(t *testing.T) {
+	session, runner := fixtureSession(t)
+	if err := os.WriteFile(filepath.Join(session.Store.Workspace, "skills-lock.json"), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--yes"); err == nil || exitCode(err) != 2 {
+		t.Fatal("a broken lock is a policy error:", err, out)
+	}
+	if err := os.Remove(filepath.Join(session.Store.Workspace, "skills-lock.json")); err != nil {
+		t.Fatal(err)
+	}
+	runner.err = errors.New("git: not found")
+	if out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--yes"); err == nil || exitCode(err) != 6 {
+		t.Fatal("missing Git is exit 6:", err, out)
+	}
+	runner.err = nil
+	session.Installer.LockTimeout = 100 * time.Millisecond
+	op, err := session.Installer.Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = op.Close() }()
+	if out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--yes"); err == nil || exitCode(err) != 2 || !strings.Contains(err.Error(), "another Nosey operation is running") {
+		t.Fatal("a busy workspace is refused:", err, out)
+	}
+}
+
+func TestInstallRejectsRemovedPrintFlag(t *testing.T) {
+	session, runner := fixtureSession(t)
+	out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--print")
+	if err == nil || !strings.Contains(err.Error(), "unknown flag: --print") {
+		t.Fatal(err, out)
+	}
+	if runner.calls != 0 {
+		t.Fatal("rejected flag started an operation", runner.calls)
+	}
+}
+
+func TestInstallRefusesWithoutChangingTheProject(t *testing.T) {
 	session, _ := fixtureSession(t)
 	for name, args := range map[string][]string{
 		"no skills":          {"--agent", "codex", "--yes"},
@@ -230,9 +284,83 @@ func TestInstallRefusesWithoutRunningTheCLI(t *testing.T) {
 		"source removed":     {"--source", "o/r", "--skill", "x"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if calls, out, err := runInstall(t, session, nil, args...); err == nil || len(calls) != 0 {
-				t.Fatal("accepted", calls, out)
+			if out, err := runInstall(t, session, args...); err == nil {
+				t.Fatal("accepted", out)
+			}
+			for _, path := range []string{".agents", "skills-lock.json"} {
+				if _, err := os.Stat(filepath.Join(session.Store.Workspace, path)); !os.IsNotExist(err) {
+					t.Fatal("a refused install created", path)
+				}
 			}
 		})
+	}
+}
+
+func TestInstallAcceptsCustomAgents(t *testing.T) {
+	session, _ := fixtureSession(t)
+	session.Installer.Settings.Installation.CustomAgents = []settings.CustomAgent{{ID: "my-agent", Name: "My Agent", SkillsDir: ".my-agent/skills"}}
+	out, err := runInstall(t, session, fixtureSkill, "--agent", "my-agent", "--yes", "--copy")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if _, err = os.Stat(filepath.Join(session.Store.Workspace, ".my-agent", "skills", skillName(session), "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListChecksUpdatesNatively(t *testing.T) {
+	session, _ := fixtureSession(t)
+	if out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--yes", "--copy"); err != nil {
+		t.Fatal(err, out)
+	}
+	cmd := newCommandTree(func(context.Context, string, string, bool) (app.Session, error) { return session, nil })
+	var out, stderr bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--cwd", session.Store.Workspace, "list", "--json", "--check-updates"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err, out.String(), stderr.String())
+	}
+	var data struct {
+		Skills []struct {
+			Name   string `json:"skillName"`
+			Status string `json:"status"`
+		} `json:"skills"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &data); err != nil || len(data.Skills) != 1 || data.Skills[0].Name != skillName(session) {
+		t.Fatal(err, out.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatal("a complete check printed a warning:", stderr.String())
+	}
+}
+
+func TestDoctorChecksOnlyGit(t *testing.T) {
+	session, runner := fixtureSession(t)
+	open := func(context.Context, string, string, bool) (app.Session, error) { return session, nil }
+	run := func() (doctorResult, error) {
+		cmd := newCommandTree(open)
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&out)
+		cmd.SetArgs([]string{"--cwd", session.Store.Workspace, "doctor", "--json"})
+		err := cmd.Execute()
+		var result doctorResult
+		if jsonErr := json.Unmarshal(out.Bytes(), &result); jsonErr != nil {
+			t.Fatal(jsonErr, out.String())
+		}
+		return result, err
+	}
+	result, err := run()
+	ids := []string{}
+	for _, check := range result.Checks {
+		ids = append(ids, check.ID)
+	}
+	if err != nil || !slices.Equal(ids, []string{"settings", "git"}) {
+		t.Fatal(ids, err)
+	}
+	runner.err = errors.New("git: not found")
+	if _, err = run(); err == nil || exitCode(err) != 6 {
+		t.Fatal("missing Git must exit 6:", err)
 	}
 }

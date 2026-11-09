@@ -26,13 +26,14 @@ check() {
 check docs/guide.md ''
 check site/src/app.js ''
 check internal/ui/view.go go
-check internal/installation/launcher.go go,upstream
-check internal/detection/detect.go go,upstream
+check internal/installation/operation.go go,integration
+check internal/skillkit/fetch.go go,integration
+check internal/detection/detect.go go,integration
 check registries/default go
-check go.mod go,upstream,dependencies,go_dependencies
-check tools/skills/package-lock.json go,upstream,dependencies
-check .github/workflows/ci.yml go,upstream,dependencies,workflows
-check .github/scripts/ci-scope.sh go,upstream,workflows
+check go.mod go,integration,dependencies,go_dependencies
+check tools/skills/package-lock.json dependencies
+check .github/workflows/ci.yml go,integration,dependencies,workflows
+check .github/scripts/ci-scope.sh go,integration,workflows
 check .golangci.yml go
 check .gitmodules go
 # A large diff must not be misclassified by grep closing a pipe early.
@@ -53,10 +54,10 @@ for GITHUB_EVENT_NAME in push workflow_dispatch schedule; do
   grep -qx 'go_dependencies=true' "$GITHUB_OUTPUT"
   if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
     grep -qx 'go=false' "$GITHUB_OUTPUT"
-    grep -qx 'upstream=false' "$GITHUB_OUTPUT"
+    grep -qx 'integration=false' "$GITHUB_OUTPUT"
   else
     grep -qx 'go=true' "$GITHUB_OUTPUT"
-    grep -qx 'upstream=true' "$GITHUB_OUTPUT"
+    grep -qx 'integration=true' "$GITHUB_OUTPUT"
   fi
 done
 echo 'CI scope tests passed'

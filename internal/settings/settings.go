@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/rigerc/nosey-9/internal/contracts"
 	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/skillkit"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
 
@@ -27,6 +29,16 @@ type Adapter struct {
 	Enabled bool   `json:"enabled"`
 }
 
+// CustomAgent describes a user-defined agent whose skills live in a workspace-relative directory.
+type CustomAgent struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	SkillsDir string `json:"skillsDir"`
+}
+
+// CurrentVersion is the settings schema version written by this release.
+const CurrentVersion = 3
+
 // Settings contains resolved product settings, separate from UI theme defaults.
 type Settings struct {
 	Version    int                  `json:"schemaVersion"`
@@ -39,12 +51,10 @@ type Settings struct {
 		TTL int `json:"ttlHours"`
 	} `json:"updates"`
 	Installation struct {
-		Agents    []string `json:"agents"`
-		Method    string   `json:"method"`
-		Mode      string   `json:"defaultMode"`
-		Verbose   bool     `json:"verbose"`
-		Version   string   `json:"cliVersion"`
-		Telemetry string   `json:"upstreamTelemetry"`
+		Agents       []string      `json:"agents"`
+		Method       string        `json:"method"`
+		Verbose      bool          `json:"verbose"`
+		CustomAgents []CustomAgent `json:"customAgents"`
 	} `json:"installation"`
 	Detection struct {
 		Exclude  []string  `json:"exclude"`
@@ -109,15 +119,13 @@ func New(workspace, userPath string) (Store, error) {
 // Defaults provides the schema-valid initial product configuration.
 func Defaults() Settings {
 	var s Settings
-	s.Version = 2
+	s.Version = CurrentVersion
 	s.UI.Mode = "fullscreen"
 	s.Registries = []domain.RegistryRef{{ID: "nosey:official", Source: domain.RegistrySource{Kind: "git", URI: OfficialURL}, Enabled: true, Priority: 0}}
 	s.Updates.TTL = 24
 	s.Installation.Agents = []string{}
 	s.Installation.Method = "symlink"
-	s.Installation.Mode = "execute"
-	s.Installation.Version = "1.7.6"
-	s.Installation.Telemetry = "inherit"
+	s.Installation.CustomAgents = []CustomAgent{}
 	s.Detection.Exclude = []string{"**/node_modules/**", "**/vendor/**", "**/.git/**", "**/dist/**", "**/build/**"}
 	s.Detection.MaxBytes = 1 << 20
 	s.Detection.Adapters = []Adapter{}
@@ -126,13 +134,13 @@ func Defaults() Settings {
 func load(path string) (document, error) {
 	// #nosec G304 -- path selects an application-owned file or a checked-in contract fixture.
 	data, err := os.ReadFile(path)
-	return decodeSettings(data, err, path)
+	return decodeSettings(data, err, path, false)
 }
 func loadProject(workspace string) (document, error) {
 	data, err := storage.Read(workspace, ".nosey/config.json", 1<<20)
-	return decodeSettings(data, err, ".nosey/config.json")
+	return decodeSettings(data, err, ".nosey/config.json", true)
 }
-func decodeSettings(data []byte, err error, path string) (document, error) {
+func decodeSettings(data []byte, err error, path string, project bool) (document, error) {
 	if errors.Is(err, os.ErrNotExist) {
 		return document{}, nil
 	}
@@ -143,8 +151,57 @@ func decodeSettings(data []byte, err error, path string) (document, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	var doc document
-	err = json.Unmarshal(data, &doc)
-	return doc, err
+	if err = json.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	if project {
+		if err = rejectProjectCustomAgents(doc); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	return upgrade(doc)
+}
+
+// rejectProjectCustomAgents keeps agent skill directories out of repository-controlled files.
+func rejectProjectCustomAgents(doc document) error {
+	raw, ok := doc["installation"]
+	if !ok {
+		return nil
+	}
+	var installation document
+	if err := json.Unmarshal(raw, &installation); err != nil {
+		return err
+	}
+	if _, ok = installation["customAgents"]; ok {
+		return fmt.Errorf("project configuration cannot define custom agents")
+	}
+	return nil
+}
+
+// retiredInstallationKeys were removed in settings v3.
+var retiredInstallationKeys = []string{"defaultMode", "cliVersion", "upstreamTelemetry"}
+
+// upgrade migrates a v1 or v2 document to v3 in memory. Nothing is written until the next Store.Set.
+func upgrade(doc document) (document, error) {
+	if len(doc) == 0 {
+		return doc, nil
+	}
+	if raw, ok := doc["installation"]; ok {
+		var installation document
+		if err := json.Unmarshal(raw, &installation); err != nil {
+			return nil, err
+		}
+		for _, key := range retiredInstallationKeys {
+			delete(installation, key)
+		}
+		data, err := json.Marshal(installation)
+		if err != nil {
+			return nil, err
+		}
+		doc["installation"] = data
+	}
+	doc["schemaVersion"] = json.RawMessage(strconv.Itoa(CurrentVersion))
+	return doc, nil
 }
 
 func validateSettings(data []byte) error {
@@ -154,10 +211,52 @@ func validateSettings(data []byte) error {
 	if err := json.Unmarshal(data, &header); err != nil {
 		return err
 	}
-	if header.Version == 2 {
+	switch header.Version {
+	case 3:
+		if err := contracts.Validate("settings.v3.schema.json", data); err != nil {
+			return err
+		}
+		return validateCustomAgents(data)
+	case 2:
 		return contracts.Validate("settings.v2.schema.json", data)
 	}
 	return contracts.Validate("settings.schema.json", data)
+}
+
+// validateCustomAgents enforces what the schema cannot: unique IDs, no built-in collisions and local directories.
+func validateCustomAgents(data []byte) error {
+	var doc struct {
+		Installation struct {
+			CustomAgents []CustomAgent `json:"customAgents"`
+		} `json:"installation"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return err
+	}
+	builtin, err := skillkit.NewAgentTable("", nil)
+	if err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	for _, agent := range doc.Installation.CustomAgents {
+		switch {
+		case seen[agent.ID]:
+			return fmt.Errorf("duplicate custom agent ID %s", agent.ID)
+		case isBuiltinAgent(builtin, agent.ID):
+			return fmt.Errorf("custom agent ID %s collides with a built-in agent", agent.ID)
+		case !filepath.IsLocal(agent.SkillsDir) || filepath.Clean(agent.SkillsDir) == "." || storage.Safe(agent.SkillsDir) != agent.SkillsDir || strings.Contains(agent.SkillsDir, "\\"):
+			return fmt.Errorf("custom agent %s skillsDir must be a relative path inside the workspace", agent.ID)
+		case storage.Safe(agent.Name) != agent.Name:
+			return fmt.Errorf("custom agent %s name contains unsafe controls", agent.ID)
+		}
+		seen[agent.ID] = true
+	}
+	return nil
+}
+
+func isBuiltinAgent(table skillkit.AgentTable, id string) bool {
+	_, ok := table.Get(id)
+	return ok
 }
 
 // Resolve layers user/project settings while gating workspace registries on trust.
@@ -247,7 +346,7 @@ func (s Store) Resolve() (Resolved, error) {
 			return result, err
 		}
 	}
-	base["schemaVersion"] = json.RawMessage("2")
+	base["schemaVersion"] = json.RawMessage(strconv.Itoa(CurrentVersion))
 	bytes, err := json.Marshal(base)
 	if err != nil {
 		return result, err
@@ -422,12 +521,8 @@ func (s Store) Set(key string, value []byte, project bool) error {
 	if err != nil {
 		return err
 	}
-	if _, ok := doc["schemaVersion"]; !ok {
-		doc["schemaVersion"] = json.RawMessage("1")
-	}
-	if key == "ui" || strings.HasPrefix(key, "ui.") {
-		doc["schemaVersion"] = json.RawMessage("2")
-	}
+	// Loaded documents are already upgraded in memory; a new file starts at the current version.
+	doc["schemaVersion"] = json.RawMessage(strconv.Itoa(CurrentVersion))
 	if !json.Valid(value) {
 		return fmt.Errorf("value must be JSON")
 	}
@@ -450,6 +545,11 @@ func (s Store) Set(key string, value []byte, project bool) error {
 	}
 	if project && key == "detection.adapters" {
 		return fmt.Errorf("project cannot activate adapters")
+	}
+	if project {
+		if err = rejectProjectCustomAgents(doc); err != nil {
+			return err
+		}
 	}
 	data, err := json.Marshal(doc)
 	if err != nil {

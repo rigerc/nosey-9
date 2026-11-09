@@ -17,7 +17,7 @@ Cobra root/subcommands      Bubble Tea v2 full-screen TUI
        +-------------------+---------------------+
        |                   |                     |
  Go Git/cache/config   bounded workspace   exec.CommandContext
-   adapters             observation         pinned Skills CLI
+   adapters             observation         skillkit installer
        |                   |                     |
         +------ local snapshots, receipts, diagnostics
 ```
@@ -38,7 +38,7 @@ Architecture priorities: **(1) deliberate install intent/source trust, (2) deter
 
 ```text
                   UNTRUSTED EXTERNAL DATA / PROCESSES
-    Git registry remotes         Skill Git/local sources      Pinned Skills CLI
+    Git registry remotes         Skill Git/local sources      Git (fetch only)
            |                              |                        ^  |
            v                              v                        |  v
     +-----------------+       +----------------------+       +------------------+
@@ -112,7 +112,8 @@ internal/config/                  # typed user/workspace configuration
 internal/runtimeconfig/           # XDG paths, env-derived defaults, runtime options
 internal/ui/                      # Bubble Tea v2 Scan / Explore / Manage / Settings
 internal/clack/                   # retained bundled Clack runtime; license preserved
-internal/adapters/                # git, cache, filesystem, schema, process, skills CLI
+internal/adapters/                # git, cache, filesystem, schema, process
+internal/skillkit/                # native skill fetch, install, lock and operation lock
   git/, registry/, cache/, fs/, schema/, skills/, trustedadapter/
 internal/contract/                # optional public JSON DTO marshaling/validation
 schemas/                         # exact approved schema contracts; output versions per D4

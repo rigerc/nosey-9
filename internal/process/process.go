@@ -61,13 +61,6 @@ func Command(ctx context.Context, dir string, env []string, name string, args ..
 	cmd.WaitDelay = 5 * time.Second
 	return cmd
 }
-
-// RunAttached runs an interactive command on the caller's terminal.
-func RunAttached(ctx context.Context, dir string, env []string, name string, args ...string) error {
-	cmd := Command(ctx, dir, env, name, args...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return cmd.Run()
-}
 func (r Runner) run(ctx context.Context, dir string, env []string, input []byte, name string, args ...string) (Output, error) {
 	timeout := r.Timeout
 	if timeout == 0 {

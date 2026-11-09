@@ -16,7 +16,7 @@
 | Unsupported technology document version | Reject the affected snapshot without changing a previously valid cache; show version and source |
 | Missing skill reference / dependency cycle | Exclude or block affected recommendations and give explicit IDs |
 | Broken local skill path / symlink escape | Block installation and show source and path error |
-| Skills CLI absent/incompatible | Keep scan/search usable, show doctor/install help and commands |
+| Git absent | Keep scan/search usable, fail install with exit 6 and show the doctor check |
 | Agent selection ambiguous | Prompt for target agent(s); do not silently install to all |
 | Install process fails | Keep per-skill results, offer retry and copy log; no claim of success |
 | Not a writable project | Allow detection and browsing; block execution with an actionable message |

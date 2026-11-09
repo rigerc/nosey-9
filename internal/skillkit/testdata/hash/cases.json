@@ -1,0 +1,502 @@
+{
+ "comment": "Inputs for TestFolderHashMatchesSkills176. Each hash was captured once from skills@1.7.6 (computedHash written by `skills add <dir>`), see README.md.",
+ "cases": [
+  {
+   "name": "plain-scripts",
+   "files": [
+    {
+     "path": "SKILL.md",
+     "content": "---\nname: hash-probe\ndescription: Hash probe\n---\n# Probe\n"
+    },
+    {
+     "path": "scripts/run.sh",
+     "content": "content of scripts/run.sh\n"
+    }
+   ],
+   "hash": "1488f53ef93ddb23cd0524f29513b625bb2318d92ffb8ffa325d74d5c540579b"
+  },
+  {
+   "name": "mixed-case",
+   "files": [
+    {
+     "path": "SKILL.md",
+     "content": "---\nname: hash-probe\ndescription: Hash probe\n---\n# Probe\n"
+    },
+    {
+     "path": "README.md",
+     "content": "content of README.md\n"
+    },
+    {
+     "path": "Zebra.txt",
+     "content": "content of Zebra.txt\n"
+    },
+    {
+     "path": "apple.txt",
+     "content": "content of apple.txt\n"
+    },
+    {
+     "path": "Banana.txt",
+     "content": "content of Banana.txt\n"
+    },
+    {
+     "path": "banana.txt",
+     "content": "content of banana.txt\n"
+    },
+    {
+     "path": "_x.txt",
+     "content": "content of _x.txt\n"
+    },
+    {
+     "path": "a-b.txt",
+     "content": "content of a-b.txt\n"
+    },
+    {
+     "path": "A_b.txt",
+     "content": "content of A_b.txt\n"
+    },
+    {
+     "path": "a_b.txt",
+     "content": "content of a_b.txt\n"
+    },
+    {
+     "path": "B.txt",
+     "content": "content of B.txt\n"
+    },
+    {
+     "path": "b.txt",
+     "content": "content of b.txt\n"
+    },
+    {
+     "path": "C.txt",
+     "content": "content of C.txt\n"
+    },
+    {
+     "path": "c.txt",
+     "content": "content of c.txt\n"
+    }
+   ],
+   "hash": "01c2111921a21988970ad6e035b083f52ce943e6ad550610c63f4299897edb4d"
+  },
+  {
+   "name": "nested",
+   "files": [
+    {
+     "path": "SKILL.md",
+     "content": "---\nname: hash-probe\ndescription: Hash probe\n---\n# Probe\n"
+    },
+    {
+     "path": "a/b/c.txt",
+     "content": "content of a/b/c.txt\n"
+    },
+    {
+     "path": "a/b.txt",
+     "content": "content of a/b.txt\n"
+    },
+    {
+     "path": "a-b/c.txt",
+     "content": "content of a-b/c.txt\n"
+    },
+    {
+     "path": "a.txt",
+     "content": "content of a.txt\n"
+    },
+    {
+     "path": "A/b.txt",
+     "content": "content of A/b.txt\n"
+    },
+    {
+     "path": "a/B.txt",
+     "content": "content of a/B.txt\n"
+    },
+    {
+     "path": "a/b/C.txt",
+     "content": "content of a/b/C.txt\n"
+    },
+    {
+     "path": "a b/c.txt",
+     "content": "content of a b/c.txt\n"
+    },
+    {
+     "path": "a/z/y.txt",
+     "content": "content of a/z/y.txt\n"
+    },
+    {
+     "path": "ab/c.txt",
+     "content": "content of ab/c.txt\n"
+    }
+   ],
+   "hash": "1b937f9f693db0c178cf281846f5b8b0719c682e643ec98e1cfea6bfc0a0e1e1"
+  },
+  {
+   "name": "accented",
+   "files": [
+    {
+     "path": "SKILL.md",
+     "content": "---\nname: hash-probe\ndescription: Hash probe\n---\n# Probe\n"
+    },
+    {
+     "path": "\u00e9.txt",
+     "content": "content of \u00e9.txt\n"
+    },
+    {
+     "path": "e.txt",
+     "content": "content of e.txt\n"
+    },
+    {
+     "path": "f.txt",
+     "content": "content of f.txt\n"
+    },
+    {
+     "path": "\u00c9a.txt",
+     "content": "content of \u00c9a.txt\n"
+    },
+    {
+     "path": "\u00eba.txt",
+     "content": "content of \u00eba.txt\n"
+    },
+    {
+     "path": "z\u00e9.txt",
+     "content": "content of z\u00e9.txt\n"
+    },
+    {
+     "path": "z.txt",
+     "content": "content of z.txt\n"
+    },
+    {
+     "path": "\u00e4.txt",
+     "content": "content of \u00e4.txt\n"
+    },
+    {
+     "path": "a.txt",
+     "content": "content of a.txt\n"
+    },
+    {
+     "path": "\u00c4.txt",
+     "content": "content of \u00c4.txt\n"
+    },
+    {
+     "path": "\u00f1.txt",
+     "content": "content of \u00f1.txt\n"
+    },
+    {
+     "path": "n.txt",
+     "content": "content of n.txt\n"
+    },
+    {
+     "path": "o.txt",
+     "content": "content of o.txt\n"
+    },
+    {
+     "path": "\u00f8.txt",
+     "content": "content of \u00f8.txt\n"
+    },
+    {
+     "path": "\u00df.txt",
+     "content": "content of \u00df.txt\n"
+    },
+    {
+     "path": "ss.txt",
+     "content": "content of ss.txt\n"
+    }
+   ],
+   "hash": "11b924933b2b3118abda8ff3e9e05363337a42d59a5ad830590d42a2e6fcd318"
+  },
+  {
+   "name": "numeric",
+   "files": [
+    {
+     "path": "SKILL.md",
+     "content": "---\nname: hash-probe\ndescription: Hash probe\n---\n# Probe\n"
+    },
+    {
+     "path": "1.txt",
+     "content": "content of 1.txt\n"
+    },
+    {
+     "path": "10.txt",
+     "content": "content of 10.txt\n"
+    },
+    {
+     "path": "2.txt",
+     "content": "content of 2.txt\n"
+    },
+    {
+     "path": "02.txt",
+     "content": "content of 02.txt\n"
+    },
+    {
+     "path": "100.txt",
+     "content": "content of 100.txt\n"
+    },
+    {
+     "path": "a1.txt",
+     "content": "content of a1.txt\n"
+    },
+    {
+     "path": "a10.txt",
+     "content": "content of a10.txt\n"
+    },
+    {
+     "path": "a2.txt",
+     "content": "content of a2.txt\n"
+    },
+    {
+     "path": "1a.txt",
+     "content": "content of 1a.txt\n"
+    },
+    {
+     "path": "1-a.txt",
+     "content": "content of 1-a.txt\n"
+    },
+    {
+     "path": "\u0661.txt",
+     "content": "content of \u0661.txt\n"
+    },
+    {
+     "path": "0.txt",
+     "content": "content of 0.txt\n"
+    }
+   ],
+   "hash": "1da9b9af1c1ba88d2a3f179327584a5aaeffb235bd1c0528611e68940d174990"
+  },
+  {
+   "name": "combining",
+   "files": [
+    {
+     "path": "SKILL.md",
+     "content": "---\nname: hash-probe\ndescription: Hash probe\n---\n# Probe\n"
+    },
+    {
+     "path": "e\u0301x.txt",
+     "content": "content of e\u0301x.txt\n"
+    },
+    {
+     "path": "ex.txt",
+     "content": "content of ex.txt\n"
+    },
+    {
+     "path": "ez.txt",
+     "content": "content of ez.txt\n"
+    },
+    {
+     "path": "\u00e9y.txt",
+     "content": "content of \u00e9y.txt\n"
+    },
+    {
+     "path": "a\u0308b.txt",
+     "content": "content of a\u0308b.txt\n"
+    },
+    {
+     "path": "ab.txt",
+     "content": "content of ab.txt\n"
+    },
+    {
+     "path": "n\u0303.txt",
+     "content": "content of n\u0303.txt\n"
+    },
+    {
+     "path": "o\u0302.txt",
+     "content": "content of o\u0302.txt\n"
+    },
+    {
+     "path": "\u00f4b.txt",
+     "content": "content of \u00f4b.txt\n"
+    }
+   ],
+   "hash": "bdf827a7443bf2e9db18612e966c14cc7534ef22bdf22b3ce39545f900cccf7f"
+  },
+  {
+   "name": "non-bmp",
+   "files": [
+    {
+     "path": "SKILL.md",
+     "content": "---\nname: hash-probe\ndescription: Hash probe\n---\n# Probe\n"
+    },
+    {
+     "path": "\ud83d\ude00.txt",
+     "content": "content of \ud83d\ude00.txt\n"
+    },
+    {
+     "path": "a\ud83d\ude00.txt",
+     "content": "content of a\ud83d\ude00.txt\n"
+    },
+    {
+     "path": "\ud801\udc00.txt",
+     "content": "content of \ud801\udc00.txt\n"
+    },
+    {
+     "path": "\ud835\udc9c.txt",
+     "content": "content of \ud835\udc9c.txt\n"
+    },
+    {
+     "path": "\u4e2d.txt",
+     "content": "content of \u4e2d.txt\n"
+    },
+    {
+     "path": "z.txt",
+     "content": "content of z.txt\n"
+    },
+    {
+     "path": "\uff41.txt",
+     "content": "content of \uff41.txt\n"
+    },
+    {
+     "path": "\ud83d\ude00/\ud83d\ude01.txt",
+     "content": "content of \ud83d\ude00/\ud83d\ude01.txt\n"
+    },
+    {
+     "path": "\u2603.txt",
+     "content": "content of \u2603.txt\n"
+    },
+    {
+     "path": "\ud7ff.txt",
+     "content": "content of \ud7ff.txt\n"
+    },
+    {
+     "path": "\uffe0.txt",
+     "content": "content of \uffe0.txt\n"
+    }
+   ],
+   "hash": "151d59b0e6d7b243a7dbaafa75cce6ea57d95216abc49e03830fc118e33da3a8"
+  },
+  {
+   "name": "punctuation",
+   "files": [
+    {
+     "path": "SKILL.md",
+     "content": "---\nname: hash-probe\ndescription: Hash probe\n---\n# Probe\n"
+    },
+    {
+     "path": "a b.txt",
+     "content": "content of a b.txt\n"
+    },
+    {
+     "path": "a.b.txt",
+     "content": "content of a.b.txt\n"
+    },
+    {
+     "path": "a_b",
+     "content": "content of a_b\n"
+    },
+    {
+     "path": "a-b",
+     "content": "content of a-b\n"
+    },
+    {
+     "path": "a+b",
+     "content": "content of a+b\n"
+    },
+    {
+     "path": "a~b",
+     "content": "content of a~b\n"
+    },
+    {
+     "path": "$a.txt",
+     "content": "content of $a.txt\n"
+    },
+    {
+     "path": "(a).txt",
+     "content": "content of (a).txt\n"
+    },
+    {
+     "path": "#a.txt",
+     "content": "content of #a.txt\n"
+    },
+    {
+     "path": "@a.txt",
+     "content": "content of @a.txt\n"
+    },
+    {
+     "path": "[a].txt",
+     "content": "content of [a].txt\n"
+    },
+    {
+     "path": "a,b.txt",
+     "content": "content of a,b.txt\n"
+    },
+    {
+     "path": "a;b.txt",
+     "content": "content of a;b.txt\n"
+    },
+    {
+     "path": "'a'.txt",
+     "content": "content of 'a'.txt\n"
+    },
+    {
+     "path": "a!.txt",
+     "content": "content of a!.txt\n"
+    },
+    {
+     "path": "a=b.txt",
+     "content": "content of a=b.txt\n"
+    },
+    {
+     "path": ".hidden",
+     "content": "content of .hidden\n"
+    },
+    {
+     "path": "..double",
+     "content": "content of ..double\n"
+    },
+    {
+     "path": ".a/.b",
+     "content": "content of .a/.b\n"
+    }
+   ],
+   "hash": "5de1448fd65c2ee7a13c5369c2f5d5341d545b23580c3d485282a0cba05c643a"
+  },
+  {
+   "name": "excluded-and-links",
+   "files": [
+    {
+     "path": "SKILL.md",
+     "content": "---\nname: hash-probe\ndescription: Hash probe\n---\n# Probe\n"
+    },
+    {
+     "path": ".git/config",
+     "content": "[core]\n"
+    },
+    {
+     "path": "node_modules/x/y.js",
+     "content": "x\n"
+    },
+    {
+     "path": "link-file.txt",
+     "symlink": "SKILL.md"
+    },
+    {
+     "path": "nested/real.txt",
+     "content": "real\n"
+    },
+    {
+     "path": "link-dir",
+     "symlink": "nested"
+    },
+    {
+     "path": "empty-dir/.keep-not",
+     "content": "k\n"
+    }
+   ],
+   "hash": "da79be1b0ea303a5a510f6f57baadbb310691bfac44531a75a81c270424f4ce5"
+  },
+  {
+   "name": "han-extension-b",
+   "knownMismatch": "golang.org/x/text/collate orders CJK Extension B (U+20000) after core ideographs (U+4E2D); ICU in Node 26 uses CLDR radical-stroke order and puts U+20000 first",
+   "files": [
+    {
+     "path": "SKILL.md",
+     "content": "---\nname: hash-probe\ndescription: Hash probe\n---\n# Probe\n"
+    },
+    {
+     "path": "\u4e2d.txt",
+     "content": "content of x\n"
+    },
+    {
+     "path": "\ud840\udc00.txt",
+     "content": "content of y\n"
+    }
+   ],
+   "hash": "db7047ad2bb283d3a164a84894e3a440fe3d437e32cdca31daeb75b16c53e280"
+  }
+ ]
+}

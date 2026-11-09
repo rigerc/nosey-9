@@ -45,7 +45,7 @@ Only approved versioned Nosey JSON Schemas may be embedded/distributed as static
 | ADR-03 | Git snapshot + file-backed cache | Hosted database / custom registry API | Hosted collaboration/marketplace is approved |
 | ADR-04 | Schema-first pure merge + immutable effective index | Mutable ad hoc registry object | Data set/incremental computation proves bottleneck |
 | ADR-05 | Three-valued detection and mapping | Boolean-only inference | Never: boolean conflates unknown with absent |
-| ADR-06 | Pinned upstream installer via argv | Reimplement agent installer or `npx` as shell | Upstream contract incompatible or unsupported long-term |
+| ADR-06 | Native installer (`internal/skillkit`) matching `skills@1.7.6` on disk, supersedes pinned upstream delegation ([D9](17-approved-decisions.md#d9--native-installation-engine)) | Delegate to the Skills CLI through `npx` or an installed binary | Upstream disk or lock format diverges incompatibly |
 | ADR-07 | Per-skill verified install outcomes | Exit-code-only success | Never: violates source AC and false-success gate |
 | ADR-08 | Explicit workspace trust fingerprints | First-use auto-trust | Never in MVP due to workspace takeover risk |
 | ADR-09 | **Bubble Tea v2 full-screen TUI, ClackBT prompts for inline workflows** | Ink/React; nested prompt loops inside Bubble Tea | Revisit if verified terminal accessibility or API constraints fail |

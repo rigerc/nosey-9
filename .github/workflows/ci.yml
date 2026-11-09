@@ -126,22 +126,18 @@ jobs:
         if: steps.scope.outputs.go == 'true'
         run: make scaffold-check
       - name: Set up Node
-        if: steps.scope.outputs.go == 'true' || steps.scope.outputs.upstream == 'true'
+        if: steps.scope.outputs.go == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - name: Test the registry studio UI logic
         if: steps.scope.outputs.go == 'true'
         run: node --test internal/studio/testjs/*.test.mjs
-      - name: Test both upstream CLI backends
-        if: steps.scope.outputs.upstream == 'true'
+      - name: Test native installs from the official pin
+        if: steps.scope.outputs.integration == 'true'
         env:
-          NOSEY_UPSTREAM_INTEGRATION: '1'
-        run: |
-          set -euo pipefail
-          NOSEY_UPSTREAM_BACKEND=npx go test ./internal/installation -run '^TestUpstream' -count=1 -v
-          npm install --global --ignore-scripts "skills@$(jq -r '.devDependencies.skills' tools/skills/package.json)"
-          NOSEY_UPSTREAM_BACKEND=installed go test ./internal/installation -run '^TestUpstream' -count=1 -v
+          NOSEY_SKILLKIT_INTEGRATION: '1'
+        run: go test ./internal/installation -run '^TestPinned' -count=1 -v
       - name: Verify the build is reproducible
         if: github.event_name != 'pull_request'
         run: make repro-check

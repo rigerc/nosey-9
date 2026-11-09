@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "alpha": {
+      "source": "https://git.example.test/team/skills.git",
+      "sourceUrl": "https://git.example.test/team/skills.git",
+      "sourceType": "git",
+      "skillPath": "skills/alpha/SKILL.md",
+      "computedHash": "49e68cbdf096c37f2167c4ff992f26574863c5f4b2bf48360e9464d9e903cc00"
+    },
+    "beta": {
+      "source": "../repo",
+      "sourceType": "local",
+      "computedHash": "e403510fed55b5d1ec9b72e96b77ec670fc1bc3fdd793a4c28a2e8be25f6ac9e"
+    }
+  }
+}

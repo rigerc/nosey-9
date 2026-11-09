@@ -8,9 +8,9 @@ Nosey is a terminal-first CLI/TUI application for individual developers who work
 
 Running `nosey` launches a single-column, keyboard-driven TUI that immediately scans the current workspace. The persistent header displays the logo and `Scan · Explore · Manage · Settings` menu; Tab cycles menu sections. A persistent footer lists context-sensitive keybindings. Shell-friendly subcommands expose the same core operations for scripts and CI.
 
-Upstream already provides `find`, `check`, `update` and experimental sync. Nosey adds detection, context-specific mapping, layered registries and quality/score metadata rather than replacing those upstream commands.
+The upstream Skills CLI provides `find`, `check`, `update` and experimental sync. Nosey adds detection, context-specific mapping, layered registries and quality/score metadata, and installs, checks and (in a later release) updates and removes skills itself.
 
-**Core product principle:** Nosey owns *discovery, recommendation, curation, and orchestration*; Vercel's Skills CLI owns *skill installation*.
+**Core product principle:** Nosey owns *discovery, recommendation, curation, and installation*; its installs interoperate with Vercel's Skills CLI (`skills@1.7.6` layout and `skills-lock.json`) but do not depend on it ([D9](17-approved-decisions.md#d9--native-installation-engine)).
 
 ## 2. Goals, audience, success criteria
 
