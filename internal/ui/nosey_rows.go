@@ -182,7 +182,7 @@ func (m noseyModel) rows() []noseyRow {
 		for _, r := range m.session.Resolved.Pending {
 			rows = append(rows, noseyRow{"pending", r.ID, "Pending trust: " + r.ID})
 		}
-		rows = append(rows, noseyRow{"setting", "trust", "Approve workspace registries"}, noseyRow{"setting", "revoke", "Revoke workspace approval"}, noseyRow{"setting", "new", "New registry"}, noseyRow{"setting", "add", "Add existing registry"})
+		rows = append(rows, noseyRow{"setting", "trust", "Approve workspace registries"}, noseyRow{"setting", "revoke", "Revoke workspace approval"}, noseyRow{"setting", "new", "New registry"}, noseyRow{"setting", "add", "Add existing registry"}, noseyRow{"setting", "reset", "Reset settings to defaults"})
 	}
 	return rows
 }

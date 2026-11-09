@@ -193,6 +193,21 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 		}
 		m.filters[m.activeFilter()] = f
 		m.modal = ""
+	case "reset":
+		if values[0] != "RESET" {
+			m.modal = ""
+			return m, nil
+		}
+		if err := m.session.Store.Reset(); err != nil {
+			m.err = err
+			return m, nil
+		}
+		m.modal = ""
+		m.collapsed = map[string]bool{}
+		m.generation++
+		m.loading = true
+		m.message = "Settings reset to defaults."
+		return m, m.load()
 	case "setting":
 		key := m.form.labels[0]
 		data := []byte(values[0])
@@ -354,6 +369,9 @@ func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
 		}
 	case "new":
 		m.openNewRegistryForm()
+	case "reset":
+		m.openForm("reset", []string{"Reset settings"}, []string{""})
+		m.details = "Restores display, threshold, installation, update and detection preferences to their defaults. Registries, custom agents, trusted adapters and project settings are kept."
 	case "add":
 		m.openForm("add", []string{"Registry ID", "Absolute local path or Git URL"}, []string{"", ""})
 	default:

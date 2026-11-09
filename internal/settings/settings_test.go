@@ -361,3 +361,35 @@ func TestProjectSettingsRejectCustomAgents(t *testing.T) {
 		t.Fatal(r.Settings.Installation, err)
 	}
 }
+
+func TestResetKeepsRegistriesAgentsAndAdapters(t *testing.T) {
+	store := Store{Workspace: t.TempDir(), UserPath: filepath.Join(t.TempDir(), "config.json")}
+	if err := store.Reset(); err != nil {
+		t.Fatal("reset without a config file must succeed", err)
+	}
+	for key, value := range map[string]string{
+		"ui.minScore":               `30`,
+		"updates.ttlHours":          `6`,
+		"installation.method":       `"copy"`,
+		"installation.customAgents": `[{"id":"mine","name":"Mine","skillsDir":".mine/skills"}]`,
+		"detection.maxFileBytes":    `2048`,
+	} {
+		if err := store.Set(key, []byte(value), false); err != nil {
+			t.Fatal(key, err)
+		}
+	}
+	if err := store.Reset(); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := store.Resolve()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, want := resolved.Settings, Defaults()
+	if got.UI != want.UI || got.Updates != want.Updates || got.Installation.Method != want.Installation.Method || got.Detection.MaxBytes != want.Detection.MaxBytes {
+		t.Fatal("preferences not reset", got)
+	}
+	if len(got.Installation.CustomAgents) != 1 || got.Installation.CustomAgents[0].ID != "mine" {
+		t.Fatal("custom agents must be kept", got.Installation.CustomAgents)
+	}
+}
