@@ -10,8 +10,11 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/gitclient"
+	"github.com/rigerc/nosey-9/internal/githubclient"
 	"github.com/rigerc/nosey-9/internal/registrygen"
 	"github.com/rigerc/nosey-9/internal/settings"
 	"github.com/rigerc/nosey-9/internal/storage"
@@ -22,7 +25,7 @@ type InitOptions struct {
 	Path, RegistryID, Version string
 	// CI adds the template's GitHub Actions workflow.
 	CI bool
-	// GitHubRepo, as OWNER/NAME, creates and pushes a GitHub repository with gh.
+	// GitHubRepo, as OWNER/NAME, creates and pushes a GitHub repository, which needs a token.
 	GitHubRepo string
 	// Public makes the GitHub repository public; it is private otherwise.
 	Public        bool
@@ -31,6 +34,12 @@ type InitOptions struct {
 
 // defaultBranch is the branch the scaffold's workflow triggers on.
 const defaultBranch = "main"
+
+const (
+	initialCommitMessage = "Initial registry"
+	// publishTimeout bounds the GitHub half of Init, including the push.
+	publishTimeout = 5 * time.Minute
+)
 
 var githubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$`)
 
@@ -49,6 +58,9 @@ type InitResult struct {
 	Files            []string            `json:"createdFiles"`
 	Valid            bool                `json:"valid"`
 	CreatedBy        string              `json:"createdBy"`
+	// PublishedURL is the repository's web address after a GitHub publish; it is
+	// reported to the terminal and is not part of the JSON output.
+	PublishedURL string `json:"-"`
 }
 
 type templateCIFile struct {
@@ -206,11 +218,13 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 	}
 	switch {
 	case opts.GitHubRepo != "":
-		if err = s.publishGitHub(ctx, target, opts); err != nil {
-			return result, fmt.Errorf("registry created; GitHub repository creation failed: %w", err)
+		api, published, err := s.publishGitHub(ctx, target, opts)
+		if err != nil {
+			return result, err
 		}
+		result.PublishedURL = published
 		if opts.CI {
-			if err = s.allowActionsPullRequests(ctx, target, opts.GitHubRepo); err != nil {
+			if err = allowActionsPullRequests(ctx, api, opts.GitHubRepo); err != nil {
 				result.Diagnostics = append(result.Diagnostics, domain.Diagnostic{
 					Code:     "W_ACTIONS_PULL_REQUESTS",
 					Severity: "warning",
@@ -220,41 +234,257 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 			}
 		}
 	case opts.Git:
-		if _, err = s.run(ctx, target, nil, "git", "init", "-b", defaultBranch); err != nil {
+		if _, err = s.userGit().InitUser(target, defaultBranch); err != nil {
 			return result, fmt.Errorf("registry created; optional git init failed: %w", err)
 		}
 	}
 	return result, nil
 }
 
-// publishGitHub commits the new registry and creates a GitHub repository from it.
-// It requires git with a configured identity and an authenticated gh CLI.
-func (s Service) publishGitHub(ctx context.Context, dir string, opts InitOptions) error {
-	visibility := "--private"
-	if opts.Public {
-		visibility = "--public"
+// PublishStage names the step of a GitHub publish that failed.
+type PublishStage string
+
+// Publish stages, in order. The local registry exists at every stage.
+const (
+	PublishCommit     PublishStage = "commit"
+	PublishAuth       PublishStage = "auth"
+	PublishRepository PublishStage = "repository"
+	PublishPush       PublishStage = "push"
+	PublishTracking   PublishStage = "tracking"
+)
+
+// ErrRepositoryConflict marks an existing GitHub repository Init will not publish to.
+var ErrRepositoryConflict = errors.New("repository does not match this registry")
+
+// PublishError is a partial failure of a GitHub publish. It unwraps to the cause,
+// so errors.Is matches gitclient kinds and ErrRepositoryConflict.
+type PublishError struct {
+	Stage      PublishStage
+	Repository string
+	Path       string
+	summary    string
+	hint       string
+	Err        error
+}
+
+func (e *PublishError) Error() string {
+	return e.summary + ": " + storage.Safe(e.Err.Error()) + "; " + e.hint
+}
+
+// Unwrap returns the cause.
+func (e *PublishError) Unwrap() error { return e.Err }
+
+// publishGitHub commits the new registry, creates or reuses its GitHub
+// repository and pushes. It never deletes a remote repository or forces a push:
+// after a failure the same command can be re-run from a fresh directory.
+func (s Service) publishGitHub(ctx context.Context, dir string, opts InitOptions) (*githubclient.Client, string, error) {
+	owner, name, _ := strings.Cut(opts.GitHubRepo, "/")
+	retry := "remove " + dir + " and re-run this command"
+	fail := func(stage PublishStage, summary, hint string, err error) error {
+		return &PublishError{Stage: stage, Repository: opts.GitHubRepo, Path: dir, summary: summary, hint: hint, Err: err}
 	}
-	steps := [][]string{
-		{"git", "init", "-b", defaultBranch},
-		{"git", "add", "-A"},
-		{"git", "commit", "-m", "Initial registry"},
-		{"gh", "repo", "create", opts.GitHubRepo, visibility, "--source", ".", "--remote", "origin", "--push"},
+	client := s.userGit()
+	repo, err := client.InitUser(dir, defaultBranch)
+	if err != nil {
+		return nil, "", fail(PublishCommit, "registry created; Git initialization failed", retry, err)
 	}
-	for _, step := range steps {
-		if _, err := s.run(ctx, dir, nil, step[0], step[1:]...); err != nil {
-			return fmt.Errorf("%s: %w", strings.Join(step[:min(len(step), 2)], " "), err)
+	identity, err := repo.Identity()
+	if err != nil {
+		return nil, "", fail(PublishCommit, "registry created; the initial commit needs a Git identity",
+			`run git config --global user.name "NAME" and git config --global user.email "EMAIL", then `+retry, err)
+	}
+	commit, err := repo.Commit(ctx, gitclient.CommitOptions{Message: initialCommitMessage, Identity: identity})
+	if err != nil {
+		return nil, "", fail(PublishCommit, "registry created; the initial commit failed", retry, err)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, publishTimeout)
+	defer cancel()
+	options := s.GitHub
+	if options.Credentials == nil {
+		options.Credentials = gitclient.SharedCredentials()
+	}
+	if options.Host == "" {
+		options.Host = os.Getenv("GH_HOST")
+	}
+	options.RequireAuth = true
+	committed := "registry created and committed locally; "
+	api, err := githubclient.New(ctx, options)
+	if err != nil {
+		return nil, "", fail(PublishAuth, committed+"cannot authenticate to GitHub", "provide a token, then "+retry, err)
+	}
+	remote, created, err := ensureRepository(ctx, api, owner, name, !opts.Public)
+	if err != nil {
+		return nil, "", fail(PublishRepository, committed+"GitHub repository creation failed",
+			"check the token can create repositories under "+owner+", then "+retry, err)
+	}
+	if err = checkExisting(remote, created, owner, name, opts.Public); err != nil {
+		return nil, "", fail(PublishRepository, committed+"GitHub repository "+opts.GitHubRepo+" already exists and was left unchanged",
+			"choose another name, or change that repository and "+retry, err)
+	}
+	url := remote.CloneURL
+	if url == "" {
+		host := options.Host
+		if host == "" {
+			host = "github.com"
+		}
+		url = "https://" + host + "/" + opts.GitHubRepo + ".git"
+	}
+	published := ""
+	if !created {
+		if published, err = comparePublished(ctx, client, repo, commit, url); err != nil {
+			return nil, "", fail(PublishRepository, committed+"GitHub repository "+opts.GitHubRepo+" already exists and was left unchanged",
+				"choose another name, or empty that repository and "+retry, err)
 		}
 	}
+
+	pushFailed := committed + "GitHub repository " + opts.GitHubRepo + " exists but the push failed"
+	resume := "run git -C " + dir + " push -u origin " + defaultBranch + ", or " + retry + "; the repository is reused"
+	if err = repo.SetOrigin(url); err != nil {
+		return nil, "", fail(PublishPush, pushFailed, retry, err)
+	}
+	if published == "" {
+		if err = repo.Push(ctx, commit, defaultBranch); err != nil {
+			return nil, "", fail(PublishPush, pushFailed, pushAdvice(err, opts.GitHubRepo)+resume, err)
+		}
+		published = commit
+	} else {
+		if _, err = repo.FetchRef(ctx, remoteMainRef); err == nil {
+			err = repo.AdoptCommit(ctx, published)
+		}
+		if err != nil {
+			return nil, "", fail(PublishPush, committed+"GitHub repository "+opts.GitHubRepo+" already holds this registry but it could not be linked", retry, err)
+		}
+	}
+	if err = repo.SetUpstream(defaultBranch); err == nil {
+		err = repo.RecordPublished(published, defaultBranch)
+	}
+	if err != nil {
+		return nil, "", fail(PublishTracking, "registry published to "+opts.GitHubRepo+"; local upstream tracking was not configured", "run git -C "+dir+" push -u origin "+defaultBranch, err)
+	}
+	return api, publishedURL(remote.HTMLURL, options.Host, opts.GitHubRepo), nil
+}
+
+// publishedURL prefers the address the API reported, which is correct on
+// GitHub Enterprise; a response without one falls back to the API host.
+func publishedURL(reported, host, repository string) string {
+	if reported != "" {
+		return reported
+	}
+	if host == "" {
+		host = "github.com"
+	}
+	return "https://" + host + "/" + repository
+}
+
+const remoteMainRef = "refs/heads/" + defaultBranch
+
+// ensureRepository returns the repository, creating it only when it is absent.
+// A failed create re-reads it, since an earlier or concurrent run may have won.
+func ensureRepository(ctx context.Context, api *githubclient.Client, owner, name string, private bool) (githubclient.Repository, bool, error) {
+	existing, err := api.GetRepository(ctx, owner, name)
+	if err == nil {
+		return existing, false, nil
+	}
+	if !errors.Is(err, gitclient.KindMissingRepository) {
+		return githubclient.Repository{}, false, err
+	}
+	created, err := api.CreateRepository(ctx, githubclient.CreateRepositoryRequest{Owner: owner, Name: name, Private: private})
+	if err == nil {
+		return created, true, nil
+	}
+	if errors.Is(err, githubclient.KindInvalid) {
+		if existing, getErr := api.GetRepository(ctx, owner, name); getErr == nil {
+			return existing, false, nil
+		}
+	}
+	return githubclient.Repository{}, false, err
+}
+
+// checkExisting refuses a reused repository with another identity (GitHub answers
+// for a renamed repository under its new name) or the wrong visibility, because
+// pushing to a public repository must never follow a request for a private one.
+func checkExisting(remote githubclient.Repository, created bool, owner, name string, public bool) error {
+	if created {
+		return nil
+	}
+	if !strings.EqualFold(remote.Name, name) || (remote.Owner != "" && !strings.EqualFold(remote.Owner, owner)) {
+		return fmt.Errorf("%w: it is now %s/%s", ErrRepositoryConflict, remote.Owner, remote.Name)
+	}
+	if remote.Private == public {
+		visibility, requested := "public", "private"
+		if remote.Private {
+			visibility, requested = "private", "public"
+		}
+		return fmt.Errorf("%w: it is %s but a %s repository was requested", ErrRepositoryConflict, visibility, requested)
+	}
 	return nil
+}
+
+// comparePublished inspects an existing repository. It returns "" when the
+// repository is empty and the remote commit when that commit holds exactly the
+// local content, as after a previous run. Anything else is a conflict.
+func comparePublished(ctx context.Context, client *gitclient.Client, repo *gitclient.Repo, commit, url string) (string, error) {
+	head, err := client.ResolveRemote(ctx, url, "")
+	if errors.Is(err, gitclient.KindMissingRef) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if head.Branch != defaultBranch {
+		return "", fmt.Errorf("%w: its default branch is %q, not %q", ErrRepositoryConflict, head.Branch, defaultBranch)
+	}
+	remote, err := client.Temporary(ctx, url, gitclient.TemporaryOptions{})
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = remote.Close() }()
+	published, err := remote.FetchRef(ctx, remoteMainRef)
+	if err != nil {
+		return "", err
+	}
+	remoteTree, err := remote.TreeHash(ctx, published, "")
+	if err != nil {
+		return "", err
+	}
+	localTree, err := repo.TreeHash(ctx, commit, "")
+	if err != nil {
+		return "", err
+	}
+	if remoteTree != localTree {
+		return "", fmt.Errorf("%w: its %s branch has different content", ErrRepositoryConflict, defaultBranch)
+	}
+	return published, nil
+}
+
+// pushAdvice explains a push failure. GitHub rejects workflow files from a token
+// without the workflow scope only as text in the push report.
+func pushAdvice(err error, repo string) string {
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "refusing to allow") && strings.Contains(message, "workflow"):
+		return "the token lacks the `workflow` scope needed to push .github/workflows (fine-grained tokens need Workflows write); run gh auth refresh -s workflow or use a token that has it, then "
+	case errors.Is(err, gitclient.KindAuth), errors.Is(err, gitclient.KindPermission):
+		return "the token was rejected or cannot write to " + repo + "; use a token with write access, then "
+	}
+	return "check the connection, then "
 }
 
 // allowActionsPullRequests lets the scaffold's workflow open review pull
 // requests, which GitHub disables by default. GitHub exposes opening and
 // approving as one setting.
-func (s Service) allowActionsPullRequests(ctx context.Context, dir, repo string) error {
-	_, err := s.run(ctx, dir, nil, "gh", "api", "--method", "PUT", "repos/"+repo+"/actions/permissions/workflow",
-		"-f", "default_workflow_permissions=read", "-F", "can_approve_pull_request_reviews=true")
-	return err
+func allowActionsPullRequests(ctx context.Context, api *githubclient.Client, repo string) error {
+	owner, name, _ := strings.Cut(repo, "/")
+	return api.UpdateDefaultWorkflowPermissions(ctx, owner, name, githubclient.WorkflowPermissions{Default: "read", CanApprovePullRequests: true})
+}
+
+// userGit returns the client for the repository Init creates for the user.
+func (s Service) userGit() *gitclient.Client {
+	if s.UserGit != nil {
+		return s.UserGit
+	}
+	return gitclient.New(gitclient.Options{Policy: gitclient.UserOrigin(), Credentials: gitclient.SharedCredentials()})
 }
 
 // registryID names a published registry after its repository, so its identity

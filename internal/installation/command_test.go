@@ -210,11 +210,6 @@ func TestBeginRefusesBeforeTakingTheLock(t *testing.T) {
 	if err := removeFile(filepath.Join(s.Store.Workspace, "skills-lock.json")); err != nil {
 		t.Fatal(err)
 	}
-	s.Runner = &gitRunner{err: errors.New("git missing")}
-	var prerequisite PrerequisiteError
-	if _, err := s.Begin(context.Background()); !errors.As(err, &prerequisite) {
-		t.Fatal("missing Git was not a prerequisite error:", err)
-	}
 }
 
 func TestSummaryListsSourceRefSkillsAgentsAndMethod(t *testing.T) {

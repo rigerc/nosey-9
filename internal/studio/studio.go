@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/gitclient"
 	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/registrygen"
 	"github.com/rigerc/nosey-9/internal/settings"
@@ -43,10 +44,18 @@ type Options struct {
 	Store          settings.Store
 	RegistryChecks bool
 	// Local edits the checkout as it stands instead of the remote default branch.
-	Local  bool
+	Local bool
+	// Runner executes the registry's node and npm scripts.
 	Runner process.Executor
-	// GitURL rewrites upstream URLs; tests point it at local repositories.
-	GitURL func(string) string
+	// TempDir is the parent of temporary publish repositories; empty uses the system default.
+	TempDir string
+	// Credentials resolves Git and GitHub authentication; nil uses the operating system's.
+	Credentials *gitclient.Credentials
+
+	// GitPolicy replaces the transport policies. Test seam: only _test.go sets it.
+	GitPolicy *gitclient.Policy
+	// GitHubBaseURL replaces the GitHub API base URL. Test seam: only _test.go sets it.
+	GitHubBaseURL string
 }
 
 // Server is one studio session bound to a registry directory.
@@ -91,8 +100,8 @@ func New(opts Options) (*Server, error) {
 	if opts.Runner == nil {
 		opts.Runner = process.Runner{Timeout: 10 * time.Minute, Limit: 8 << 20}
 	}
-	if opts.GitURL == nil {
-		opts.GitURL = func(uri string) string { return uri }
+	if opts.Credentials == nil {
+		opts.Credentials = gitclient.SharedCredentials()
 	}
 	return &Server{
 		opts: opts, root: root, view: root, source: Source{Mode: sourceCheckout}, cfg: cfg, automated: cfg.Registry.ID == officialID,

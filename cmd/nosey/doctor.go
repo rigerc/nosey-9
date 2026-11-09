@@ -22,7 +22,7 @@ type doctorResult struct {
 
 func doctorCommand(o *cliOptions) *cobra.Command {
 	jsonMode := false
-	cmd := &cobra.Command{Use: "doctor", Short: "Inspect settings, registry and installer prerequisites (Git)", Args: cobra.NoArgs}
+	cmd := &cobra.Command{Use: "doctor", Short: "Inspect settings, registry and native Git/GitHub credential sources", Args: cobra.NoArgs}
 	cmd.Flags().BoolVar(&jsonMode, "json", false, "emit doctor JSON v1")
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		store, err := o.store()

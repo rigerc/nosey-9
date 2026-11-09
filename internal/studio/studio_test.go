@@ -4,14 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
+	"github.com/rigerc/nosey-9/internal/gitclient"
 	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/registrygen"
 	"github.com/rigerc/nosey-9/internal/settings"
@@ -542,27 +546,25 @@ func TestApplyRefusesValidationErrors(t *testing.T) {
 	}
 }
 
-// fakeRunner runs real commands but intercepts gh and registry scripts.
+// fakeRunner intercepts registry scripts.
 type fakeRunner struct {
-	real    process.Runner
-	gh      [][]string
 	scripts [][]string
 	failOn  string
+	onRun   func()
 }
 
-func (f *fakeRunner) Run(ctx context.Context, dir string, env []string, name string, args ...string) (process.Output, error) {
-	switch name {
-	case "gh":
-		f.gh = append(f.gh, args)
-		return process.Output{Stdout: []byte("https://example.test/pull/1\n")}, nil
-	case "node", "npm":
-		f.scripts = append(f.scripts, append([]string{name}, args...))
-		if f.failOn != "" && strings.Contains(strings.Join(args, " "), f.failOn) {
-			return process.Output{Stderr: []byte("script failed")}, os.ErrInvalid
-		}
-		return process.Output{}, nil
+func (f *fakeRunner) Run(ctx context.Context, _ string, _ []string, name string, args ...string) (process.Output, error) {
+	if name != "node" && name != "npm" {
+		return process.Output{}, fmt.Errorf("unexpected command %s", name)
 	}
-	return f.real.Run(ctx, dir, env, name, args...)
+	f.scripts = append(f.scripts, append([]string{name}, args...))
+	if f.onRun != nil {
+		f.onRun()
+	}
+	if f.failOn != "" && strings.Contains(strings.Join(args, " "), f.failOn) {
+		return process.Output{Stderr: []byte("script failed")}, os.ErrInvalid
+	}
+	return process.Output{}, ctx.Err()
 }
 
 func gitRun(t *testing.T, dir string, args ...string) string {
@@ -579,6 +581,8 @@ func gitRun(t *testing.T, dir string, args ...string) string {
 
 func isolateGit(t *testing.T) {
 	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	for _, key := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
@@ -589,8 +593,85 @@ func isolateGit(t *testing.T) {
 	}
 }
 
-// gitFixture returns a registry clone and a second clone acting as upstream.
+const fixtureOrigin = "https://github.com/o/r.git"
+
+// fakeGitHub answers the pull-request endpoints and counts creations.
+type fakeGitHub struct {
+	*httptest.Server
+	created atomic.Int32
+	// failCreate is the status returned for a create until it is reset to zero.
+	failCreate atomic.Int32
+}
+
+func newFakeGitHub(t *testing.T) *fakeGitHub {
+	t.Helper()
+	github := &fakeGitHub{}
+	var mu sync.Mutex
+	open := []map[string]any{}
+	github.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/pulls"):
+			_ = json.NewEncoder(w).Encode(open)
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/pulls"):
+			if status := github.failCreate.Load(); status != 0 {
+				w.WriteHeader(int(status))
+				_, _ = w.Write([]byte(`{"message":"denied"}`))
+				return
+			}
+			github.created.Add(1)
+			pr := map[string]any{"number": 1, "html_url": "https://example.test/pull/1"}
+			open = append(open, pr)
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(pr)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(github.Close)
+	return github
+}
+
+func fixtureCredentials(t *testing.T) *gitclient.Credentials {
+	t.Helper()
+	home := t.TempDir()
+	return &gitclient.Credentials{
+		Getenv:  func(name string) string { return map[string]string{"GITHUB_TOKEN": "fixture-token"}[name] },
+		HomeDir: func() (string, error) { return home, nil },
+		Keyring: func(string, string) (string, error) { return "", os.ErrNotExist },
+	}
+}
+
+// fixturePolicy dials the fixture's bare repository for the GitHub-shaped origin.
+func fixturePolicy(origin string) *gitclient.Policy {
+	return &gitclient.Policy{AllowFile: true, AllowHTTP: true, TrustedOrigin: true, Rewrite: func(uri string) string {
+		if uri == fixtureOrigin {
+			return "file://" + origin
+		}
+		return uri
+	}}
+}
+
+type gitFixtureResult struct {
+	h        *harness
+	root     string
+	origin   string
+	upstream string
+	github   *fakeGitHub
+}
+
+// gitFixture returns a registry clone and a second clone acting as upstream. The
+// checkout's origin is GitHub-shaped; insteadOf points the Git CLI used by the
+// fixture at the bare repository, and the policy's Rewrite does the same for Nosey.
 func gitFixture(t *testing.T, id string, runner *fakeRunner, checks bool) (*harness, string, string, string) {
+	t.Helper()
+	fixture := newGitFixture(t, id, runner, checks)
+	return fixture.h, fixture.root, fixture.origin, fixture.upstream
+}
+
+func newGitFixture(t *testing.T, id string, runner *fakeRunner, checks bool) gitFixtureResult {
 	t.Helper()
 	isolateGit(t)
 	base := t.TempDir()
@@ -600,13 +681,17 @@ func gitFixture(t *testing.T, id string, runner *fakeRunner, checks bool) (*harn
 	gitRun(t, base, "init", "-q", "--bare", "-b", "main", origin)
 	gitRun(t, base, "init", "-q", "-b", "main", root)
 	writeRegistry(t, root, id)
+	gitRun(t, root, "config", "user.name", "Studio Test")
+	gitRun(t, root, "config", "user.email", "studio@example.test")
 	gitRun(t, root, "add", "-A")
 	gitRun(t, root, "commit", "-q", "-m", "seed")
-	gitRun(t, root, "remote", "add", "origin", origin)
+	gitRun(t, root, "config", "url."+origin+".insteadOf", fixtureOrigin)
+	gitRun(t, root, "remote", "add", "origin", fixtureOrigin)
 	gitRun(t, root, "push", "-q", "origin", "main")
 	gitRun(t, base, "clone", "-q", origin, upstream)
-	h := newHarness(t, Options{Root: root, Runner: runner, RegistryChecks: checks})
-	return h, root, origin, upstream
+	github := newFakeGitHub(t)
+	opts := Options{Root: root, Runner: runner, RegistryChecks: checks, GitPolicy: fixturePolicy(origin), GitHubBaseURL: github.URL, Credentials: fixtureCredentials(t), TempDir: t.TempDir()}
+	return gitFixtureResult{newHarness(t, opts), root, origin, upstream, github}
 }
 
 func replaceInFile(t *testing.T, path, from, to string) {
@@ -635,7 +720,8 @@ func commitUpstream(t *testing.T, upstream string) {
 
 func TestPublishReplaysOnRemoteAndLeavesCheckoutAlone(t *testing.T) {
 	runner := &fakeRunner{}
-	h, root, origin, upstream := gitFixture(t, "x:y", runner, false)
+	fixture := newGitFixture(t, "x:y", runner, false)
+	h, root, origin, upstream := fixture.h, fixture.root, fixture.origin, fixture.upstream
 	head := gitRun(t, root, "rev-parse", "HEAD")
 	replaceInFile(t, filepath.Join(upstream, "technologies.json"), `"name": "Vue"`, `"name": "Vue.js"`)
 	commitUpstream(t, upstream)
@@ -657,15 +743,15 @@ func TestPublishReplaysOnRemoteAndLeavesCheckoutAlone(t *testing.T) {
 	if !strings.Contains(skills, `"tags"`) || !strings.Contains(technologies, "Vue.js") {
 		t.Fatalf("branch must hold the edit on top of upstream:\n%s", skills)
 	}
-	if len(runner.gh) != 1 || len(runner.scripts) != 0 {
-		t.Fatalf("gh = %v, scripts = %v", runner.gh, runner.scripts)
+	if fixture.github.created.Load() != 1 || len(runner.scripts) != 0 {
+		t.Fatalf("created = %d, scripts = %v", fixture.github.created.Load(), runner.scripts)
 	}
 	wantStatus(t, h.stage(change{"role": roleSkills, "id": skillA, "entity": raw(skillJSON(skillA, `,"tags":["y"]`+assessed))}), http.StatusOK)
 	got = h.api("/api/publish", map[string]any{"title": "Tag a skill"})
 	wantStatus(t, got, http.StatusOK)
 	updated := decode[publishResult](t, got)
-	if !updated.Updated || updated.Published.Branch != result.Published.Branch || len(runner.gh) != 1 {
-		t.Fatalf("second publish should force-update: %+v, gh = %v", updated, runner.gh)
+	if !updated.Updated || updated.Published.Branch != result.Published.Branch || fixture.github.created.Load() != 1 {
+		t.Fatalf("second publish should force-update: %+v, created = %d", updated, fixture.github.created.Load())
 	}
 	if skills = gitRun(t, origin, "show", result.Published.Branch+":skills.json"); !strings.Contains(skills, `"y"`) {
 		t.Fatalf("branch not updated:\n%s", skills)
@@ -735,8 +821,8 @@ func TestFailedRegistryCheckPublishesNothing(t *testing.T) {
 	wantStatus(t, h.stage(change{"role": roleSkills, "id": skillA, "entity": raw(skillJSON(skillA, `,"tags":["x"]`+assessed))}), http.StatusOK)
 	got := h.api("/api/publish", map[string]any{"title": "x"})
 	wantStatus(t, got, http.StatusBadRequest)
-	if len(runner.gh) != 0 || !strings.Contains(got.Body.String(), "script failed") {
-		t.Fatalf("gh = %v, body = %s", runner.gh, got.Body.String())
+	if !strings.Contains(got.Body.String(), "script failed") {
+		t.Fatalf("body = %s", got.Body.String())
 	}
 }
 
@@ -800,7 +886,7 @@ func TestResolveSkillAppliesLocateRules(t *testing.T) {
 	upstream := upstreamSkillRepo(t)
 	root := t.TempDir()
 	writeRegistry(t, root, officialID)
-	h := newHarness(t, Options{Root: root, GitURL: func(string) string { return "file://" + upstream }})
+	h := newHarness(t, Options{Root: root, Credentials: fixtureCredentials(t), GitPolicy: &gitclient.Policy{AllowFile: true, Rewrite: func(string) string { return "file://" + upstream }}})
 	uri := "https://github.com/owner/repo"
 	got := h.api("/api/skills/resolve", map[string]any{"uri": uri + ".git", "skillName": "good"})
 	wantStatus(t, got, http.StatusOK)
@@ -1105,6 +1191,220 @@ func TestApplyFromRemoteViewShowsTheWorkingTree(t *testing.T) {
 	}
 }
 
+// twoPublishers shares one origin between a checkout and a second studio session
+// holding a persisted lease from an earlier publish.
+func twoPublishers(t *testing.T) (gitFixtureResult, *harness) {
+	t.Helper()
+	first := newGitFixture(t, "x:y", &fakeRunner{}, false)
+	second := newHarness(t, Options{Root: first.root, Store: testStore(t), Runner: &fakeRunner{}, GitPolicy: fixturePolicy(first.origin), GitHubBaseURL: first.github.URL, Credentials: fixtureCredentials(t), TempDir: t.TempDir()})
+	return first, second
+}
+
+func publishEdit(h *harness, tag string) *httptest.ResponseRecorder {
+	h.t.Helper()
+	wantStatus(h.t, h.stage(change{"role": roleSkills, "id": skillA, "entity": raw(skillJSON(skillA, `,"tags":["`+tag+`"]`+assessed))}), http.StatusOK)
+	return h.api("/api/publish", payload{"title": "Tag"})
+}
+
+func TestPublishLeaseRejectsConcurrentRemoteUpdate(t *testing.T) {
+	first, second := twoPublishers(t)
+	got := publishEdit(first.h, "one")
+	wantStatus(t, got, http.StatusOK)
+	published := decode[publishResult](t, got).Published
+
+	// A second session pushes to the same branch, moving the remote past the
+	// commit the first session recorded.
+	second.server.draft.Published = &Published{Branch: published.Branch, Commit: published.Commit, URL: published.URL, Base: published.Base}
+	wantStatus(t, publishEdit(second, "two"), http.StatusOK)
+	remote := gitRun(t, first.origin, "rev-parse", published.Branch)
+	if remote == published.Commit {
+		t.Fatal("fixture did not advance the remote branch")
+	}
+
+	stale := publishEdit(first.h, "three")
+	wantStatus(t, stale, http.StatusBadRequest)
+	if !strings.Contains(stale.Body.String(), "changed on the remote") {
+		t.Fatalf("body = %s", stale.Body.String())
+	}
+	if gitRun(t, first.origin, "rev-parse", published.Branch) != remote {
+		t.Fatal("a stale lease overwrote the remote branch")
+	}
+	if first.h.server.draft.Published.Commit != published.Commit {
+		t.Fatalf("a rejected update must not change the recorded commit: %+v", first.h.server.draft.Published)
+	}
+}
+
+func TestPublishPRFailureRetainsPushedBranch(t *testing.T) {
+	fixture := newGitFixture(t, "x:y", &fakeRunner{}, false)
+	fixture.github.failCreate.Store(http.StatusForbidden)
+	got := publishEdit(fixture.h, "x")
+	wantStatus(t, got, http.StatusBadRequest)
+	for _, part := range []string{"branch was pushed but a pull request could not be opened", "token"} {
+		if !strings.Contains(got.Body.String(), part) {
+			t.Fatalf("missing %q in %s", part, got.Body.String())
+		}
+	}
+	published := fixture.h.server.draft.Published
+	if published == nil || published.URL != "" || !strings.HasPrefix(published.Branch, "studio/") { //nolint:antislop // Commit and Branch are generated, so only these fields are predictable
+		t.Fatalf("published = %+v", published)
+	}
+	if gitRun(t, fixture.origin, "rev-parse", published.Branch) != published.Commit {
+		t.Fatal("the pushed branch was not retained")
+	}
+	reopened := newHarness(t, Options{Root: fixture.root, Store: fixture.h.server.opts.Store})
+	if reopened.server.draft.Published == nil || reopened.server.draft.Published.Branch != published.Branch {
+		t.Fatalf("partial success was not persisted: %+v", reopened.server.draft.Published)
+	}
+
+	// A retry updates the same branch under the lease and opens one pull request.
+	fixture.github.failCreate.Store(0)
+	retry := fixture.h.api("/api/publish", payload{"title": "Tag"})
+	wantStatus(t, retry, http.StatusOK)
+	result := decode[publishResult](t, retry)
+	if !result.Updated || result.Published.Branch != published.Branch || result.Published.URL == "" || fixture.github.created.Load() != 1 {
+		t.Fatalf("result = %+v, created = %d", result, fixture.github.created.Load())
+	}
+
+	// A further retry finds the open pull request instead of creating a duplicate.
+	fixture.h.server.draft.Published.URL = ""
+	wantStatus(t, publishEdit(fixture.h, "y"), http.StatusOK)
+	if fixture.github.created.Load() != 1 {
+		t.Fatalf("duplicate pull request: created = %d", fixture.github.created.Load())
+	}
+}
+
+func TestPublishCleanupOnCancellation(t *testing.T) {
+	runner := &fakeRunner{}
+	fixture := newGitFixture(t, officialID, runner, true)
+	h := fixture.h
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	wantStatus(t, h.stage(change{"role": roleSkills, "id": skillA, "entity": raw(skillJSON(skillA, `,"tags":["x"]`+assessed))}), http.StatusOK)
+	runner.onRun = cancel
+	body, err := json.Marshal(payload{"title": "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/publish", bytes.NewReader(body)).WithContext(ctx)
+	request.Host = testHost
+	request.Header.Set(tokenHeader, h.server.Token())
+	recorder := httptest.NewRecorder()
+	h.server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code == http.StatusOK {
+		t.Fatalf("a canceled publish must fail: %s", recorder.Body.String())
+	}
+	entries, err := os.ReadDir(h.server.opts.TempDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("temporary repository left behind: %v", entries)
+	}
+	if out := gitRun(t, fixture.origin, "branch", "--list", "studio/*"); out != "" {
+		t.Fatalf("nothing should have been pushed: %q", out)
+	}
+}
+
+func TestPublishNeedsIdentityBeforePushing(t *testing.T) {
+	fixture := newGitFixture(t, "x:y", &fakeRunner{}, false)
+	gitRun(t, fixture.root, "config", "--unset", "user.name")
+	got := publishEdit(fixture.h, "x")
+	wantStatus(t, got, http.StatusBadRequest)
+	if !strings.Contains(got.Body.String(), "user.name") {
+		t.Fatalf("body = %s", got.Body.String())
+	}
+	if out := gitRun(t, fixture.origin, "branch", "--list", "studio/*"); out != "" {
+		t.Fatalf("nothing should have been pushed: %q", out)
+	}
+}
+
+func TestLocalPathOriginsAreRefusedNotFatal(t *testing.T) {
+	fixture := newGitFixture(t, "x:y", &fakeRunner{}, false)
+	fixture.h.server.opts.GitPolicy = nil // The production policy.
+	fixture.h.server.opts.Store.Cache = t.TempDir()
+	gitRun(t, fixture.root, "remote", "set-url", "origin", fixture.origin)
+	source := fixture.h.server.Sync(context.Background())
+	if source.Mode != sourceCheckout || !strings.Contains(source.Warning, "Could not fetch origin/main") || !strings.Contains(source.Warning, "not supported") {
+		t.Fatalf("source = %+v", source)
+	}
+	got := publishEdit(fixture.h, "x")
+	wantStatus(t, got, http.StatusBadRequest)
+	if !strings.Contains(got.Body.String(), "local path and file remotes are not supported") {
+		t.Fatalf("body = %s", got.Body.String())
+	}
+}
+
+func TestSyncExportsPartialCloneFromOrigin(t *testing.T) {
+	fixture := newGitFixture(t, "x:y", &fakeRunner{}, false)
+	renameUpstream(t, fixture.upstream, "Remote")
+	gitRun(t, fixture.origin, "config", "uploadpack.allowFilter", "true")
+	gitRun(t, fixture.origin, "config", "uploadpack.allowAnySHA1InWant", "true")
+	clone := filepath.Join(t.TempDir(), "partial")
+	gitRun(t, filepath.Dir(clone), "clone", "-q", "--filter=blob:none", "--no-checkout", "file://"+fixture.origin, clone)
+	gitRun(t, clone, "config", "url."+fixture.origin+".insteadOf", fixtureOrigin)
+	gitRun(t, clone, "config", "remote.origin.url", fixtureOrigin)
+	if err := storage.Write(filepath.Join(clone, registrygen.ConfigName), []byte(`{}`)); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, clone, "checkout", "-q", "-f", "main") // Fetches only HEAD's blobs through the promisor.
+	replaceInFile(t, filepath.Join(fixture.upstream, "technologies.json"), `"name": "Remote Vue"`, `"name": "Newer Vue"`)
+	commitUpstream(t, fixture.upstream)
+	h := newHarness(t, Options{Root: clone, Store: testStore(t), GitPolicy: fixturePolicy(fixture.origin), Credentials: fixtureCredentials(t), TempDir: t.TempDir()})
+	source := h.server.Sync(context.Background())
+	defer h.server.Close()
+	if source.Mode != sourceRemote || source.Warning != "" {
+		t.Fatalf("source = %+v", source)
+	}
+	if name := technologyName(t, stateOf(t, h), "vue"); name != "Newer Vue" {
+		t.Fatalf("name = %q", name)
+	}
+}
+
+func TestSyncComparisonMatchesGitOnDirtyCases(t *testing.T) {
+	fixture := newGitFixture(t, "x:y", &fakeRunner{}, false)
+	h, root := fixture.h, fixture.root
+	h.server.opts.Store.Cache = t.TempDir()
+	if err := storage.Write(filepath.Join(root, ".gitignore"), []byte("ignored.txt\n")); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, root, "add", "-A")
+	gitRun(t, root, "commit", "-q", "-m", "ignore")
+	gitRun(t, root, "push", "-q", "origin", "main")
+	if err := storage.Write(filepath.Join(root, "ignored.txt"), []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if source := h.server.Sync(context.Background()); source.Dirty || gitRun(t, root, "status", "--porcelain") != "" {
+		t.Fatalf("ignored files must not be dirty: %+v", source)
+	}
+	defer h.server.Close()
+	replaceInFile(t, filepath.Join(root, "technologies.json"), `"name": "Vue"`, `"name": "Mine"`)
+	if source := h.server.Sync(context.Background()); !source.Dirty || gitRun(t, root, "status", "--porcelain") == "" {
+		t.Fatalf("modified files must be dirty: %+v", source)
+	}
+}
+
+func TestStudioNeverInvokesGit(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(name) //nolint:gosec // test fixture under t.TempDir
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, banned := range []string{`"git",`, `"gh",`, "exec.Command", "gitEnv"} {
+			if strings.Contains(string(data), banned) {
+				t.Fatalf("%s uses %s", name, banned)
+			}
+		}
+	}
+}
+
 func TestDescribeSource(t *testing.T) {
 	cases := map[string]Source{
 		"Warning: offline":               {Mode: sourceCheckout, Warning: "offline"},
@@ -1115,5 +1415,26 @@ func TestDescribeSource(t *testing.T) {
 		if got := describeSource(source); got != want {
 			t.Fatalf("got %q, want %q", got, want)
 		}
+	}
+}
+
+// A repository the adapter cannot fully decode must not read as clean.
+func TestSyncWarnsWhenDirtyCheckCannotRun(t *testing.T) {
+	fixture := newGitFixture(t, "x:y", &fakeRunner{}, false)
+	for _, name := range []string{"sparse-kept/file", "sparse-hidden/file"} {
+		if err := storage.Write(filepath.Join(fixture.root, name), []byte("x")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitRun(t, fixture.root, "add", "-A")
+	gitRun(t, fixture.root, "commit", "-q", "-m", "directories for a sparse index")
+	gitRun(t, fixture.root, "sparse-checkout", "init", "--cone", "--sparse-index")
+	gitRun(t, fixture.root, "sparse-checkout", "set", "sparse-kept")
+	if data := gitRun(t, fixture.root, "ls-files", "--sparse", "--stage"); !strings.Contains(data, "040000") {
+		t.Skipf("this Git did not write a sparse index:\n%s", data)
+	}
+	source := fixture.h.server.Sync(context.Background())
+	if source.Mode != sourceRemote || source.Dirty || !strings.Contains(source.Warning, "may not be clean") {
+		t.Fatalf("%+v", source)
 	}
 }

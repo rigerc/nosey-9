@@ -35,7 +35,7 @@ func installFixture(t *testing.T, session app.Session) string {
 }
 
 func TestUpdateRefreshesLocallyChangedSkillsAndReportsTheReason(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	dir := installFixture(t, session)
 	if out, err := runCLI(t, session, "update", "--yes"); err != nil || !strings.Contains(out, "Nothing to update.") {
 		t.Fatal("a current project has nothing to update:", err, out)
@@ -71,7 +71,7 @@ func (failingFetcher) Fetch(context.Context, skillkit.Source) (*skillkit.Checkou
 }
 
 func TestUpdateRefusalsAndExitCodes(t *testing.T) {
-	session, runner := fixtureSession(t)
+	session := fixtureSession(t)
 	dir := installFixture(t, session)
 	edited := filepath.Join(dir, "notes.md")
 	if err := os.WriteFile(edited, []byte("local edit"), 0o600); err != nil {
@@ -86,11 +86,6 @@ func TestUpdateRefusalsAndExitCodes(t *testing.T) {
 	if _, err := os.Stat(edited); err != nil {
 		t.Fatal("a refused update changed the project")
 	}
-	runner.err = errors.New("git: not found")
-	if out, err := runCLI(t, session, "update", "--yes"); err == nil || exitCode(err) != 6 {
-		t.Fatal("missing Git is exit 6:", err, out)
-	}
-	runner.err = nil
 	// A source that cannot be checked stops the command with exit 5.
 	session.Installer.Fetcher = failingFetcher{}
 	out, err := runCLI(t, session, "update", "--yes")
@@ -109,7 +104,7 @@ func TestUpdateRefusalsAndExitCodes(t *testing.T) {
 }
 
 func TestUninstallByNameAndByCatalogID(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	dir := installFixture(t, session)
 	name := skillName(session)
 	out, err := runCLI(t, session, "uninstall", name, "--yes")
@@ -138,7 +133,7 @@ func TestUninstallByNameAndByCatalogID(t *testing.T) {
 }
 
 func TestUninstallRefusalsLeaveTheProjectAlone(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	dir := installFixture(t, session)
 	for name, args := range map[string][]string{
 		"no terminal":  {"uninstall", skillName(session)},
@@ -160,7 +155,7 @@ func TestUninstallRefusalsLeaveTheProjectAlone(t *testing.T) {
 }
 
 func TestUninstallFailureExitsFiveAndKeepsTheLockEntry(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	session.Installer.Settings.Installation.CustomAgents = []settings.CustomAgent{{ID: "my-agent", Name: "My Agent", SkillsDir: ".my-agent/skills"}}
 	if out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--yes", "--copy"); err != nil {
 		t.Fatal(err, out)

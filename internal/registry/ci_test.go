@@ -1,9 +1,7 @@
 package registry
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/registrygen"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
@@ -23,64 +20,6 @@ func readScaffoldFile(t *testing.T, root string) scaffold {
 		t.Fatal(err)
 	}
 	return record
-}
-
-func TestInitNamesPublishedRegistryAfterRepository(t *testing.T) {
-	result, err := initWithRunner(t, &recordingRunner{}, InitOptions{GitHubRepo: "Owner/my.registry"})
-	if err != nil || result.RegistryID != "github:Owner:my.registry" {
-		t.Fatal(result, err)
-	}
-	config, err := registrygen.Load(result.Path)
-	if err != nil || config.Registry.ID != result.RegistryID {
-		t.Fatal(config, err)
-	}
-}
-
-func TestInitGitUsesMainBranch(t *testing.T) {
-	runner := &recordingRunner{}
-	if _, err := initWithRunner(t, runner, InitOptions{Git: true}); err != nil {
-		t.Fatal(err)
-	}
-	if want := [][]string{{"git", "init", "-b", "main"}}; !reflect.DeepEqual(runner.calls, want) {
-		t.Fatal(runner.calls)
-	}
-}
-
-type failSecondGH struct {
-	recordingRunner
-	gh int
-}
-
-func (r *failSecondGH) Run(ctx context.Context, dir string, env []string, name string, args ...string) (process.Output, error) {
-	if name == "gh" {
-		r.gh++
-		if r.gh == 2 {
-			return process.Output{}, fmt.Errorf("forbidden")
-		}
-	}
-	return r.recordingRunner.Run(ctx, dir, env, name, args...)
-}
-
-func TestInitWarnsWhenActionsPermissionFails(t *testing.T) {
-	result, err := initWithRunner(t, &failSecondGH{}, InitOptions{GitHubRepo: "owner/repo", CI: true})
-	if err != nil {
-		t.Fatal("the repository already exists, so this must not fail:", err)
-	}
-	if len(result.Diagnostics) != 1 || result.Diagnostics[0].Code != "W_ACTIONS_PULL_REQUESTS" || result.Diagnostics[0].Severity != "warning" {
-		t.Fatal(result.Diagnostics)
-	}
-}
-
-func TestInitWithoutCISkipsActionsPermission(t *testing.T) {
-	runner := &recordingRunner{}
-	if _, err := initWithRunner(t, runner, InitOptions{GitHubRepo: "owner/repo"}); err != nil {
-		t.Fatal(err)
-	}
-	for _, call := range runner.calls {
-		if len(call) > 1 && call[1] == "api" {
-			t.Fatal("permission changed without CI", call)
-		}
-	}
 }
 
 func TestCheckCIFileConfinesDestinations(t *testing.T) {
@@ -276,7 +215,7 @@ func TestUpdateCIErrors(t *testing.T) {
 
 // The real template, end to end: a new scaffold is current, valid and idempotent.
 func TestScaffoldRoundTripFromPublishedTemplate(t *testing.T) {
-	result, err := initWithRunner(t, &recordingRunner{}, InitOptions{CI: true})
+	result, err := initFixture(t, InitOptions{CI: true})
 	if err != nil {
 		t.Fatal(err)
 	}

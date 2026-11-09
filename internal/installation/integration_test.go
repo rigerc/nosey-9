@@ -9,13 +9,12 @@ import (
 
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/settings"
 )
 
 // TestPinnedSourceInstallsRecordsAndChecksUpdates fetches the current official pin from GitHub
-// with the real git, installs it into a disposable project and checks the lock, the inventory
-// status and a native update check. It needs git and network access, so it is opt-in:
+// with the native Git client, installs it into a disposable project and checks the lock, the inventory
+// status and a native update check. It needs network access, so it is opt-in:
 //
 //	NOSEY_SKILLKIT_INTEGRATION=1 go test ./internal/installation -run '^TestPinned'
 func TestPinnedSourceInstallsRecordsAndChecksUpdates(t *testing.T) {
@@ -34,7 +33,6 @@ func TestPinnedSourceInstallsRecordsAndChecksUpdates(t *testing.T) {
 	s := Service{
 		Store:    settings.Store{Workspace: workspace, Data: t.TempDir(), Cache: t.TempDir()},
 		Settings: settings.Defaults(),
-		Runner:   process.Runner{},
 		Home:     t.TempDir(),
 	}
 	catalogFor := func(ref string) domain.Catalog {

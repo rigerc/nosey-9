@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,28 +14,13 @@ import (
 	"github.com/rigerc/nosey-9/internal/app"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/installation"
-	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/registry"
 	"github.com/rigerc/nosey-9/internal/settings"
 	"github.com/rigerc/nosey-9/internal/skillkit"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
 
-// gitRunner answers the Git prerequisite probe so tests do not depend on the machine.
-type gitRunner struct {
-	calls int
-	err   error
-}
-
-func (r *gitRunner) Run(_ context.Context, _ string, _ []string, name string, _ ...string) (process.Output, error) {
-	r.calls++
-	if r.err != nil {
-		return process.Output{}, r.err
-	}
-	return process.Output{Stdout: []byte(name + " version 2.50.0")}, nil
-}
-
-func fixtureSession(t *testing.T) (app.Session, *gitRunner) {
+func fixtureSession(t *testing.T) app.Session {
 	t.Helper()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
@@ -61,11 +45,10 @@ func fixtureSession(t *testing.T) (app.Session, *gitRunner) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &gitRunner{}
-	return app.Session{Store: store, Resolved: resolved, Catalog: catalog, Registry: reg, Installer: installation.Service{Store: store, Settings: cfg, Runner: runner, Home: t.TempDir()}}, runner
+	return app.Session{Store: store, Resolved: resolved, Catalog: catalog, Registry: reg, Installer: installation.Service{Store: store, Settings: cfg, Home: t.TempDir()}}
 }
 func TestMachineCommandsAndNonTTYContracts(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	open := func(context.Context, string, string, bool) (app.Session, error) { return session, nil }
 	for _, test := range []struct {
 		name    string
@@ -94,7 +77,7 @@ func TestMachineCommandsAndNonTTYContracts(t *testing.T) {
 	}
 }
 func TestRefreshFlagForcesRegistryRefresh(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	for _, test := range []struct {
 		args []string
 		want bool
@@ -117,7 +100,7 @@ func TestRefreshFlagForcesRegistryRefresh(t *testing.T) {
 	}
 }
 func TestIncompleteStrictAndUsageErrors(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	session.Resolved.Settings.Detection.MaxBytes = 1
 	open := func(context.Context, string, string, bool) (app.Session, error) { return session, nil }
 	for _, args := range [][]string{{"install", "local:workspace-style", "--agent", "*", "--yes"}, {"scan", "--quality", "invented", "--json"}, {"scan", "--sort-skills", "invented"}, {"registry", "init", filepath.Join(t.TempDir(), "new")}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--public"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--github", "not-a-slug"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--ci", "gitlab"}, {"registry", "pins", "update", t.TempDir(), "--quarantine", "maybe"}, {"registry", "pins", "check", t.TempDir()}, {"registry", "ci", "update", t.TempDir()}} {
@@ -154,7 +137,7 @@ func skillName(session app.Session) string {
 }
 
 func TestInstallYesInstallsIntoTheWorkspaceAndReportsProgress(t *testing.T) {
-	session, runner := fixtureSession(t)
+	session := fixtureSession(t)
 	out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--yes", "--copy")
 	if err != nil {
 		t.Fatal(err, out)
@@ -175,13 +158,10 @@ func TestInstallYesInstallsIntoTheWorkspaceAndReportsProgress(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(session.Store.Workspace, ".nosey")); !os.IsNotExist(err) {
 		t.Fatal("install wrote nosey project state", err)
 	}
-	if runner.calls == 0 {
-		t.Fatal("the Git prerequisite was not checked")
-	}
 }
 
 func TestInstallSurfacesSkippedAgents(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--agent", "windsurf", "--yes")
 	if err != nil {
 		t.Fatal(err, out)
@@ -195,7 +175,7 @@ func TestInstallSurfacesSkippedAgents(t *testing.T) {
 }
 
 func TestInstallFailureExitsFiveAndKeepsCompletedWork(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	session.Installer.Settings.Installation.CustomAgents = []settings.CustomAgent{{ID: "blocked", Name: "Blocked", SkillsDir: ".blocked/skills"}}
 	if err := os.WriteFile(filepath.Join(session.Store.Workspace, ".blocked"), []byte("in the way"), 0o600); err != nil {
 		t.Fatal(err)
@@ -223,7 +203,7 @@ func (l lockSaboteur) Fetch(ctx context.Context, src skillkit.Source) (*skillkit
 }
 
 func TestInstallWithAFailedLockWriteExitsFive(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	session.Installer.Fetcher = lockSaboteur{session.Store.Workspace}
 	out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--yes", "--copy")
 	if err == nil || exitCode(err) != 5 || !strings.Contains(err.Error(), "skills-lock.json could not be updated") {
@@ -232,7 +212,7 @@ func TestInstallWithAFailedLockWriteExitsFive(t *testing.T) {
 }
 
 func TestInstallExitCodesForPolicyPrerequisiteAndBusyWorkspace(t *testing.T) {
-	session, runner := fixtureSession(t)
+	session := fixtureSession(t)
 	if err := os.WriteFile(filepath.Join(session.Store.Workspace, "skills-lock.json"), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -242,11 +222,6 @@ func TestInstallExitCodesForPolicyPrerequisiteAndBusyWorkspace(t *testing.T) {
 	if err := os.Remove(filepath.Join(session.Store.Workspace, "skills-lock.json")); err != nil {
 		t.Fatal(err)
 	}
-	runner.err = errors.New("git: not found")
-	if out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--yes"); err == nil || exitCode(err) != 6 {
-		t.Fatal("missing Git is exit 6:", err, out)
-	}
-	runner.err = nil
 	session.Installer.LockTimeout = 100 * time.Millisecond
 	op, err := session.Installer.Begin(context.Background())
 	if err != nil {
@@ -259,18 +234,18 @@ func TestInstallExitCodesForPolicyPrerequisiteAndBusyWorkspace(t *testing.T) {
 }
 
 func TestInstallRejectsRemovedPrintFlag(t *testing.T) {
-	session, runner := fixtureSession(t)
+	session := fixtureSession(t)
 	out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--print")
 	if err == nil || !strings.Contains(err.Error(), "unknown flag: --print") {
 		t.Fatal(err, out)
 	}
-	if runner.calls != 0 {
-		t.Fatal("rejected flag started an operation", runner.calls)
+	if _, statErr := os.Stat(filepath.Join(session.Store.Workspace, "skills-lock.json")); !os.IsNotExist(statErr) {
+		t.Fatal("rejected flag started an operation", statErr)
 	}
 }
 
 func TestInstallRefusesWithoutChangingTheProject(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	for name, args := range map[string][]string{
 		"no skills":          {"--agent", "codex", "--yes"},
 		"yes without agents": {fixtureSkill, "--yes"},
@@ -297,7 +272,7 @@ func TestInstallRefusesWithoutChangingTheProject(t *testing.T) {
 }
 
 func TestInstallAcceptsCustomAgents(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	session.Installer.Settings.Installation.CustomAgents = []settings.CustomAgent{{ID: "my-agent", Name: "My Agent", SkillsDir: ".my-agent/skills"}}
 	out, err := runInstall(t, session, fixtureSkill, "--agent", "my-agent", "--yes", "--copy")
 	if err != nil {
@@ -309,7 +284,7 @@ func TestInstallAcceptsCustomAgents(t *testing.T) {
 }
 
 func TestListChecksUpdatesNatively(t *testing.T) {
-	session, _ := fixtureSession(t)
+	session := fixtureSession(t)
 	if out, err := runInstall(t, session, fixtureSkill, "--agent", "codex", "--yes", "--copy"); err != nil {
 		t.Fatal(err, out)
 	}
@@ -336,7 +311,7 @@ func TestListChecksUpdatesNatively(t *testing.T) {
 }
 
 func TestDoctorChecksOnlyGit(t *testing.T) {
-	session, runner := fixtureSession(t)
+	session := fixtureSession(t)
 	open := func(context.Context, string, string, bool) (app.Session, error) { return session, nil }
 	run := func() (doctorResult, error) {
 		cmd := newCommandTree(open)
@@ -356,11 +331,7 @@ func TestDoctorChecksOnlyGit(t *testing.T) {
 	for _, check := range result.Checks {
 		ids = append(ids, check.ID)
 	}
-	if err != nil || !slices.Equal(ids, []string{"settings", "git"}) {
+	if err != nil || !slices.Equal(ids, []string{"settings", "transport", "github-credentials", "ssh-credentials"}) {
 		t.Fatal(ids, err)
-	}
-	runner.err = errors.New("git: not found")
-	if _, err = run(); err == nil || exitCode(err) != 6 {
-		t.Fatal("missing Git must exit 6:", err)
 	}
 }

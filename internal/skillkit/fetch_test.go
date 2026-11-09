@@ -3,20 +3,19 @@ package skillkit
 import (
 	"context"
 	"errors"
+	"net/http/cgi" //nolint:gosec // test fixture serves git-http-backend; Httpoxy does not apply
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
-	"github.com/rigerc/nosey-9/internal/gitpolicy"
-	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/gitclient"
 	"github.com/stretchr/testify/require"
 )
 
-const remoteURL = "https://github.com/acme/skills.git" // rewritten to a local repository by the test's user git config
+const remoteURL = "https://github.com/acme/skills.git" // rewritten to a local repository by testFetcher
 
 func requireGit(t *testing.T) {
 	t.Helper()
@@ -72,23 +71,29 @@ func newSourceRepo(t *testing.T) sourceRepo {
 	return r
 }
 
-// userGitConfig points the process at a global Git config that rewrites the
-// public URL to repo, like a user's insteadOf/credential settings would, and
-// returns its path. Extra config text is appended.
-func userGitConfig(t *testing.T, repo, extra string) string {
-	t.Helper()
-	cfg := filepath.Join(t.TempDir(), "gitconfig")
-	body := "[url \"file://" + repo + "\"]\n\tinsteadOf = " + remoteURL + "\n" + extra
-	require.NoError(t, os.WriteFile(cfg, []byte(body), 0o600))
-	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	return cfg
+// testCredentials resolves no token, key or agent from the machine running the tests.
+func testCredentials(home string) *gitclient.Credentials {
+	return &gitclient.Credentials{
+		Getenv:  func(string) string { return "" },
+		HomeDir: func() (string, error) { return home, nil },
+		Keyring: func(string, string) (string, error) { return "", errors.New("no keyring") },
+	}
 }
 
-func testFetcher(t *testing.T) (Fetcher, string) {
+// testFetcher dials repo for remoteURL through the file transport; any other URL
+// reaches a repository that does not exist, so no test touches the network.
+func testFetcher(t *testing.T, repo string) (Fetcher, string) {
 	t.Helper()
 	tmp := t.TempDir()
-	return Fetcher{TempDir: tmp, allowFile: true}, tmp
+	missing := "file://" + filepath.Join(t.TempDir(), "missing.git")
+	rewrite := func(url string) string {
+		if url == remoteURL {
+			return "file://" + repo
+		}
+		return missing
+	}
+	client := gitclient.New(gitclient.Options{Policy: gitclient.Policy{AllowFile: true, Rewrite: rewrite}, Credentials: testCredentials(t.TempDir()), TempDir: tmp})
+	return Fetcher{TempDir: tmp, Client: client}, tmp
 }
 
 func requireEmptyDir(t *testing.T, dir string) {
@@ -100,7 +105,7 @@ func requireEmptyDir(t *testing.T, dir string) {
 
 func TestFetchDefaultBranchBranchTagAndPinnedSHA(t *testing.T) {
 	repo := newSourceRepo(t)
-	userGitConfig(t, repo.dir, "")
+	gitIn(t, repo.dir, "tag", "-a", "annotated", "-m", "t", repo.feature)
 	for name, tc := range map[string]struct {
 		ref, commit, skill string
 		absent             string
@@ -108,16 +113,18 @@ func TestFetchDefaultBranchBranchTagAndPinnedSHA(t *testing.T) {
 		"default branch": {"", repo.second, "alpha", "featured"},
 		"branch":         {"feature", repo.feature, "featured", ""},
 		"tag":            {"v1", repo.first, "alpha", ""},
+		"annotated tag":  {"annotated", repo.feature, "featured", ""},
 		"pinned SHA":     {repo.first, repo.first, "alpha", "featured"}, // older than the tip of main
 		"tip SHA":        {repo.second, repo.second, "alpha", ""},
 		"upper-case SHA": {strings.ToUpper(repo.first), repo.first, "alpha", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			f, tmp := testFetcher(t)
+			f, tmp := testFetcher(t, repo.dir)
 			co, err := f.Fetch(context.Background(), Source{URI: "acme/skills", Ref: tc.ref})
 			require.NoError(t, err)
 			// The requested ref is kept as given, separate from the resolved commit.
 			require.Equal(t, [3]string{tc.commit, tc.ref, "github"}, [3]string{co.Commit, co.Ref, co.Parsed.Type})
+			require.NoDirExists(t, filepath.Join(co.Dir, ".git"), "a checkout is a plain tree")
 			skills := mustDiscover(t, co.Dir, DiscoverOptions{})
 			var names []string
 			for _, s := range skills {
@@ -138,8 +145,7 @@ func TestFetchDefaultBranchBranchTagAndPinnedSHA(t *testing.T) {
 // `clone --branch <sha>` and for silently falling back to another revision.
 func TestFetchPinnedSHAIsExact(t *testing.T) {
 	repo := newSourceRepo(t)
-	userGitConfig(t, repo.dir, "")
-	f, tmp := testFetcher(t)
+	f, tmp := testFetcher(t, repo.dir)
 	co, err := f.Fetch(context.Background(), Source{URI: remoteURL, Ref: repo.first})
 	require.NoError(t, err)
 	defer func() { _ = co.Close() }()
@@ -157,9 +163,8 @@ func TestFetchPinnedSHAIsExact(t *testing.T) {
 
 func TestFetchFailsWhenHeadDiffersFromRequestedSHA(t *testing.T) {
 	repo := newSourceRepo(t)
-	userGitConfig(t, repo.dir, "")
-	f, tmp := testFetcher(t)
-	f.Exec = rewriteOutput{inner: process.Runner{Timeout: time.Minute}, match: "rev-parse", stdout: strings.Repeat("b", 40) + "\n"}
+	f, tmp := testFetcher(t, repo.dir)
+	f.reportedCommit = func(string) string { return strings.Repeat("b", 40) }
 	_, err := f.Fetch(context.Background(), Source{URI: remoteURL, Ref: repo.first})
 	var fe *FetchError
 	require.ErrorAs(t, err, &fe)
@@ -174,25 +179,8 @@ func TestFetchFailsWhenHeadDiffersFromRequestedSHA(t *testing.T) {
 	require.NoError(t, co.Close())
 }
 
-type rewriteOutput struct {
-	inner  process.Executor
-	match  string
-	stdout string
-}
-
-func (r rewriteOutput) Run(ctx context.Context, dir string, env []string, name string, args ...string) (process.Output, error) {
-	out, err := r.inner.Run(ctx, dir, env, name, args...)
-	for _, a := range args {
-		if a == r.match {
-			out.Stdout = []byte(r.stdout)
-		}
-	}
-	return out, err
-}
-
-func TestFetchRejectsInvalidURIAndRefBeforeRunningGit(t *testing.T) {
-	rec := &recorder{}
-	f := Fetcher{Exec: rec, TempDir: t.TempDir()}
+func TestFetchRejectsInvalidURIAndRefBeforeAnyIO(t *testing.T) {
+	f := Fetcher{TempDir: t.TempDir()}
 	for _, src := range []Source{
 		{URI: "-oProxyCommand=evil"}, {URI: "ext::sh -c touch /tmp/x"}, {URI: "file:///etc/passwd"}, {URI: "http://plain.example/r.git"},
 		{URI: "acme/skills", Ref: "--upload-pack=touch /tmp/x"}, {URI: "acme/skills", Ref: "a..b"}, {URI: "acme/skills", Ref: "-x"},
@@ -202,14 +190,12 @@ func TestFetchRejectsInvalidURIAndRefBeforeRunningGit(t *testing.T) {
 		var se *SourceError
 		require.ErrorAs(t, err, &se, "%+v", src)
 	}
-	require.Empty(t, rec.calls, "no subprocess may start for a rejected source")
 	requireEmptyDir(t, f.TempDir)
 }
 
 func TestFetchCleansUpOnEveryFailure(t *testing.T) {
 	repo := newSourceRepo(t)
-	userGitConfig(t, repo.dir, "")
-	f, tmp := testFetcher(t)
+	f, tmp := testFetcher(t, repo.dir)
 
 	_, err := f.Fetch(context.Background(), Source{URI: remoteURL, Ref: "no-such-branch"})
 	var fe *FetchError
@@ -217,30 +203,43 @@ func TestFetchCleansUpOnEveryFailure(t *testing.T) {
 	require.Equal(t, "fetch", fe.Stage)
 	requireEmptyDir(t, tmp)
 
+	require.ErrorIs(t, err, gitclient.KindMissingRef)
+
 	_, err = f.Fetch(context.Background(), Source{URI: "acme/other-repo"})
 	require.ErrorAs(t, err, &fe, "unreachable repository")
+	require.Equal(t, "fetch", fe.Stage)
+	require.ErrorIs(t, err, gitclient.KindMissingRepository)
 	requireEmptyDir(t, tmp)
 
-	missing := f
-	missing.Git = filepath.Join(tmp, "no-git-here")
-	_, err = missing.Fetch(context.Background(), Source{URI: remoteURL})
-	require.ErrorAs(t, err, &fe)
-	require.Equal(t, "init", fe.Stage)
+	_, err = f.Fetch(context.Background(), Source{URI: remoteURL, Ref: strings.Repeat("c", 64)})
+	require.ErrorAs(t, err, &fe, "64-character SHA")
+	require.Equal(t, "fetch", fe.Stage)
+	require.ErrorIs(t, err, gitclient.KindUnsupportedFormat)
 	requireEmptyDir(t, tmp)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err = f.Fetch(ctx, Source{URI: remoteURL})
 	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorIs(t, err, gitclient.KindCanceled)
+	requireEmptyDir(t, tmp)
+
+	limited := Fetcher{TempDir: tmp, Client: gitclient.New(gitclient.Options{
+		Policy:      gitclient.Policy{AllowFile: true, Rewrite: func(string) string { return "file://" + repo.dir }},
+		Credentials: testCredentials(t.TempDir()), TempDir: tmp, Limits: gitclient.Limits{MaxFiles: 1},
+	})}
+	_, err = limited.Fetch(context.Background(), Source{URI: remoteURL})
+	require.ErrorAs(t, err, &fe, "a failure while writing the tree")
+	require.Equal(t, "checkout", fe.Stage)
+	require.ErrorIs(t, err, gitclient.KindResourceLimit)
 	requireEmptyDir(t, tmp)
 }
 
 func TestFetchLocalSourceDoesNotRunGit(t *testing.T) {
-	rec := &recorder{}
 	dir := t.TempDir()
-	co, err := Fetcher{Exec: rec}.Fetch(context.Background(), Source{LocalPath: dir})
+	co, err := Fetcher{}.Fetch(context.Background(), Source{LocalPath: dir})
 	require.NoError(t, err)
-	require.Empty(t, rec.calls)
+	require.Empty(t, co.Commit)
 	require.Equal(t, dir, co.Dir)
 	require.Equal(t, "local", co.Parsed.Type)
 	require.NoError(t, co.Close())
@@ -250,187 +249,182 @@ func TestFetchLocalSourceDoesNotRunGit(t *testing.T) {
 }
 
 // TestFetchUserFilterNeverRuns: a .gitattributes filter defined in the user's Git
-// configuration must not run during fetch+checkout, while the same configuration's
-// URL rewrite (standing in for credential and transport settings) still reaches fetch.
+// configuration must not run during a fetch, and that configuration is not consulted.
 func TestFetchUserFilterNeverRuns(t *testing.T) {
 	repo := newSourceRepo(t)
 	marker := filepath.Join(t.TempDir(), "filter-ran")
+	hookMarker := filepath.Join(t.TempDir(), "hook-ran")
 	require.NoError(t, os.WriteFile(filepath.Join(repo.dir, ".gitattributes"), []byte("* filter=evil\n"), 0o600))
 	gitIn(t, repo.dir, "add", ".gitattributes")
 	gitIn(t, repo.dir, "commit", "-qm", "attributes")
-	userGitConfig(t, repo.dir, "[filter \"evil\"]\n\tsmudge = touch "+marker+" && cat\n\tclean = cat\n\trequired = true\n")
+	hooks := t.TempDir()
+	// #nosec G306 -- the hook must be executable for the control to prove anything.
+	require.NoError(t, os.WriteFile(filepath.Join(hooks, "post-checkout"), []byte("#!/bin/sh\ntouch "+hookMarker+"\n"), 0o700))
+	cfg := filepath.Join(t.TempDir(), "gitconfig")
+	body := "[core]\n\thooksPath = " + hooks + "\n[filter \"evil\"]\n\tsmudge = touch " + marker + " && cat\n\tclean = cat\n\trequired = true\n"
+	require.NoError(t, os.WriteFile(cfg, []byte(body), 0o600))
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 
-	// Control: with the user's configuration a plain checkout does run the filter,
-	// so the assertion below can fail.
-	control := t.TempDir()
+	// Control: with the user's configuration a plain clone does run both, so the
+	// assertions below can fail.
 	// #nosec G204 -- fixed binary with paths from the test's temporary directories.
-	cmd := exec.Command("git", "clone", "-q", repo.dir, filepath.Join(control, "c"))
+	cmd := exec.Command("git", "clone", "-q", repo.dir, filepath.Join(t.TempDir(), "c"))
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
 	require.FileExists(t, marker, "control: the user's smudge filter must be live")
+	require.FileExists(t, hookMarker, "control: the user's hook must be live")
 	require.NoError(t, os.Remove(marker))
+	require.NoError(t, os.Remove(hookMarker))
 
-	f, tmp := testFetcher(t)
+	f, _ := testFetcher(t, repo.dir)
 	co, err := f.Fetch(context.Background(), Source{URI: remoteURL})
-	require.NoError(t, err, "the user's URL rewrite reached the fetch")
+	require.NoError(t, err)
 	defer func() { _ = co.Close() }()
-	require.NoFileExists(t, marker, "the user's filter ran during fetch or checkout")
+	require.NoFileExists(t, marker, "the user's filter ran during the fetch")
+	require.NoFileExists(t, hookMarker, "the user's hook ran during the fetch")
 	require.FileExists(t, filepath.Join(co.Dir, ".gitattributes"))
-	_ = tmp
-
-	// The hardened-only environment cannot reach the repository through the user's
-	// rewrite, proving credentials/URL configuration is visible to fetch alone.
-	rec := &recorder{inner: process.Runner{Timeout: time.Minute}}
-	f.Exec = rec
-	co2, err := f.Fetch(context.Background(), Source{URI: remoteURL})
-	require.NoError(t, err)
-	require.NoError(t, co2.Close())
-	var sawFetch bool
-	for _, c := range rec.calls {
-		global := lastEnv(c.env, "GIT_CONFIG_GLOBAL")
-		switch c.stage() {
-		case "fetch":
-			sawFetch = true
-			require.Empty(t, global, "fetch must not null the user configuration")
-		default:
-			require.Equal(t, os.DevNull, global, "%s must run with nulled user configuration", c.stage())
-		}
-	}
-	require.True(t, sawFetch)
 }
 
-func lastEnv(env []string, key string) string {
-	val := ""
-	for _, e := range env {
-		if k, v, ok := strings.Cut(e, "="); ok && k == key {
-			val = v
-		}
-	}
-	return val
-}
-
-type call struct {
-	env  []string
-	name string
-	args []string
-}
-
-// stage names the git subcommand, skipping the leading -c settings.
-func (c call) stage() string {
-	for i := 0; i < len(c.args); i++ {
-		if c.args[i] == "-c" {
-			i++
-			continue
-		}
-		return c.args[i]
-	}
-	return ""
-}
-
-type recorder struct {
-	mu    sync.Mutex
-	calls []call
-	inner process.Executor
-}
-
-func (r *recorder) Run(ctx context.Context, dir string, env []string, name string, args ...string) (process.Output, error) {
-	r.mu.Lock()
-	r.calls = append(r.calls, call{env: append([]string(nil), env...), name: name, args: append([]string(nil), args...)})
-	r.mu.Unlock()
-	if r.inner != nil {
-		return r.inner.Run(ctx, dir, env, name, args...)
-	}
-	return process.Output{Stderr: []byte("fake failure")}, errors.New("fake failure")
-}
-
-// TestFetchGitInvocation pins the exact hardening of each Git command.
-func TestFetchGitInvocation(t *testing.T) {
-	rec := &recorder{}
-	tmp := t.TempDir()
-	f := Fetcher{Exec: rec, TempDir: tmp}
-	_, err := f.Fetch(context.Background(), Source{URI: "acme/skills", Ref: "v1"})
-	require.Error(t, err)
-	require.Len(t, rec.calls, 1, "stops at the first failing command")
-	require.Equal(t, "init", rec.calls[0].stage())
-
-	// Let init and remote succeed to reach fetch.
-	seq := &sequence{ok: 2}
-	f.Exec = seq
-	_, err = f.Fetch(context.Background(), Source{URI: "acme/skills", Ref: "v1"})
-	require.Error(t, err)
-	require.Len(t, seq.calls, 3)
-	hardened := gitpolicy.HardenedArgs()
-	for _, c := range seq.calls {
-		require.Equal(t, "git", c.name)
-		require.Equal(t, hardened, c.args[:len(hardened)], "%s uses HardenedArgs", c.stage())
-		require.Contains(t, c.env, "GIT_TERMINAL_PROMPT=0")
-		require.Contains(t, c.env, "GIT_LFS_SKIP_SMUDGE=1")
-		require.Equal(t, "https:ssh", lastEnv(c.env, "GIT_ALLOW_PROTOCOL"), "production code can only use https and ssh")
-		require.Equal(t, "0", lastEnv(c.env, "GIT_CONFIG_COUNT"))
-		require.NotEmpty(t, lastEnv(c.env, "GIT_DIR"))
-		require.Equal(t, filepath.Join(lastEnv(c.env, "GIT_WORK_TREE"), ".git"), lastEnv(c.env, "GIT_DIR"))
-	}
-	require.Equal(t, []string{"init", "remote", "fetch"}, []string{seq.calls[0].stage(), seq.calls[1].stage(), seq.calls[2].stage()})
-	require.Equal(t, os.DevNull, lastEnv(seq.calls[0].env, "GIT_CONFIG_GLOBAL"))
-	require.Equal(t, os.DevNull, lastEnv(seq.calls[1].env, "GIT_CONFIG_GLOBAL"))
-	fetch := seq.calls[2]
-	require.Empty(t, lastEnv(fetch.env, "GIT_CONFIG_GLOBAL"), "only fetch sees the user configuration")
-	require.Empty(t, lastEnv(fetch.env, "GIT_CONFIG_NOSYSTEM"))
-	require.Contains(t, fetch.args, "--depth=1")
-	require.Contains(t, fetch.args, "origin")
-	require.Equal(t, "v1", fetch.args[len(fetch.args)-1])
-	require.Contains(t, fetch.args, "core.hooksPath="+os.DevNull)
-	require.Contains(t, fetch.args, "protocol.ext.allow=never")
-	require.Contains(t, fetch.args, "submodule.recurse=false")
-	require.Equal(t, []string{"remote", "add", "origin", "https://github.com/acme/skills.git"}, seq.calls[1].args[len(hardened):])
-	requireEmptyDir(t, tmp)
-
-	// Complete run with a fake that succeeds: checkout must be hardened and detached.
-	ok := &sequence{ok: 99, stdout: strings.Repeat("c", 40)}
-	f.Exec = ok
-	co, err := f.Fetch(context.Background(), Source{URI: "acme/skills"})
-	require.NoError(t, err)
-	require.NoError(t, co.Close())
-	var stages []string
-	for _, c := range ok.calls {
-		stages = append(stages, c.stage())
-	}
-	require.Equal(t, []string{"init", "remote", "fetch", "checkout", "rev-parse"}, stages)
-	checkout := ok.calls[3]
-	require.Equal(t, os.DevNull, lastEnv(checkout.env, "GIT_CONFIG_GLOBAL"))
-	require.Equal(t, "1", lastEnv(checkout.env, "GIT_CONFIG_NOSYSTEM"))
-	require.Equal(t, []string{"checkout", "--quiet", "--detach", "FETCH_HEAD"}, checkout.args[len(hardened):])
-	require.Equal(t, "HEAD", ok.calls[2].args[len(ok.calls[2].args)-1], "default branch fetches HEAD")
-	require.Equal(t, strings.Repeat("c", 40), co.Commit)
-}
-
-type sequence struct {
-	calls  []call
-	ok     int
-	stdout string
-}
-
-func (s *sequence) Run(_ context.Context, _ string, env []string, name string, args ...string) (process.Output, error) {
-	s.calls = append(s.calls, call{env: append([]string(nil), env...), name: name, args: append([]string(nil), args...)})
-	if len(s.calls) > s.ok {
-		return process.Output{Stderr: []byte("stop")}, errors.New("stop")
-	}
-	return process.Output{Stdout: []byte(s.stdout)}, nil
-}
-
-// TestFetchFileProtocolIsNotAvailableToProductionCode shows the test-only file
-// transport hook is closed by default: without it git refuses a file:// remote.
-func TestFetchFileProtocolIsNotAvailableToProductionCode(t *testing.T) {
+// TestFetchFileTransportNeedsTheTestSeam: a file remote stays closed without AllowFile,
+// even when a rewrite tries to reach one.
+func TestFetchFileTransportNeedsTheTestSeam(t *testing.T) {
 	repo := newSourceRepo(t)
-	userGitConfig(t, repo.dir, "")
 	tmp := t.TempDir()
-	_, err := Fetcher{TempDir: tmp}.Fetch(context.Background(), Source{URI: remoteURL})
+	rewrite := func(string) string { return "file://" + repo.dir }
+	client := gitclient.New(gitclient.Options{Policy: gitclient.Policy{Rewrite: rewrite}, Credentials: testCredentials(t.TempDir()), TempDir: tmp})
+	_, err := Fetcher{TempDir: tmp, Client: client}.Fetch(context.Background(), Source{URI: remoteURL})
+	var fe *FetchError
+	require.ErrorAs(t, err, &fe)
+	require.Equal(t, "init", fe.Stage)
+	require.ErrorIs(t, err, gitclient.KindInvalidSource)
+	requireEmptyDir(t, tmp)
+}
+
+// TestFetchWithoutExactSHASupport uses a server that advertises no exact-SHA wants:
+// tips and older commits still resolve, and an unknown SHA is never substituted.
+func TestFetchWithoutExactSHASupport(t *testing.T) {
+	repo := newSourceRepo(t)
+	gitIn(t, repo.dir, "config", "--unset", "uploadpack.allowAnySHA1InWant")
+	f, tmp := testFetcher(t, repo.dir)
+	for name, tc := range map[string]struct{ ref, content string }{
+		"tip":   {repo.second, "echo 2\n"},
+		"older": {repo.first, "echo 1\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			co, err := f.Fetch(context.Background(), Source{URI: remoteURL, Ref: tc.ref})
+			require.NoError(t, err)
+			require.Equal(t, tc.ref, co.Commit)
+			require.Equal(t, tc.content, readFile(t, filepath.Join(co.Dir, "skills/alpha/scripts/run.sh")))
+			require.NoError(t, co.Close())
+		})
+	}
+	_, err := f.Fetch(context.Background(), Source{URI: remoteURL, Ref: strings.Repeat("a", 40)})
 	var fe *FetchError
 	require.ErrorAs(t, err, &fe)
 	require.Equal(t, "fetch", fe.Stage)
-	require.Contains(t, fe.Stderr, "not allowed")
+	require.ErrorIs(t, err, gitclient.KindMissingRef)
 	requireEmptyDir(t, tmp)
+}
+
+// TestFetchMatchesGitCheckout compares a fetch with a real clone of the same commit:
+// line endings, modes, symlinks (including one leaving the repository), discovered
+// skills and every computedHash. The clone's .git directory is what a checkout used
+// to carry; it must have no effect on discovery or hashing.
+func TestFetchMatchesGitCheckout(t *testing.T) {
+	requireGit(t)
+	dir := t.TempDir()
+	gitIn(t, dir, "init", "-q", "-b", "main")
+	writeSkill(t, dir, "root-skill", map[string]string{"notes.txt": "root\nnotes\n"})
+	writeSkill(t, filepath.Join(dir, "skills", "crlf"), "crlf", map[string]string{"docs/a.md": "line one\nline two\n", "docs/auto.txt": "auto\ntext\n", "raw.bin": "binary\nbody\n"})
+	writeSkill(t, filepath.Join(dir, "skills", "linked"), "linked", map[string]string{"scripts/run.sh": "#!/bin/sh\n"})
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".gitattributes"), []byte("*.md text eol=crlf\n*.txt text=auto eol=crlf\n*.bin -text\n"), 0o600))
+	// #nosec G302 -- the executable bit is the property under test.
+	require.NoError(t, os.Chmod(filepath.Join(dir, "skills/linked/scripts/run.sh"), 0o700))
+	require.NoError(t, os.Symlink("scripts/run.sh", filepath.Join(dir, "skills/linked/inside")))
+	require.NoError(t, os.Symlink("../../../outside", filepath.Join(dir, "skills/linked/escaping")))
+	require.NoError(t, os.Symlink("/etc/hostname", filepath.Join(dir, "skills/linked/absolute")))
+	gitIn(t, dir, "add", ".")
+	gitIn(t, dir, "commit", "-qm", "all")
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	gitIn(t, filepath.Dir(clone), "clone", "-q", dir, clone)
+	require.Contains(t, readFile(t, filepath.Join(clone, "skills/crlf/SKILL.md")), "\r\n", "control: the clone converted line endings")
+	require.DirExists(t, filepath.Join(clone, ".git"))
+
+	f, _ := testFetcher(t, dir)
+	co, err := f.Fetch(context.Background(), Source{URI: remoteURL})
+	require.NoError(t, err)
+	defer func() { _ = co.Close() }()
+	require.NoDirExists(t, filepath.Join(co.Dir, ".git"))
+
+	var cloneTree []string
+	for _, entry := range listTree(t, clone) {
+		if !strings.Contains(entry, " .git/") && entry != "d .git" {
+			cloneTree = append(cloneTree, entry)
+		}
+	}
+	require.Equal(t, cloneTree, listTree(t, co.Dir))
+
+	summarize := func(root string) map[string][2]string {
+		out := map[string][2]string{}
+		for _, skill := range mustDiscover(t, root, DiscoverOptions{FullDepth: true}) {
+			hash, herr := FolderHash(filepath.Join(root, filepath.FromSlash(skill.Path)))
+			require.NoError(t, herr)
+			out[skill.Name] = [2]string{skill.Path, hash}
+		}
+		return out
+	}
+	want := summarize(clone)
+	require.Len(t, want, 3)
+	require.Equal(t, want, summarize(co.Dir))
+}
+
+// TestFetchRunsWithEmptyPATH proves the client starts no subprocess: PATH is empty
+// while it fetches over smart HTTP from git-http-backend, which the test's server
+// starts by absolute path. The file transport would fail here.
+func TestFetchRunsWithEmptyPATH(t *testing.T) {
+	repo := newSourceRepo(t)
+	backend := filepath.Join(gitIn(t, repo.dir, "--exec-path"), "git-http-backend")
+	if _, err := os.Stat(backend); err != nil {
+		t.Skip("git-http-backend is not installed")
+	}
+	root := t.TempDir()
+	gitIn(t, root, "clone", "-q", "--bare", repo.dir, filepath.Join(root, "skills.git"))
+	server := httptest.NewServer(&cgi.Handler{Path: backend, Root: "/", Env: []string{
+		"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull,
+		"PATH=" + os.Getenv("PATH"),
+	}})
+	defer server.Close()
+
+	tmp := t.TempDir()
+	rewrite := func(string) string { return server.URL + "/skills.git" }
+	client := gitclient.New(gitclient.Options{Policy: gitclient.Policy{AllowHTTP: true, Rewrite: rewrite}, Credentials: testCredentials(t.TempDir()), TempDir: tmp})
+	f := Fetcher{TempDir: tmp, Client: client}
+	t.Setenv("PATH", "")
+	for _, tc := range []struct{ ref, commit string }{{"", repo.second}, {"v1", repo.first}, {repo.second, repo.second}} {
+		co, err := f.Fetch(context.Background(), Source{URI: remoteURL, Ref: tc.ref})
+		require.NoError(t, err, tc.ref)
+		require.Equal(t, tc.commit, co.Commit)
+		require.FileExists(t, filepath.Join(co.Dir, "skills/alpha/SKILL.md"))
+		require.NoError(t, co.Close())
+	}
+	requireEmptyDir(t, tmp)
+}
+
+func TestSkillkitProductionCodeRunsNoGit(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	require.NoError(t, err)
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		data := readFile(t, name)
+		require.NotContains(t, data, `"os/exec"`, name)
+		require.NotContains(t, data, "internal/process", name)
+	}
 }
 
 func TestFetchErrorsCarryStageAndStderr(t *testing.T) {

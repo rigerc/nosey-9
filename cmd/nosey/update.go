@@ -56,7 +56,7 @@ terminal.`,
 		if err != nil {
 			return err
 		}
-		if err = s.Installer.Prepare(cmd.Context()); err != nil {
+		if err = s.Installer.Preflight(); err != nil {
 			return err
 		}
 		opts.IDs = args

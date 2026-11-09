@@ -48,7 +48,9 @@ export function Changes({ ctx }) {
     ${roles.map((role) => html`<div class="card" key=${role}><h3>${ROLE_LABELS[role]}</h3>${ops.filter((op) => op.role === role).map((op) => html`<${OpRow} key=${op.id} ctx=${ctx} op=${op} />`)}</div>`)}
     ${!ops.length ? html`<p class="card pad">Nothing staged yet.</p>` : null}
     ${missingChecks ? html`<p class="notice">The registry's own Node checks are off, so CI could still reject something they cover. Start the studio with <code>--registry-checks</code> to run them first.</p>` : null}
-    ${published ? html`<p class="notice">Pull request: <a href=${published.url} rel="noreferrer" target="_blank">${published.url}</a> on <code>${published.branch}</code></p>` : null}
+    ${published ? (published.url
+      ? html`<p class="notice">Pull request: <a href=${published.url} rel="noreferrer" target="_blank">${published.url}</a> on <code>${published.branch}</code></p>`
+      : html`<p class="notice">Branch <code>${published.branch}</code> was pushed, but no pull request is open yet. Publish again to open one.</p>`) : null}
     ${message ? html`<p class=${message.tone === 'error' ? 'error' : 'notice'} role="status">${message.text}</p>` : null}
     <div class="card">
       <h3>${published ? 'Update the pull request' : 'Publish'}</h3>

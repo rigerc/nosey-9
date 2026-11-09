@@ -11,28 +11,11 @@ import (
 
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/gitclient"
 	"github.com/rigerc/nosey-9/internal/settings"
 	"github.com/rigerc/nosey-9/internal/skillkit"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
-
-// gitRunner answers the Git prerequisite probe so tests do not depend on the machine.
-type gitRunner struct {
-	mu    sync.Mutex
-	calls [][]string
-	err   error
-}
-
-func (r *gitRunner) Run(_ context.Context, _ string, _ []string, name string, args ...string) (process.Output, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.calls = append(r.calls, append([]string{name}, args...))
-	if r.err != nil {
-		return process.Output{}, r.err
-	}
-	return process.Output{Stdout: []byte("git version 2.50.0\n")}, nil
-}
 
 // fakeFetcher serves directories prepared by the test instead of cloning. Git sources are looked
 // up by "uri#ref"; local sources are used in place, as skillkit.Fetcher does.
@@ -92,7 +75,6 @@ func newService(t *testing.T, f *fakeFetcher) Service {
 	return Service{
 		Store:    settings.Store{Workspace: workspace, Data: t.TempDir(), Cache: t.TempDir()},
 		Settings: settings.Defaults(),
-		Runner:   &gitRunner{},
 		Fetcher:  f,
 		Home:     t.TempDir(),
 	}
@@ -146,24 +128,37 @@ func exists(path string) bool {
 	return err == nil
 }
 
-func TestPrerequisitesCheckOnlyGit(t *testing.T) {
-	runner := &gitRunner{}
-	s := Service{Store: settings.Store{Workspace: t.TempDir()}, Runner: runner}
-	checks := s.CheckPrerequisites(context.Background())
-	if len(checks) != 1 || checks[0].ID != "git" || checks[0].Status != "pass" || !strings.Contains(checks[0].Message, "git version") {
+func TestPrerequisitesReportNativeCredentialSources(t *testing.T) {
+	home := t.TempDir()
+	env := map[string]string{}
+	s := Service{Store: settings.Store{Workspace: t.TempDir()}, Credentials: &gitclient.Credentials{
+		Getenv:  func(name string) string { return env[name] },
+		HomeDir: func() (string, error) { return home, nil },
+		Keyring: func(string, string) (string, error) { return "", errors.New("no keyring") },
+	}}
+	byID := func() map[string]Check {
+		found := map[string]Check{}
+		for _, check := range s.CheckPrerequisites(context.Background()) {
+			found[check.ID] = check
+		}
+		return found
+	}
+	checks := byID()
+	if len(checks) != 3 || checks["transport"].Status != "pass" {
 		t.Fatalf("%+v", checks)
 	}
-	if len(runner.calls) != 1 || runner.calls[0][0] != "git" {
-		t.Fatalf("a prerequisite other than git was probed: %v", runner.calls)
+	github := checks["github-credentials"]
+	if github.Status != "pass" || github.Code != "NO_CREDENTIALS" || !strings.Contains(github.Message, "github.com: none") {
+		t.Fatalf("missing credentials must be informational: %+v", github)
 	}
-	runner.err = errors.New("not found")
-	checks = s.CheckPrerequisites(context.Background())
-	if checks[0].Status != "fail" || checks[0].Code != "E_PREREQUISITE" {
-		t.Fatalf("%+v", checks)
+	if ssh := checks["ssh-credentials"]; ssh.Status != "pass" || ssh.Code != "NO_CREDENTIALS" {
+		t.Fatalf("%+v", ssh)
 	}
-	var prerequisite PrerequisiteError
-	if err := s.Prepare(context.Background()); !errors.As(err, &prerequisite) {
-		t.Fatal("missing Git was not a prerequisite error:", err)
+	const token = "ghp_never_printed" //nolint:gosec // not a credential: a canary the test asserts is never printed
+	env["GITHUB_TOKEN"], env["GH_TOKEN"] = token, "other"
+	github = byID()["github-credentials"]
+	if github.Code != "OK" || !strings.Contains(github.Message, "github.com: GITHUB_TOKEN") || strings.Contains(github.Message, token) {
+		t.Fatalf("%+v", github)
 	}
 }
 

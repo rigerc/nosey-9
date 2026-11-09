@@ -3,17 +3,13 @@ package registry
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
-	"reflect"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/registrygen"
 	"github.com/rigerc/nosey-9/internal/settings"
 	"github.com/rigerc/nosey-9/internal/storage"
@@ -94,53 +90,22 @@ func TestGitPolicy(t *testing.T) {
 	}
 }
 
-type fakeGitRunner struct {
-	source        string
-	fail, invalid bool
-}
-
-func (r *fakeGitRunner) Run(_ context.Context, _ string, _ []string, _ string, args ...string) (process.Output, error) {
-	if r.fail {
-		return process.Output{}, fmt.Errorf("offline")
-	}
-	if slices.Contains(args, "clone") {
-		target := args[len(args)-1]
-		for _, name := range []string{"nosey.registry.json", "technologies.json", "skills.json", "mappings.json"} {
-			data, err := storage.Read(r.source, name, 1<<20)
-			if err != nil {
-				return process.Output{}, err
-			}
-			if r.invalid && name == "skills.json" {
-				data = []byte(`{"schemaVersion":999}`)
-			}
-			if err = storage.Write(filepath.Join(target, name), data); err != nil {
-				return process.Output{}, err
-			}
-		}
-	}
-	if slices.Contains(args, "rev-parse") {
-		return process.Output{Stdout: []byte(strings.Repeat("a", 40) + "\n")}, nil
-	}
-	return process.Output{}, nil
-}
 func TestFailedAndInvalidRefreshPreserveValidatedSnapshot(t *testing.T) {
-	source := fixtureRegistry(t, `{"schemaVersion":2,"technologies":[]}`, `{"schemaVersion":2,"skills":[]}`, `{"schemaVersion":2,"mappings":[]}`)
-	runner := &fakeGitRunner{source: source}
-	service := Service{Store: settings.Store{Cache: t.TempDir()}, Runner: runner}
-	ref := domain.RegistryRef{ID: "test:registry", Source: domain.RegistrySource{Kind: "git", URI: "owner/repo"}, Enabled: true}
-	first, err := service.Resolve(context.Background(), ref, 24, false)
+	origin := newRegistryOrigin(t)
+	service := Service{Store: settings.Store{Cache: t.TempDir()}, Git: origin.client}
+	first, err := service.Resolve(context.Background(), origin.ref(""), 24, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner.fail = true
-	stale, err := service.Resolve(context.Background(), ref, 24, true)
+	origin.offline.Store(true)
+	stale, err := service.Resolve(context.Background(), origin.ref(""), 24, true)
 	if err != nil || !stale.Stale || stale.Root != first.Root {
 		t.Fatal("failed refresh lost valid cache", stale, err)
 	}
-	runner.fail = false
-	runner.invalid = true
-	stale, err = service.Resolve(context.Background(), ref, 24, true)
-	if err != nil || !stale.Stale || stale.Root != first.Root {
+	origin.offline.Store(false)
+	origin.commit(map[string]string{"skills.json": `{"schemaVersion":999}`})
+	stale, err = service.Resolve(context.Background(), origin.ref(""), 24, true)
+	if err != nil || !stale.Stale || stale.Root != first.Root || *stale.Revision != *first.Revision {
 		t.Fatal("invalid refresh replaced valid cache", stale, err)
 	}
 }
@@ -250,9 +215,9 @@ func TestInitReportsOutdatedTemplateWithoutConfig(t *testing.T) {
 }
 
 func TestReadOnlyCacheInspectionTracksFreshness(t *testing.T) {
-	source := fixtureRegistry(t, `{"schemaVersion":2,"technologies":[]}`, `{"schemaVersion":2,"skills":[]}`, `{"schemaVersion":2,"mappings":[]}`)
-	service := Service{Store: settings.Store{Cache: t.TempDir()}, Runner: &fakeGitRunner{source: source}}
-	ref := domain.RegistryRef{ID: "test:registry", Source: domain.RegistrySource{Kind: "git", URI: "owner/repo"}, Enabled: true}
+	origin := newRegistryOrigin(t)
+	service := Service{Store: settings.Store{Cache: t.TempDir()}, Git: origin.client}
+	ref := origin.ref("")
 	if state, _ := service.Inspect(ref, 24); state != "missing" {
 		t.Fatal(state)
 	}
@@ -309,7 +274,7 @@ func TestInitOptionalActionsRegisterOnlyGeneratedDirectory(t *testing.T) {
 	}
 	cfg := settings.Defaults()
 	cfg.Registries = []domain.RegistryRef{{ID: "nosey:official", Source: domain.RegistrySource{Kind: "local", Path: root}, Enabled: true}}
-	service := Service{Store: store, Runner: &fakeGitRunner{}}
+	service := Service{Store: store}
 	c, err := service.Load(context.Background(), settings.Resolved{Settings: cfg}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -325,20 +290,7 @@ func TestInitOptionalActionsRegisterOnlyGeneratedDirectory(t *testing.T) {
 	}
 }
 
-type recordingRunner struct {
-	calls  [][]string
-	failOn string
-}
-
-func (r *recordingRunner) Run(_ context.Context, _ string, _ []string, name string, args ...string) (process.Output, error) {
-	r.calls = append(r.calls, append([]string{name}, args...))
-	if name == r.failOn {
-		return process.Output{}, fmt.Errorf("%s failed", name)
-	}
-	return process.Output{}, nil
-}
-
-func initWithRunner(t *testing.T, runner process.Executor, opts InitOptions) (InitResult, error) {
+func initFixture(t *testing.T, opts InitOptions) (InitResult, error) {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", "..", "registries", "default"))
 	if err != nil {
@@ -346,7 +298,7 @@ func initWithRunner(t *testing.T, runner process.Executor, opts InitOptions) (In
 	}
 	cfg := settings.Defaults()
 	cfg.Registries = []domain.RegistryRef{{ID: "nosey:official", Source: domain.RegistrySource{Kind: "local", Path: root}, Enabled: true}}
-	service := Service{Runner: runner}
+	service := Service{}
 	c, err := service.Load(context.Background(), settings.Resolved{Settings: cfg}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -354,44 +306,6 @@ func initWithRunner(t *testing.T, runner process.Executor, opts InitOptions) (In
 	opts.Path = filepath.Join(t.TempDir(), "reg")
 	opts.Version = "test"
 	return service.Init(context.Background(), c, opts)
-}
-
-func TestInitCreatesGitHubRepository(t *testing.T) {
-	for visibility, public := range map[string]bool{"--private": false, "--public": true} {
-		runner := &recordingRunner{}
-		if _, err := initWithRunner(t, runner, InitOptions{GitHubRepo: "owner/my-registry", Public: public, CI: true}); err != nil {
-			t.Fatal(err)
-		}
-		want := [][]string{
-			{"git", "init", "-b", "main"},
-			{"git", "add", "-A"},
-			{"git", "commit", "-m", "Initial registry"},
-			{"gh", "repo", "create", "owner/my-registry", visibility, "--source", ".", "--remote", "origin", "--push"},
-			{"gh", "api", "--method", "PUT", "repos/owner/my-registry/actions/permissions/workflow", "-f", "default_workflow_permissions=read", "-F", "can_approve_pull_request_reviews=true"},
-		}
-		if !reflect.DeepEqual(runner.calls, want) {
-			t.Fatalf("calls = %v, want %v", runner.calls, want)
-		}
-	}
-}
-
-func TestInitGitHubRepositoryValidationAndFailure(t *testing.T) {
-	for _, repo := range []string{"no-slash", "-bad/name", "owner/", "owner/na me", "a/b/c"} {
-		runner := &recordingRunner{}
-		if _, err := initWithRunner(t, runner, InitOptions{GitHubRepo: repo}); err == nil || len(runner.calls) != 0 {
-			t.Fatalf("repo %q accepted: %v %v", repo, err, runner.calls)
-		}
-	}
-	if _, err := initWithRunner(t, &recordingRunner{}, InitOptions{Public: true}); err == nil {
-		t.Fatal("public without repository accepted")
-	}
-	result, err := initWithRunner(t, &recordingRunner{failOn: "gh"}, InitOptions{GitHubRepo: "owner/repo"})
-	if err == nil || !strings.Contains(err.Error(), "registry created; GitHub repository creation failed: gh repo") {
-		t.Fatalf("unexpected error %v", err)
-	}
-	if !result.Valid {
-		t.Fatal("local registry should still be reported valid")
-	}
 }
 
 const quarantineSkills = `{"schemaVersion":2,"skills":[

@@ -4,27 +4,23 @@ import (
 	"context"
 	"net/http"
 	"net/url"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/rigerc/nosey-9/internal/gitpolicy"
-	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/gitclient"
 )
 
 const (
 	skillFile     = "SKILL.md"
 	skillSuffix   = "/" + skillFile
 	gitTimeout    = 4 * time.Minute
-	gitOutputSize = 32 << 20
+	maxTreeFiles  = 1_000_000
 	githubTimeout = 20 * time.Second
 )
 
 var (
-	gitMissing  = regexp.MustCompile(`(?i)not our ref|couldn't find remote ref|repository not found|does not appear to be a git repository|\b404\b|unadvertised object|bad object`)
-	gitAuth     = regexp.MustCompile(`(?i)could not read username|authentication failed|terminal prompts disabled|\b40[13]\b|permission denied`)
 	safeSkill   = regexp.MustCompile(`^[A-Za-z0-9._@+()-]+(/[A-Za-z0-9._@+()-]+)*$`)
 	githubRepo  = regexp.MustCompile(`^https://github\.com/([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+?)(\.git)?/?$`)
 	githubCheck = &http.Client{
@@ -35,12 +31,21 @@ var (
 
 // GitProber observes repositories through hardened, blobless Git fetches.
 type GitProber struct {
-	Runner  process.Executor
+	// Client performs the probes; nil uses a Hardened client under TempDir.
+	Client  *gitclient.Client
 	TempDir string
-	// Env is appended to the hardened environment.
-	Env []string
 	// RepoMissing confirms a repository is gone; it defaults to a GitHub lookup.
 	RepoMissing func(ctx context.Context, uri string) bool
+}
+
+func (g GitProber) client() *gitclient.Client {
+	if g.Client != nil {
+		return g.Client
+	}
+	return gitclient.New(gitclient.Options{
+		Policy: gitclient.Hardened(), Credentials: gitclient.SharedCredentials(), TempDir: g.TempDir,
+		Limits: gitclient.Limits{MaxFiles: maxTreeFiles},
+	})
 }
 
 // repoMissing is true only for an explicit GitHub 404; other hosts cannot be confirmed.
@@ -62,23 +67,18 @@ func repoMissing(ctx context.Context, uri string) bool {
 	return response.StatusCode == http.StatusNotFound
 }
 
+// gitSession reads trees from one temporary blobless repository.
 type gitSession struct {
-	runner process.Executor
-	dir    string
-	env    []string
-}
-
-func (g gitSession) run(ctx context.Context, args ...string) (process.Output, error) {
-	return g.runner.Run(ctx, g.dir, g.env, "git", gitpolicy.HardenedArgs(args...)...)
+	repo *gitclient.Repo
 }
 
 func (g gitSession) skillFiles(ctx context.Context, commit string) ([]string, bool) {
-	out, err := g.run(ctx, "ls-tree", "-r", "--name-only", "-z", commit)
+	paths, err := g.repo.ListFiles(ctx, commit)
 	if err != nil {
 		return nil, false
 	}
 	files := []string{}
-	for _, path := range strings.Split(string(out.Stdout), "\x00") {
+	for _, path := range paths {
 		if path == skillFile || strings.HasSuffix(path, skillSuffix) {
 			files = append(files, path)
 		}
@@ -86,17 +86,16 @@ func (g gitSession) skillFiles(ctx context.Context, commit string) ([]string, bo
 	return files, true
 }
 
-func (g gitSession) fetch(ctx context.Context, commit string) (process.Output, error) {
-	return g.run(ctx, "fetch", "-q", "--depth=1", "--filter=blob:none", "origin", commit)
+func (g gitSession) fetch(ctx context.Context, commit string) error {
+	ctx, cancel := context.WithTimeout(ctx, gitTimeout)
+	defer cancel()
+	_, err := g.repo.FetchBlobless(ctx, commit)
+	return err
 }
 
 func (g gitSession) tree(ctx context.Context, commit, path string) (string, bool) {
-	spec := commit + "^{tree}"
-	if dir := skillDir(path); dir != "" {
-		spec = commit + ":" + dir
-	}
-	out, err := g.run(ctx, "rev-parse", spec)
-	return strings.TrimSpace(string(out.Stdout)), err == nil
+	hash, err := g.repo.TreeHash(ctx, commit, skillDir(path))
+	return hash, err == nil
 }
 
 func skillDir(path string) string {
@@ -143,24 +142,15 @@ func setAll(probes map[string]Probe, pins []Pin, probe Probe) {
 // becomes RepoError for the pins it affects.
 func (g GitProber) Probe(ctx context.Context, uri string, pins []Pin) map[string]Probe {
 	probes := map[string]Probe{}
-	dir, err := os.MkdirTemp(g.TempDir, "nosey-pins-")
+	client := g.client()
+	listCtx, cancel := context.WithTimeout(ctx, gitTimeout)
+	remote, err := client.ResolveRemote(listCtx, uri, "")
+	cancel()
 	if err != nil {
-		setAll(probes, pins, Probe{})
+		setAll(probes, pins, Probe{Repo: g.failedListing(ctx, uri, err)})
 		return probes
 	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	runner := g.Runner
-	if runner == nil {
-		runner = process.Runner{Timeout: gitTimeout, Limit: gitOutputSize}
-	}
-	session := gitSession{runner: runner, dir: dir, env: append(gitpolicy.HardenedEnv(), g.Env...)}
-
-	out, err := session.run(ctx, "ls-remote", uri, "HEAD")
-	if err != nil {
-		setAll(probes, pins, Probe{Repo: g.failedListing(ctx, uri, string(out.Stderr))})
-		return probes
-	}
-	head, _, _ := strings.Cut(string(out.Stdout), "\t")
+	head := remote.Commit
 	if !fullCommit.MatchString(head) {
 		setAll(probes, pins, Probe{})
 		return probes
@@ -176,7 +166,14 @@ func (g GitProber) Probe(ctx context.Context, uri string, pins []Pin) map[string
 	if len(inspect) == 0 {
 		return probes
 	}
-	files, ok := session.prepare(ctx, uri, head)
+	repo, err := client.Temporary(ctx, uri, gitclient.TemporaryOptions{})
+	if err != nil {
+		setAll(probes, inspect, Probe{})
+		return probes
+	}
+	defer func() { _ = repo.Close() }()
+	session := gitSession{repo: repo}
+	files, ok := session.prepare(ctx, head)
 	if !ok {
 		setAll(probes, inspect, Probe{})
 		return probes
@@ -185,8 +182,14 @@ func (g GitProber) Probe(ctx context.Context, uri string, pins []Pin) map[string
 	return probes
 }
 
-func (g GitProber) failedListing(ctx context.Context, uri, stderr string) RepoStatus {
-	if !gitMissing.MatchString(stderr) && !gitAuth.MatchString(stderr) {
+// failedListing reports RepoGone only when the host confirms the repository is
+// missing, and asks only after a not-found or access failure: a host hides a
+// private repository behind either, so neither alone proves it was deleted.
+// Anything else, such as an unreachable host, stays a retryable RepoError.
+func (g GitProber) failedListing(ctx context.Context, uri string, err error) RepoStatus {
+	switch gitclient.KindOf(err) {
+	case gitclient.KindMissingRepository, gitclient.KindAuth, gitclient.KindPermission:
+	default:
 		return RepoError
 	}
 	confirm := g.RepoMissing
@@ -199,14 +202,8 @@ func (g GitProber) failedListing(ctx context.Context, uri, stderr string) RepoSt
 	return RepoError
 }
 
-func (g gitSession) prepare(ctx context.Context, uri, head string) ([]string, bool) {
-	if _, err := g.run(ctx, "init", "-q"); err != nil {
-		return nil, false
-	}
-	if _, err := g.run(ctx, "remote", "add", "origin", uri); err != nil {
-		return nil, false
-	}
-	if _, err := g.fetch(ctx, head); err != nil {
+func (g gitSession) prepare(ctx context.Context, head string) ([]string, bool) {
+	if err := g.fetch(ctx, head); err != nil {
 		return nil, false
 	}
 	return g.skillFiles(ctx, head)
@@ -219,9 +216,9 @@ type pinnedCommit struct {
 }
 
 func (g gitSession) loadPinned(ctx context.Context, commit string) pinnedCommit {
-	out, err := g.fetch(ctx, commit)
-	if err != nil {
-		return pinnedCommit{gone: gitMissing.MatchString(string(out.Stderr))}
+	if err := g.fetch(ctx, commit); err != nil {
+		kind := gitclient.KindOf(err)
+		return pinnedCommit{gone: kind == gitclient.KindMissingRef || kind == gitclient.KindMissingRepository}
 	}
 	files, ok := g.skillFiles(ctx, commit)
 	return pinnedCommit{files: files, loaded: ok}

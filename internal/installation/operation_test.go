@@ -15,7 +15,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/settings"
 	"github.com/rigerc/nosey-9/internal/skillkit"
 )
@@ -510,7 +509,7 @@ func TestHelperHoldOperation(t *testing.T) {
 	if workspace == "" {
 		t.Skip("helper process only")
 	}
-	s := Service{Store: settings.Store{Workspace: workspace, Data: os.Getenv("NOSEY_TEST_HOLD_DATA")}, Runner: &gitRunner{}}
+	s := Service{Store: settings.Store{Workspace: workspace, Data: os.Getenv("NOSEY_TEST_HOLD_DATA")}}
 	op, err := s.Begin(context.Background())
 	if err != nil {
 		fmt.Println("error", err)
@@ -563,13 +562,9 @@ func TestOperationLockIsReleasedWhenTheHolderIsKilled(t *testing.T) {
 }
 
 func TestWorkspaceCodeIsNeverExecuted(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git is required for the real prerequisite probe")
-	}
 	src := t.TempDir()
 	writeSkill(t, src, "alpha", "alpha")
 	s := newService(t, nil)
-	s.Runner = process.Runner{}
 	marker := filepath.Join(s.Store.Workspace, "MARKER")
 	planted := fmt.Sprintf("#!/bin/sh\ntouch %q\n", marker)
 	for path, body := range map[string]string{
