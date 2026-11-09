@@ -203,6 +203,16 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 			data, _ = json.Marshal(values[0])
 		case "detection.exclude":
 			data, _ = json.Marshal(csv(values[0]))
+		case "ui.minQuality":
+			data, _ = json.Marshal(values[0])
+		case "ui.minScore", "ui.minRepoScore":
+			score, convErr := strconv.Atoi(strings.TrimSpace(values[0]))
+			if convErr != nil || score < 0 || score > 100 {
+				m.err = fmt.Errorf("score must be a whole number from 0 to 100")
+				return m, nil
+			}
+			values[0] = strconv.Itoa(score)
+			data = []byte(values[0])
 		}
 		err := m.session.Store.Set(key, data, false)
 		if err != nil {
@@ -214,6 +224,20 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 			m.collapsed = map[string]bool{}
 			m.modal = ""
 			m.message = "Repository groups will start " + collapseLabel(values[0] == "true") + "."
+			return m, nil
+		}
+		if key == "ui.minScore" || key == "ui.minRepoScore" || key == "ui.minQuality" {
+			ui := &m.session.Resolved.Settings.UI
+			switch key {
+			case "ui.minScore":
+				ui.MinScore, _ = strconv.Atoi(values[0])
+			case "ui.minRepoScore":
+				ui.MinRepoScore, _ = strconv.Atoi(values[0])
+			default:
+				ui.MinQuality = values[0]
+			}
+			m.modal = ""
+			m.message = "Result thresholds saved."
 			return m, nil
 		}
 		if key == "ui.mode" {
@@ -300,6 +324,12 @@ func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
 		m.openDisplaySelect()
 	case "collapse":
 		m.openForm("setting", []string{"ui.collapseRepos"}, []string{strconv.FormatBool(m.session.Resolved.Settings.UI.CollapseRepos)})
+	case "minscore":
+		m.openForm("setting", []string{"ui.minScore"}, []string{strconv.Itoa(m.session.Resolved.Settings.UI.MinScore)})
+	case "minrepo":
+		m.openForm("setting", []string{"ui.minRepoScore"}, []string{strconv.Itoa(m.session.Resolved.Settings.UI.MinRepoScore)})
+	case "minquality":
+		m.openForm("setting", []string{"ui.minQuality"}, []string{m.session.Resolved.Settings.UI.MinQuality})
 	case "agents":
 		m.openForm("setting", []string{"installation.agents"}, []string{strings.Join(m.session.Resolved.Settings.Installation.Agents, ",")})
 	case "method":

@@ -46,6 +46,9 @@ type Settings struct {
 	UI         struct {
 		Mode          string `json:"mode"`
 		CollapseRepos bool   `json:"collapseRepos"`
+		MinScore      int    `json:"minScore"`
+		MinRepoScore  int    `json:"minRepoScore"`
+		MinQuality    string `json:"minQuality"`
 	} `json:"ui"`
 	Updates struct {
 		TTL int `json:"ttlHours"`
@@ -121,6 +124,7 @@ func Defaults() Settings {
 	var s Settings
 	s.Version = CurrentVersion
 	s.UI.Mode = "fullscreen"
+	s.UI.MinQuality = "any"
 	s.Registries = []domain.RegistryRef{{ID: "nosey:official", Source: domain.RegistrySource{Kind: "git", URI: OfficialURL}, Enabled: true, Priority: 0}}
 	s.Updates.TTL = 24
 	s.Installation.Agents = []string{}

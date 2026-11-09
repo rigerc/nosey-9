@@ -35,6 +35,76 @@ func (m noseyModel) isCollapsed(key string) bool {
 	}
 	return m.session.Resolved.Settings.UI.CollapseRepos && strings.HasPrefix(key, "repo:")
 }
+
+// noMatch is a quality value no skill carries, so an empty allow-list hides everything.
+const noMatch = "\x00"
+
+var qualityOrder = []string{"fair", "good", "excellent"}
+
+// qualitiesFrom lists the quality labels at or above min; unassessed and poor never qualify.
+func qualitiesFrom(min string) []string {
+	if at := slices.Index(qualityOrder, min); at >= 0 {
+		return qualityOrder[at:]
+	}
+	return nil
+}
+
+// effectiveFilters applies the minimum score, repository score and quality settings on top of one tab's filters.
+func (m noseyModel) effectiveFilters(tab int) domain.Filters {
+	f, ui := m.filters[tab], m.session.Resolved.Settings.UI
+	if min := float64(ui.MinScore); min > 0 && (f.MinScore == nil || *f.MinScore < min) {
+		f.MinScore = &min
+	}
+	if min := float64(ui.MinRepoScore); min > 0 && (f.MinRepositoryAverage == nil || *f.MinRepositoryAverage < min) {
+		f.MinRepositoryAverage = &min
+	}
+	if allowed := qualitiesFrom(ui.MinQuality); allowed != nil {
+		if len(f.Qualities) > 0 {
+			allowed = slices.DeleteFunc(slices.Clone(allowed), func(q string) bool { return !slices.Contains(f.Qualities, q) })
+		}
+		if len(allowed) == 0 {
+			allowed = []string{noMatch}
+		}
+		f.Qualities = allowed
+	}
+	return f
+}
+func (m noseyModel) thresholdsActive() bool {
+	ui := m.session.Resolved.Settings.UI
+	return ui.MinScore > 0 || ui.MinRepoScore > 0 || qualitiesFrom(ui.MinQuality) != nil
+}
+
+// hiddenByThreshold counts results removed only by the minimum score, repository score and quality settings.
+// without lazily counts the results the same view would show without them.
+func (m noseyModel) hiddenByThreshold(shown int, without func() int) int {
+	if !m.thresholdsActive() {
+		return 0
+	}
+	return max(0, without()-shown)
+}
+func (m noseyModel) thresholdNotice(hidden int) string {
+	ui := m.session.Resolved.Settings.UI
+	parts := []string{}
+	if ui.MinScore > 0 {
+		parts = append(parts, fmt.Sprintf("score %d", ui.MinScore))
+	}
+	if ui.MinRepoScore > 0 {
+		parts = append(parts, fmt.Sprintf("repo score %d", ui.MinRepoScore))
+	}
+	if qualitiesFrom(ui.MinQuality) != nil {
+		parts = append(parts, "quality "+ui.MinQuality)
+	}
+	return fmt.Sprintf("%d hidden below %s", hidden, strings.Join(parts, ", "))
+}
+func countSkills(groups []resultGroup) int {
+	seen := map[string]bool{}
+	for _, g := range groups {
+		for _, s := range groupSkills(g) {
+			seen[s.ID] = true
+		}
+	}
+	return len(seen)
+}
 func (m noseyModel) rows() []noseyRow {
 	if m.rowCache != nil {
 		return m.rowCache
@@ -42,8 +112,16 @@ func (m noseyModel) rows() []noseyRow {
 	rows := []noseyRow{}
 	switch m.tab {
 	case 0:
-		skillView := catalog.Project(m.session.Catalog, m.scan, m.filters[0], domain.Sort{Technologies: "name-asc", Skills: m.sort[0]})
-		rows = append(rows, noseyRow{"heading", "skills", fmt.Sprintf("Recommended skills  %d/%d", len(skillView.Skills), m.scan.SkillTotal)})
+		sort := domain.Sort{Technologies: "name-asc", Skills: m.sort[0]}
+		skillView := catalog.Project(m.session.Catalog, m.scan, m.effectiveFilters(0), sort)
+		hidden := m.hiddenByThreshold(len(skillView.Skills), func() int {
+			return len(catalog.Project(m.session.Catalog, m.scan, m.filters[0], sort).Skills)
+		})
+		heading := fmt.Sprintf("Recommended skills  %d/%d", len(skillView.Skills), m.scan.SkillTotal)
+		if hidden > 0 {
+			heading += "  ·  " + m.thresholdNotice(hidden)
+		}
+		rows = append(rows, noseyRow{"heading", "skills", heading})
 		rows = append(rows, resultRows(scanResultGroups(m.session.Catalog, skillView.Skills), m.isCollapsed, m.selected)...)
 		switch {
 		case m.scan.TechnologyTotal == 0:
@@ -51,16 +129,31 @@ func (m noseyModel) rows() []noseyRow {
 		case m.scan.SkillTotal == 0:
 			rows = append(rows, noseyRow{"notice", "", "No applicable recommendations. Explore the catalog with Tab."})
 		case len(skillView.Skills) == 0:
-			rows = append(rows, noseyRow{"notice", "", "All recommendations are hidden. Press x to clear filters."})
+			message := "All recommendations are hidden. Press x to clear filters."
+			if hidden > 0 {
+				message += " Relax the score/quality settings to show more."
+			}
+			rows = append(rows, noseyRow{"notice", "", message})
 		}
 	case 1:
 		if strings.TrimSpace(m.filters[1].Query) == "" {
 			return m.registryOverview()
 		}
-		result := catalog.Search(m.session.Catalog, m.filters[1], m.sort[1])
-		rows = append(rows, resultRows(searchResultGroups(m.session.Catalog, result), m.isCollapsed, m.selected)...)
-		if len(rows) == 0 {
-			rows = append(rows, noseyRow{"notice", "", "No matching skills. Press x to clear filters."})
+		result := catalog.Search(m.session.Catalog, m.effectiveFilters(1), m.sort[1])
+		groups := searchResultGroups(m.session.Catalog, result)
+		hidden := m.hiddenByThreshold(countSkills(groups), func() int {
+			return countSkills(searchResultGroups(m.session.Catalog, catalog.Search(m.session.Catalog, m.filters[1], m.sort[1])))
+		})
+		if hidden > 0 {
+			rows = append(rows, noseyRow{"heading", "hidden", m.thresholdNotice(hidden)})
+		}
+		rows = append(rows, resultRows(groups, m.isCollapsed, m.selected)...)
+		if len(groups) == 0 {
+			message := "No matching skills. Press x to clear filters."
+			if hidden > 0 {
+				message += " Relax the score/quality settings to show more."
+			}
+			rows = append(rows, noseyRow{"notice", "", message})
 		}
 	case 2:
 		for _, s := range m.inventory.Skills {
@@ -74,7 +167,7 @@ func (m noseyModel) rows() []noseyRow {
 			rows = append(rows, noseyRow{"notice", "", "No project inventory loaded. Press r to read installed skills."})
 		}
 	case 3:
-		rows = append(rows, noseyRow{"setting", "display", "Display mode: " + m.session.Resolved.Settings.UI.Mode + " (next launch)"}, noseyRow{"setting", "collapse", "Repository groups: " + collapseLabel(m.session.Resolved.Settings.UI.CollapseRepos)})
+		rows = append(rows, noseyRow{"setting", "display", "Display mode: " + m.session.Resolved.Settings.UI.Mode + " (next launch)"}, noseyRow{"setting", "collapse", "Repository groups: " + collapseLabel(m.session.Resolved.Settings.UI.CollapseRepos)}, noseyRow{"setting", "minscore", "Minimum score: " + minScoreLabel(m.session.Resolved.Settings.UI.MinScore)}, noseyRow{"setting", "minrepo", "Minimum repository score: " + minScoreLabel(m.session.Resolved.Settings.UI.MinRepoScore)}, noseyRow{"setting", "minquality", "Minimum quality: " + minQualityLabel(m.session.Resolved.Settings.UI.MinQuality)})
 		agents := strings.Join(m.session.Resolved.Settings.Installation.Agents, ", ")
 		if agents == "" {
 			agents = "ask at install"
@@ -92,6 +185,18 @@ func (m noseyModel) rows() []noseyRow {
 		rows = append(rows, noseyRow{"setting", "trust", "Approve workspace registries"}, noseyRow{"setting", "revoke", "Revoke workspace approval"}, noseyRow{"setting", "new", "New registry"}, noseyRow{"setting", "add", "Add existing registry"})
 	}
 	return rows
+}
+func minQualityLabel(min string) string {
+	if qualitiesFrom(min) == nil {
+		return "any (show all)"
+	}
+	return min + " or better (hide lower and unassessed)"
+}
+func minScoreLabel(min int) string {
+	if min <= 0 {
+		return "off (show all)"
+	}
+	return fmt.Sprintf("%d/100 (hide lower and unscored)", min)
 }
 func collapseLabel(on bool) string {
 	if on {

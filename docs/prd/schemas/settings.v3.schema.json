@@ -157,6 +157,30 @@
           "type": "boolean",
           "default": false,
           "description": "Start repository groups collapsed in Scan and Explore results."
+        },
+        "minScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 0,
+          "description": "Hide skills scoring below this value (or unscored) in Scan and Explore results; 0 shows everything."
+        },
+        "minRepoScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 0,
+          "description": "Hide skills whose repository average score is below this value (or unscored) in Scan and Explore results; 0 shows everything."
+        },
+        "minQuality": {
+          "enum": [
+            "any",
+            "fair",
+            "good",
+            "excellent"
+          ],
+          "default": "any",
+          "description": "Hide skills whose quality label ranks below this value (or is unassessed) in Scan and Explore results; any shows everything."
         }
       }
     }
