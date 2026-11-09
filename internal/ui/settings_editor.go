@@ -44,6 +44,8 @@ func (m *noseyModel) configureFormChoices() {
 		m.form.choices[0] = []sortOption{{m.form.inputs[0].Value(), m.form.inputs[0].Value()}}
 		m.form.choices[1] = boolean
 		m.form.choices[3] = []sortOption{{"", "Keep registry"}, {"REMOVE", "Remove registry from user settings"}}
+	case "reset":
+		m.form.choices[0] = []sortOption{{"", "Keep my settings"}, {"RESET", "Reset to defaults"}}
 	case "new":
 		for id := range m.session.Catalog.Roots {
 			m.form.choices[1] = append(m.form.choices[1], sortOption{id, id})
@@ -66,7 +68,7 @@ func (m *noseyModel) configureFormChoices() {
 	}
 	if m.tab == 3 {
 		switch m.form.kind {
-		case "new", "add", "trust":
+		case "new", "add", "trust", "reset":
 			m.settingsAnchor = m.form.kind
 		}
 	}

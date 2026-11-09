@@ -568,6 +568,45 @@ func (s Store) Set(key string, value []byte, project bool) error {
 	return storage.Write(path, append(data, '\n'))
 }
 
+// preservedOnReset lists the keys Reset keeps because they are not plain preferences.
+var preservedOnReset = map[string]string{"installation": "customAgents", "detection": "adapters"}
+
+// Reset drops every user preference so defaults apply again. Registries, custom agents and trusted
+// detector adapters are kept; workspace settings and trust are untouched.
+func (s Store) Reset() error {
+	doc, err := load(s.UserPath)
+	if err != nil {
+		return err
+	}
+	if len(doc) == 0 {
+		return nil
+	}
+	next := document{"schemaVersion": json.RawMessage(strconv.Itoa(CurrentVersion))}
+	if raw, ok := doc["registries"]; ok {
+		next["registries"] = raw
+	}
+	for section, keep := range preservedOnReset {
+		var nested document
+		if raw, ok := doc[section]; ok {
+			if err = json.Unmarshal(raw, &nested); err != nil {
+				return err
+			}
+		}
+		if value, ok := nested[keep]; ok {
+			data, _ := json.Marshal(document{keep: value})
+			next[section] = data
+		}
+	}
+	data, err := json.Marshal(next)
+	if err != nil {
+		return err
+	}
+	if err = validateSettings(data); err != nil {
+		return err
+	}
+	return storage.Write(s.UserPath, append(data, '\n'))
+}
+
 // Registries writes only the explicitly supplied user registry entries.
 func (s Store) Registries(refs []domain.RegistryRef) error {
 	data, err := json.Marshal(refs)

@@ -1,12 +1,14 @@
 package ui
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/settings"
 )
 
@@ -128,5 +130,42 @@ func TestAgentMultiselectDoesNotTruncateLargeSelections(t *testing.T) {
 	r, err := m.session.Store.Resolve()
 	if err != nil || len(r.Settings.Installation.Agents) != count {
 		t.Fatal("agent multiselect lost selected agents", err)
+	}
+}
+
+func TestResetSettingsRowRestoresDefaultsAndKeepsRegistries(t *testing.T) {
+	m := editableSettingsModel(t)
+	if err := m.session.Store.Set("ui.minScore", []byte("40"), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.session.Store.Set("installation.method", []byte(`"copy"`), false); err != nil {
+		t.Fatal(err)
+	}
+	refs := []domain.RegistryRef{{ID: "mine", Source: domain.RegistrySource{Kind: "git", URI: "https://example.com/r.git"}, Enabled: true, Priority: 20}}
+	if err := m.session.Store.Registries(refs); err != nil {
+		t.Fatal(err)
+	}
+	m, _ = m.setting(noseyRow{kind: "setting", id: "reset"})
+	if m.form.kind != "reset" || m.form.inputs[0].Value() != "" {
+		t.Fatal("reset must default to keeping settings", m.form.kind)
+	}
+	m = productUpdate(t, m, keypress(tea.KeyEnter))
+	resolved, err := m.session.Store.Resolve()
+	if err != nil || resolved.Settings.UI.MinScore != 40 || resolved.Settings.Installation.Method != "copy" {
+		t.Fatal("unconfirmed reset changed settings", err)
+	}
+	m, _ = m.setting(noseyRow{kind: "setting", id: "reset"})
+	m.form.inputs[0].SetValue("RESET")
+	m, cmd := m.submitForm()
+	if cmd == nil || !m.loading || m.modal != "" {
+		t.Fatal("confirmed reset did not reload", m.err)
+	}
+	resolved, err = m.session.Store.Resolve()
+	defaults := settings.Defaults()
+	if err != nil || resolved.Settings.UI != defaults.UI || resolved.Settings.Installation.Method != defaults.Installation.Method {
+		t.Fatal("settings not reset", err, resolved.Settings.UI)
+	}
+	if !slices.ContainsFunc(resolved.Settings.Registries, func(r domain.RegistryRef) bool { return r.ID == "mine" }) {
+		t.Fatal("registries must survive a reset")
 	}
 }
