@@ -83,8 +83,7 @@ func RunNosey(ctx context.Context, cwd, config, mode string, refresh bool) error
 	if mode != "inline" && mode != "fullscreen" {
 		return fmt.Errorf("invalid UI display mode")
 	}
-	// Bubble Tea handles signals itself and ignores them while a child owns the terminal,
-	// so Ctrl+C during an install must not cancel the program through the caller's signal context.
+	// Bubble Tea owns Ctrl+C so an install can be cancelled without closing the UI.
 	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
 	model := newNoseyModel(ctx, cwd, config)
@@ -233,6 +232,13 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 		return m, m.readInventory()
 	case tea.KeyPressMsg:
 		key := value.String()
+		if m.install.running {
+			if key == "ctrl+c" || key == "esc" {
+				return m.cancelInstall()
+			}
+			m.scrollModal(key)
+			return m, nil
+		}
 		if key == "ctrl+c" {
 			return m, tea.Quit
 		}

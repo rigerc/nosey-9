@@ -57,7 +57,7 @@ func installedNames(s Service, c domain.Catalog) map[string]string {
 	return result
 }
 
-func TestUpstreamBuildInstallAndInventoryForLocalRegistry(t *testing.T) {
+func TestUpstreamBuildBackgroundInstallAndInventoryForLocalRegistry(t *testing.T) {
 	s := upstreamService(t)
 	root := t.TempDir()
 	writeSkill(t, root, "alpha", "nosey-alpha")
@@ -70,9 +70,16 @@ func TestUpstreamBuildInstallAndInventoryForLocalRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.Install(context.Background(), commands); err != nil {
+	cli, err := s.Prepare(context.Background())
+	if err != nil {
 		t.Fatal(err)
 	}
+	for _, command := range commands {
+		if err := s.RunSource(context.Background(), cli, command); err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	inventory := s.Inventory(context.Background(), c)
 	if !inventory.Complete || len(inventory.Skills) != 2 {
 		t.Fatalf("%+v", inventory)

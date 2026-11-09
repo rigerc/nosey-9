@@ -196,11 +196,11 @@ func TestInstallRunsEachSourceThenReloads(t *testing.T) {
 	if cmd == nil || m.modal != "install" {
 		t.Fatal("first source did not start")
 	}
-	m, cmd = updateModel(t, m, installStepDone{index: 0})
+	m, cmd = updateModel(t, m, installStepDone{generation: m.generation, index: 0})
 	if cmd == nil || m.modal != "install" || m.generation != generation {
 		t.Fatal("second source did not start")
 	}
-	m, cmd = updateModel(t, m, installStepDone{index: 1})
+	m, cmd = updateModel(t, m, installStepDone{generation: m.generation, index: 1})
 	if cmd == nil || m.modal != "" || !m.loading || m.generation != generation+1 || !strings.Contains(m.message, "Installer finished for 2 sources") {
 		t.Fatal("run did not finish and reload", m.modal, m.message)
 	}
@@ -212,7 +212,7 @@ func TestInstallRunsEachSourceThenReloads(t *testing.T) {
 func TestInstallFailureStopsAndSurvivesTheReload(t *testing.T) {
 	m, _ := installModel(t, nil)
 	m = openedInstall(t, m)
-	m, cmd := updateModel(t, m, installStepDone{index: 0, err: errors.New("exit status 1")})
+	m, cmd := updateModel(t, m, installStepDone{generation: m.generation, index: 0, err: errors.New("exit status 1")})
 	if cmd == nil || m.modal != "" || !strings.Contains(m.warning, "owner/one") || !strings.Contains(m.warning, "1 later source not started") {
 		t.Fatal(m.modal, m.warning)
 	}
@@ -293,5 +293,68 @@ func TestOutdatedSkillsShowUpdateAvailableAndStaySelectable(t *testing.T) {
 	m = productUpdate(t, m, keypress(tea.KeySpace))
 	if !m.selected["c"] {
 		t.Fatal("outdated skill could not be selected")
+	}
+}
+
+func TestBackgroundInstallKeepsUIResponsiveAndCancels(t *testing.T) {
+	for _, key := range []string{"esc", "ctrl+c"} {
+		t.Run(key, func(t *testing.T) {
+			m, _ := installModel(t, nil)
+			m = openedInstall(t, m)
+			m, cmd := m.updateInstallPage("enter")
+			ready, ok := cmd().(installReady)
+			if !ok {
+				t.Fatal("unexpected preparation message")
+			}
+			m, cmd = m.applyInstallReady(ready)
+			if cmd == nil || !m.install.running || !strings.Contains(screenText(m), "Installing source 1 of 2") {
+				t.Fatal(screenText(m))
+			}
+			m, resize := updateModel(t, m, tea.WindowSizeMsg{Width: 70, Height: 24})
+			if resize != nil || m.width != 70 {
+				t.Fatal("resize blocked")
+			}
+			m, cmd = m.update(tea.KeyPressMsg{Code: tea.KeyEnter})
+			if cmd != nil {
+				t.Fatal("duplicate install started")
+			}
+			if key == "esc" {
+				m, cmd = m.update(tea.KeyPressMsg{Code: tea.KeyEsc})
+			} else {
+				m, cmd = m.update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+			}
+			if cmd != nil || !m.install.cancelled || m.install.ctx.Err() == nil || !strings.Contains(screenText(m), "Cancelling installation") {
+				t.Fatal(m.install.cancelled, screenText(m))
+			}
+			m, cmd = m.applyInstallStep(installStepDone{generation: m.generation, index: 0})
+			if cmd == nil || m.modal != "" || m.install.running || !strings.Contains(m.warning, "context canceled") || !strings.Contains(m.warning, "1 later source not started") {
+				t.Fatal(m.warning)
+			}
+		})
+	}
+}
+
+func TestCancelDuringInstallerPreparationStartsNoSource(t *testing.T) {
+	m, _ := installModel(t, nil)
+	m = openedInstall(t, m)
+	m, cmd := m.updateInstallPage("enter")
+	m, _ = m.cancelInstall()
+	ready, ok := cmd().(installReady)
+	if !ok {
+		t.Fatal("unexpected preparation message")
+	}
+	m, cmd = m.applyInstallReady(ready)
+	if cmd != nil || m.install.running || m.loading || m.modal != "" || !strings.Contains(m.message, "No sources started") {
+		t.Fatal(m.message)
+	}
+}
+
+func TestStaleBackgroundResultDoesNotStartAnotherSource(t *testing.T) {
+	m, _ := installModel(t, nil)
+	m = openedInstall(t, m)
+	m.generation++
+	next, cmd := m.applyInstallStep(installStepDone{generation: m.generation - 1, index: 0})
+	if cmd != nil || next.modal != "install" {
+		t.Fatal("stale result changed install")
 	}
 }

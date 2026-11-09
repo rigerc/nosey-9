@@ -5,15 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/registry"
+	"github.com/rigerc/nosey-9/internal/storage"
 )
 
 // AddSkill is one skill installed by an AddCommand.
@@ -230,10 +232,47 @@ func (s Service) Prepare(ctx context.Context) (CLI, error) {
 	return s.resolveCLI(ctx)
 }
 
-// AddProcess builds the process for one source; the caller connects it to the terminal.
-func (s Service) AddProcess(ctx context.Context, cli CLI, command AddCommand) *exec.Cmd {
+// RunSource runs a confirmed source without terminal access and verifies its lock entries.
+// Output is bounded by the runner; only a short, sanitized failure detail is returned.
+func (s Service) RunSource(ctx context.Context, cli CLI, command AddCommand) error {
+	if !slices.Contains(command.Args, "--yes") {
+		return PolicyError{Reason: "background installation requires --yes"}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.Runner == nil {
+		s.Runner = process.Runner{}
+	}
+	if runner, ok := s.Runner.(process.Runner); ok {
+		if runner.Timeout == 0 {
+			runner.Timeout = 5 * time.Minute
+		}
+		if runner.Limit == 0 {
+			runner.Limit = 256 << 10
+		}
+		s.Runner = runner
+	}
 	name, args := cli.argv(command.Args...)
-	return process.Command(ctx, s.Store.Workspace, s.env(), name, args...)
+	out, err := s.run(ctx, s.Store.Workspace, s.env(), name, args...)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err != nil {
+		detail := strings.TrimSpace(string(out.Stderr))
+		if detail == "" {
+			detail = strings.TrimSpace(string(out.Stdout))
+		}
+		detail = storage.Safe(ansi.Strip(detail))
+		if len(detail) > 2000 {
+			detail = string([]rune(detail)[max(0, len([]rune(detail))-1000):])
+		}
+		if detail != "" {
+			return fmt.Errorf("%w: %s", err, detail)
+		}
+		return err
+	}
+	return s.VerifyInstall(command)
 }
 
 // Install runs each command on the terminal and stops at the first failure.

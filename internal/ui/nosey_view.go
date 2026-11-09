@@ -33,7 +33,14 @@ func (m noseyModel) View() tea.View {
 	lines := []string{}
 	switch {
 	case m.loading && m.modal == "install":
-		lines = append(lines, m.busy.View()+" Preparing installer…")
+		status := "Preparing installer…"
+		if m.install.running && m.install.index >= 0 {
+			status = fmt.Sprintf("Installing source %d of %d: %s", m.install.index+1, len(m.install.commands), sourceLabel(m.install.commands[m.install.index]))
+		}
+		if m.install.cancelled {
+			status = "Cancelling installation…"
+		}
+		lines = append(lines, ansi.Hardwrap(m.busy.View()+" "+status, max(10, m.width-2), true))
 	case m.loading:
 		lines = append(lines, m.busy.View()+" Loading workspace…  ·  q Quit")
 	}
@@ -143,6 +150,9 @@ func (m noseyModel) View() tea.View {
 		}
 		if m.modal == "install" {
 			footer = "Enter Start · c Copy commands · ↑↓ Scroll · Esc Cancel"
+			if m.install.running {
+				footer = "Esc / Ctrl+C Cancel install · ↑↓ Scroll"
+			}
 			if m.install.printOnly {
 				footer = "c Copy commands · ↑↓ Scroll · Esc Close"
 			}

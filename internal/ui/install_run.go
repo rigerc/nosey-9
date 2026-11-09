@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -18,6 +19,11 @@ type installRun struct {
 	cli       installation.CLI
 	printOnly bool
 	agents    []string
+	ctx       context.Context
+	cancel    context.CancelFunc
+	running   bool
+	cancelled bool
+	index     int
 }
 
 type installReady struct {
@@ -26,8 +32,9 @@ type installReady struct {
 	generation int
 }
 type installStepDone struct {
-	index int
-	err   error
+	generation int
+	index      int
+	err        error
 }
 type installCopied struct{ err error }
 
@@ -79,7 +86,9 @@ func (m noseyModel) updateInstallPage(key string) (noseyModel, tea.Cmd) {
 		}
 		m.err = nil
 		m.loading = true
-		installer, ctx, generation := m.installer(), m.ctx, m.generation
+		m.install.ctx, m.install.cancel = context.WithCancel(m.ctx)
+		m.install.running, m.install.cancelled, m.install.index = true, false, -1
+		installer, ctx, generation := m.installer(), m.install.ctx, m.generation
 		return m, func() tea.Msg {
 			cli, err := installer.Prepare(ctx)
 			return installReady{cli: cli, err: err, generation: generation}
@@ -93,31 +102,60 @@ func (m noseyModel) applyInstallReady(ready installReady) (noseyModel, tea.Cmd) 
 	if ready.generation != m.generation {
 		return m, nil
 	}
+	if m.install.cancelled {
+		m.install.cancel()
+		m.install.running = false
+		m.loading = false
+		m.modal = ""
+		m.message = "Installation cancelled. No sources started."
+		return m, nil
+	}
 	if ready.err != nil {
+		if m.install.cancel != nil {
+			m.install.cancel()
+		}
+		m.install.running = false
 		m.loading = false
 		m.err = ready.err
 		return m, nil
 	}
 	m.install.cli = ready.cli
+	m.install.index = 0
 	return m, m.runInstallStep(0)
 }
 
 func (m noseyModel) runInstallStep(index int) tea.Cmd {
-	command := m.installer().AddProcess(m.ctx, m.install.cli, m.install.commands[index])
-	return tea.ExecProcess(command, func(err error) tea.Msg {
-		if err == nil {
-			err = m.installer().VerifyInstall(m.install.commands[index])
-		}
-		return installStepDone{index: index, err: err}
-	})
+	installer, ctx, cli, command, generation := m.installer(), m.install.ctx, m.install.cli, m.install.commands[index], m.generation
+	return func() tea.Msg {
+		return installStepDone{generation: generation, index: index, err: installer.RunSource(ctx, cli, command)}
+	}
+}
+
+func (m noseyModel) cancelInstall() (noseyModel, tea.Cmd) {
+	m.install.cancelled = true
+	if m.install.cancel != nil {
+		m.install.cancel()
+	}
+	return m, nil
 }
 
 // applyInstallStep continues only after the source finished and its lock entries were verified.
 func (m noseyModel) applyInstallStep(done installStepDone) (noseyModel, tea.Cmd) {
+	if done.generation != m.generation {
+		return m, nil
+	}
 	total := len(m.install.commands)
+	if m.install.cancelled {
+		done.err = context.Canceled
+	}
 	if done.err == nil && done.index+1 < total {
+		m.install.index = done.index + 1
 		return m, m.runInstallStep(done.index + 1)
 	}
+	if m.install.cancel != nil {
+		m.install.cancel()
+	}
+	m.install.running = false
 	m.message, m.warning = "", ""
 	if done.err != nil {
 		m.warning = fmt.Sprintf("Stopped at %s: %v; %s not started.", sourceLabel(m.install.commands[done.index]), done.err, countLabel(total-done.index-1, "later source"))

@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/contracts"
@@ -362,18 +363,62 @@ func TestTextIsShellEscapedAndPinned(t *testing.T) {
 	}
 }
 
-func TestAddProcessRunsInTheWorkspaceWithResolvedCLI(t *testing.T) {
+type backgroundRunner struct {
+	output    process.Output
+	err       error
+	calls     int
+	dir, name string
+	args, env []string
+}
+
+func (r *backgroundRunner) Run(_ context.Context, dir string, env []string, name string, args ...string) (process.Output, error) {
+	r.calls++
+	r.dir, r.env, r.name, r.args = dir, env, name, args
+	return r.output, r.err
+}
+
+func TestRunSourceCapturesFailureAndUsesResolvedCLI(t *testing.T) {
+	runner := &backgroundRunner{output: process.Output{Stderr: []byte("\x1b[31mauthentication failed\x1b[0m")}, err: errors.New("exit status 1")}
 	s := installService(t, &attachRecorder{})
+	s.Runner = runner
 	s.Settings.Installation.Telemetry = "disabled"
-	cli, err := s.Prepare(context.Background())
-	if err != nil {
+	command := AddCommand{Args: []string{"add", "o/one", "--yes"}}
+	err := s.RunSource(context.Background(), CLI{Name: "node", Args: []string{"/cache/cli.mjs"}}, command)
+	if err == nil || !strings.Contains(err.Error(), "authentication failed") || strings.Contains(err.Error(), "\x1b") {
 		t.Fatal(err)
 	}
-	cmd := s.AddProcess(context.Background(), cli, twoSources[0])
-	if cmd.Dir != s.Store.Workspace || !slices.Equal(cmd.Args, []string{"node", "/cache/cli.mjs", "add", "o/one"}) || !slices.Contains(cmd.Env, "DISABLE_TELEMETRY=1") {
-		t.Fatal(cmd.Dir, cmd.Args)
+	if runner.dir != s.Store.Workspace || runner.name != "node" || !slices.Equal(runner.args, []string{"/cache/cli.mjs", "add", "o/one", "--yes"}) || !slices.Contains(runner.env, "DISABLE_TELEMETRY=1") {
+		t.Fatal(runner)
 	}
-	if cmd.Stdin != nil || cmd.Stdout != nil || cmd.Stderr != nil {
-		t.Fatal("terminal owner must connect stdio")
+}
+
+func TestRunSourceVerifiesSuccessfulInstallsAndRefusesPrompts(t *testing.T) {
+	runner := &backgroundRunner{}
+	s := installService(t, &attachRecorder{})
+	s.Runner = runner
+	command := AddCommand{Skills: []AddSkill{{Name: "alpha"}}, Args: []string{"add", "o/one"}}
+	if err := s.RunSource(context.Background(), CLI{}, command); err == nil || runner.calls != 0 {
+		t.Fatal(err, runner.calls)
+	}
+	command.Args = append(command.Args, "--yes")
+	if err := s.RunSource(context.Background(), CLI{}, command); err == nil {
+		t.Fatal("missing lock accepted")
+	}
+	if err := storage.Write(filepath.Join(s.Store.Workspace, "skills-lock.json"), []byte(`{"version":1,"skills":{"alpha":{"source":"o/one"}}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunSource(context.Background(), CLI{}, command); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunSourceCancellationStopsTheProcess(t *testing.T) {
+	s := installService(t, &attachRecorder{})
+	s.Runner = process.Runner{Timeout: time.Minute}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	err := s.RunSource(ctx, CLI{Name: "sh", Args: []string{"-c", "exec sleep 10"}}, AddCommand{Args: []string{"--yes"}})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
 	}
 }
