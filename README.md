@@ -36,11 +36,11 @@ nosey install SKILL_ID --print
 nosey list --json
 ```
 
-Nosey resolves required skills and blocks catalog conflicts and selections that would install under the same name (`--ignore-conflicts` opts out of conflicts only). It then runs one `skills add` per source, and the Skills CLI does the rest: it asks for scope, install method and agents when they are not set, warns about skills it would overwrite, and asks for confirmation. Git sources use the ref declared by the registry; official catalog sources use pinned commits.
+Nosey resolves required skills and blocks catalog conflicts and selections that would install under the same name (`--ignore-conflicts` opts out of conflicts only). Nosey asks for target agents once when none are configured, then shows the whole selection and asks for one confirmation. After approval it runs one `skills add --yes` per source without further prompts. All installs target the project and replace existing skills with the same names. Git sources use the ref declared by the registry; official catalog sources use pinned commits.
 
 - `--yes` needs target agents, installs into the project without prompts and replaces existing skills with the same name.
 - `--print` shows the commands without running anything; `--copy` installs by copy.
-- Cancelling a prompt skips that source. Nosey stops at the first source that fails. Upstream can enable noninteractive mode automatically inside AI agents.
+- Cancelling the Nosey confirmation installs nothing. Nosey stops at the first source that fails.
 - Installed state comes from `skills list --json` and `skills-lock.json`. Skills behind the catalog's pin show as outdated; install them again to update. `skills update` does not move a pinned skill.
 
 To install from a source that is not in a registry, run `npx skills add` directly.

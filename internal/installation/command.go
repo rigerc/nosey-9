@@ -251,16 +251,16 @@ func (s Service) Install(ctx context.Context, commands []AddCommand) error {
 		if err = attach(ctx, s.Store.Workspace, s.env(), name, args...); err != nil {
 			return fmt.Errorf("skills add failed for %s: %w (%d later sources not started)", command.Source, err, len(commands)-i-1)
 		}
-		if err = s.verifyLocked(command); err != nil {
+		if err = s.VerifyInstall(command); err != nil {
 			return fmt.Errorf("%w (%d later sources not started)", err, len(commands)-i-1)
 		}
 	}
 	return nil
 }
 
-// verifyLocked catches what a zero exit hides: without prompts, upstream skips skills it cannot find.
+// VerifyInstall catches what a zero exit hides: without prompts, upstream skips skills it cannot find.
 // Interactive runs are excluded because a cancelled prompt also exits zero and is not a failure.
-func (s Service) verifyLocked(command AddCommand) error {
+func (s Service) VerifyInstall(command AddCommand) error {
 	if !slices.Contains(command.Args, "--yes") {
 		return nil
 	}

@@ -81,12 +81,12 @@ func TestInstallPageGroupsSkillsAndRunsNothing(t *testing.T) {
 	m, runner := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
 	m = openedInstall(t, m)
 	screen := screenText(m)
-	for _, want := range []string{"Install 3 skills from 2 sources", "confirm each source", "owner/one @aaaaaaa", "alpha", "beta", "owner/two @aaaaaaa", "gamma", "Agents: codex, claude-code", "Enter Start"} {
+	for _, want := range []string{"Install 3 skills from 2 sources", "Confirm once", "owner/one @aaaaaaa", "alpha", "beta", "owner/two @aaaaaaa", "gamma", "Agents: codex, claude-code", "Enter Start"} {
 		if !strings.Contains(screen, want) {
 			t.Fatal(want, screen)
 		}
 	}
-	if !slices.Contains(m.install.commands[0].Args, "--copy") || slices.Contains(m.install.commands[0].Args, "--yes") {
+	if !slices.Contains(m.install.commands[0].Args, "--copy") || !slices.Contains(m.install.commands[0].Args, "--yes") {
 		t.Fatal(m.install.commands[0].Args)
 	}
 	if runner.calls != 0 {
@@ -94,11 +94,37 @@ func TestInstallPageGroupsSkillsAndRunsNothing(t *testing.T) {
 	}
 }
 
-func TestInstallPageWithoutAgentsLeavesTheChoiceToTheInstaller(t *testing.T) {
-	m, _ := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = nil })
-	m = openedInstall(t, m)
-	if !strings.Contains(screenText(m), "Agents: installer will ask") || slices.Contains(m.install.commands[0].Args, "--agent") {
-		t.Fatal(screenText(m), m.install.commands[0].Args)
+func TestInstallChoosesAgentsOnceBeforeReview(t *testing.T) {
+	m, runner := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = nil })
+	m = productUpdate(t, m, keypress('i'))
+	if m.modal != "form" || m.form.kind != "install-agents" || runner.calls != 0 {
+		t.Fatal(m.modal, runner.calls)
+	}
+	m, cmd := m.submitForm()
+	if cmd != nil || m.err == nil || m.modal != "form" {
+		t.Fatal("empty agents accepted")
+	}
+	m.form.inputs[0].SetValue("codex,claude-code")
+	m, cmd = m.submitForm()
+	if cmd != nil || m.err != nil || m.modal != "install" {
+		t.Fatal(m.modal, m.err)
+	}
+	for _, command := range m.install.commands {
+		if !slices.Contains(command.Args, "--yes") || !slices.Contains(command.Args, "codex") || !slices.Contains(command.Args, "claude-code") {
+			t.Fatal(command.Args)
+		}
+	}
+	if len(m.session.Resolved.Settings.Installation.Agents) != 0 || runner.calls != 0 {
+		t.Fatal("agent choice persisted or launched installer")
+	}
+}
+
+func TestInstallAgentChoiceCanBeCancelled(t *testing.T) {
+	m, runner := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = nil })
+	m = productUpdate(t, m, keypress('i'))
+	m = productUpdate(t, m, keypress(tea.KeyEsc))
+	if m.modal != "" || runner.calls != 0 || len(m.selected) != 3 {
+		t.Fatal(m.modal, runner.calls, m.selected)
 	}
 }
 

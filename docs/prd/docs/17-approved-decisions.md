@@ -94,13 +94,13 @@ Import requirements:
 
 ## D8 — Thin installer delegation
 
-Approved 2026-11-09. Supersedes D2, D3 and any conflicting text in the CLI contract, the installation chapter and the architecture documents, including project-only scope for interactive installs, post-install hash verification, `.nosey/install-origins.json` and the project operation lock.
+Approved 2026-11-09. Supersedes D2, D3 and any conflicting text in the CLI contract, the installation chapter and the architecture documents, including post-install hash verification, `.nosey/install-origins.json` and the project operation lock.
 
-`nosey install` and the TUI build one upstream `skills add` per source from the catalog and hand the terminal to the Skills CLI, which owns scope, method, agent prompts, overwrite warnings, confirmation and progress. Nosey keeps requirement resolution, conflict and duplicate-name blocking, and catalog pins, which are passed through unchanged as `#sha`. Installed state comes from `skills list --json` and `skills-lock.json`.
+`nosey install` and the TUI build one upstream `skills add` per source from the catalog and confirm the whole selection once in Nosey. Nosey chooses target agents once, displays project scope, method and overwrite warning, then runs all sources with `--yes` without further prompts. `nosey install --yes` skips the Nosey confirmation. The Skills CLI owns installation and progress. Nosey keeps requirement resolution, conflict and duplicate-name blocking, and catalog pins, which are passed through unchanged as `#sha`. Installed state comes from `skills list --json` and `skills-lock.json`.
 
 The CLI is an installed `skills` of the pinned version or, failing that, the pinned package located through `npx` from Nosey's cache directory and started with `node`, so workspace `node_modules` and `.npmrc` are never consulted. Nosey stops with exit 6 when neither is available and never installs the CLI itself. CI exercises both launchers against the real pinned CLI.
 
-Known consequences: an interactive user can choose global scope at the upstream prompt; `--yes` replaces existing skills with the same name; hand-edited tracked skills still report as installed. The v3 plan schema is removed; the original planning package retains historical v2.
+Known consequences: installs are project-scoped and replace existing skills with the same name after the Nosey confirmation; hand-edited tracked skills still report as installed. The v3 plan schema is removed; the original planning package retains historical v2.
 
 ## Verification and delivery ownership
 

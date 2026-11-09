@@ -84,6 +84,7 @@ func TestNoseyExploreDuplicateRowsShareSelectionAndHiddenSelectionPersists(t *te
 		t.Fatal("filter cleared hidden selection")
 	}
 	m.session.Resolved.Settings = settings.Defaults()
+	m.session.Resolved.Settings.Installation.Agents = []string{"codex"}
 	skill := m.session.Catalog.Skills["s"]
 	skill.Source = domain.Source{Kind: "git", URI: "owner/repo", SkillName: "shared"}
 	m.session.Catalog.Skills["s"] = skill

@@ -88,6 +88,13 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 	}
 	m.err = nil
 	switch m.form.kind {
+	case "install-agents":
+		agents := csv(values[0])
+		if len(agents) == 0 {
+			m.err = fmt.Errorf("select at least one target agent")
+			return m, nil
+		}
+		return m.openInstallForAgents(agents)
 	case "trust":
 		if values[0] != m.session.Resolved.Fingerprint || values[0] == "" {
 			m.err = fmt.Errorf("fingerprint does not match")

@@ -17,6 +17,7 @@ type installRun struct {
 	commands  []installation.AddCommand
 	cli       installation.CLI
 	printOnly bool
+	agents    []string
 }
 
 type installReady struct {
@@ -38,19 +39,28 @@ func (m noseyModel) installer() installation.Service {
 
 // openInstall builds the commands for every selected skill, including those hidden by filters.
 func (m noseyModel) openInstall() (noseyModel, tea.Cmd) {
+	return m.openInstallForAgents(m.session.Resolved.Settings.Installation.Agents)
+}
+
+func (m noseyModel) openInstallForAgents(agents []string) (noseyModel, tea.Cmd) {
 	cfg := m.session.Resolved.Settings
+	if len(agents) == 0 && cfg.Installation.Mode != "print" {
+		m.openForm("install-agents", []string{"installation.agents"}, []string{""})
+		m.details = "Choose target agents for this install. Settings will not change."
+		return m, nil
+	}
 	ids := []string{}
 	for id := range m.selected {
 		ids = append(ids, id)
 	}
-	opts := installation.Options{IDs: ids, Agents: slices.Clone(cfg.Installation.Agents), Method: cfg.Installation.Method}
+	opts := installation.Options{IDs: ids, Agents: slices.Clone(agents), Method: cfg.Installation.Method, Yes: len(agents) > 0}
 	commands, err := m.installer().Build(m.session.Catalog, m.recs, opts)
 	m.warning = ""
 	m.err = err
 	if err != nil {
 		return m, nil
 	}
-	m.install = installRun{commands: commands, printOnly: cfg.Installation.Mode == "print"}
+	m.install = installRun{commands: commands, printOnly: cfg.Installation.Mode == "print", agents: slices.Clone(agents)}
 	m.modal = "install"
 	return m, nil
 }
@@ -94,11 +104,15 @@ func (m noseyModel) applyInstallReady(ready installReady) (noseyModel, tea.Cmd) 
 
 func (m noseyModel) runInstallStep(index int) tea.Cmd {
 	command := m.installer().AddProcess(m.ctx, m.install.cli, m.install.commands[index])
-	return tea.ExecProcess(command, func(err error) tea.Msg { return installStepDone{index: index, err: err} })
+	return tea.ExecProcess(command, func(err error) tea.Msg {
+		if err == nil {
+			err = m.installer().VerifyInstall(m.install.commands[index])
+		}
+		return installStepDone{index: index, err: err}
+	})
 }
 
-// applyInstallStep continues to the next source. The installer exits 0 when cancelled,
-// so success here only means it finished; the reloaded inventory reports what is installed.
+// applyInstallStep continues only after the source finished and its lock entries were verified.
 func (m noseyModel) applyInstallStep(done installStepDone) (noseyModel, tea.Cmd) {
 	total := len(m.install.commands)
 	if done.err == nil && done.index+1 < total {
@@ -121,7 +135,7 @@ func (m noseyModel) installPageLines() []string {
 	for _, command := range m.install.commands {
 		skills += len(command.Skills)
 	}
-	intro := "The skills installer will ask you to confirm each source."
+	intro := "Confirm once to install the entire selection into this project. Existing skills with the same names will be replaced. No further prompts."
 	if m.install.printOnly {
 		intro = "Print mode: nothing runs here. Copy the commands to run them yourself."
 	}
@@ -136,11 +150,11 @@ func (m noseyModel) installPageLines() []string {
 			lines = append(lines, line)
 		}
 	}
-	agents := "installer will ask"
-	if configured := m.session.Resolved.Settings.Installation.Agents; len(configured) > 0 {
+	agents := "choose target agents before running"
+	if configured := m.install.agents; len(configured) > 0 {
 		agents = strings.Join(configured, ", ")
 	}
-	lines = append(lines, "", "Agents: "+storage.Safe(agents))
+	lines = append(lines, "", "Scope: project", "Agents: "+storage.Safe(agents), "Method: "+m.session.Resolved.Settings.Installation.Method)
 	if m.install.printOnly {
 		lines = append(lines, "")
 		for _, command := range m.install.commands {

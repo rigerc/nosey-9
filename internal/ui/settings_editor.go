@@ -17,7 +17,7 @@ func (m *noseyModel) configureFormChoices() {
 	m.form.multiple = map[int]bool{}
 	boolean := []sortOption{{"false", "Disabled"}, {"true", "Enabled"}}
 	switch m.form.kind {
-	case "setting":
+	case "setting", "install-agents":
 		switch m.form.labels[0] {
 		case "ui.mode":
 			m.form.choices[0] = []sortOption{{"fullscreen", "Fullscreen"}, {"inline", "Inline"}}
