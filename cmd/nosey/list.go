@@ -1,6 +1,10 @@
 package main
 
-import "github.com/spf13/cobra"
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+)
 
 func listCommand(o *cliOptions) *cobra.Command {
 	jsonMode, checkUpdates := false, false
@@ -14,11 +18,17 @@ func listCommand(o *cliOptions) *cobra.Command {
 		}
 		result := s.Installer.Inventory(cmd.Context(), s.Catalog)
 		if checkUpdates {
-			outdated, err := s.Installer.CheckUpdates(cmd.Context())
+			check, err := s.Installer.CheckUpdates(cmd.Context())
 			if err != nil {
 				return err
 			}
-			result = result.MarkOutdated(outdated)
+			result = result.MarkOutdated(check.Names)
+			if warning := check.Warning(); warning != "" {
+				// Stderr keeps the JSON document on stdout intact.
+				if _, err := fmt.Fprintln(cmd.ErrOrStderr(), "warning: "+warning); err != nil {
+					return err
+				}
+			}
 		}
 		if jsonMode {
 			return emit(cmd, "list-output.schema.json", result)

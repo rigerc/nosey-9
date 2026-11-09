@@ -4,7 +4,7 @@
 
 ## 3. User stories and workflows
 
-**US-01 / auto scan:** As a developer, running `nosey` scans the current workspace and displays technology matches and related skills. Each technology can show the matching rule ID, kind, project scope, and evidence path(s) without exposing sensitive values. I can independently sort and filter the detected-technologies list and recommended-skills list without rescanning or losing skill selections.
+**US-01 / auto scan:** As a developer, running `nosey` scans the current workspace and displays technology matches and related skills. The TUI lists detected technology names in a read-only strip; `nosey scan --json` provides each technology's matching rule ID, kind, project scope, and evidence path(s) without exposing sensitive values. I can sort and filter the recommended-skills list in the TUI, and the detected-technologies list through `nosey scan` flags, without rescanning or losing skill selections.
 
 **US-02 / selective install:** As a developer, I toggle multiple skills with Space, preview the installation commands, and confirm or cancel. The selected skills are installed only in the current project and for chosen supported agents.
 
@@ -27,7 +27,7 @@
 3. Validate, merge, and index registry entities, including optional repository definitions and quality/score metadata; retain provenance for every merged field.
 4. Evaluate detection rules against the workspace with bounded file and manifest reads.
 5. Resolve mapping conditions; rank and deduplicate recommendations; load authored repository averages (never compute at runtime); query project-installed skills through the versioned reader.
-6. Render Scan with all skills unchecked and explanatory evidence, plus independent filter/sort state for detected technologies and recommended skills.
+6. Render Scan with all skills unchecked, a read-only detected-technologies strip, and filter/sort state for recommended skills.
 7. User toggles skills; Nosey resolves prerequisite requirements and conflict blockers.
 8. User opens install confirmation showing exact source, skill name, target agents, method and command.
 9. User executes or copies commands; `--dry-run` previews without changing files.
@@ -44,9 +44,10 @@
 ├──────────────────────────────────────────────────────────────────────┤
 │ SCAN                                              F Filter · S Sort  │
 │                                                                      │
-│ Detected technologies (2/2)                  Sort: Name A–Z           │
-│  ✓ Next.js    package.json → dependencies.next                       │
-│  ✓ TypeScript tsconfig.json                                          │
+│ Detected technologies  2                                             │
+│ ╭──────────────────────────────────────────────────────────────────╮ │
+│ │ Next.js · TypeScript                                             │ │
+│ ╰──────────────────────────────────────────────────────────────────╯ │
 │                                                                      │
 │ Recommended skills (2/2)                              0 selected   │
 │  > [ ] Web Design Guidelines  Recommended · Excellent 93            │
@@ -64,20 +65,20 @@
 - `Tab`: switch immediately to next top-level section, cycling Scan → Explore → Manage → Settings → Scan. This is not a browser-like focus chain.
 - `Shift+Tab`: switch to previous section.
 - `↑`/`↓`: move the active row or control in the current content area; scrolling follows cursor.
-- In Explore, `←` collapses the focused technology or repository group, and `→` expands it. `Enter` on a group heading toggles its expansion. Collapsing does not clear any selected skills. In Scan, `←`/`→` can move focus between the Detected technologies and Recommended skills sections when focus is not in a modal or text input.
+- In Scan and Explore, `←` collapses the focused technology or repository group, and `→` expands it. `Enter` on a group heading toggles its expansion. Collapsing does not clear any selected skills.
 - `Enter`: open the active row's details or commit an edit; in Scan/Explore it does **not** toggle selection (Space does).
 - `Space`: toggle an active skill's checkbox; in Settings, toggle a checkbox/switch.
 - `/`: focus the view's search input (Scan or Explore). While typing, keyboard characters type text; `Esc` exits input and preserves the query.
-- In both Scan and Explore, `f` opens filter controls and `s` opens sorting controls. In Scan, the dialog targets the focused section (Detected technologies or Recommended skills); its target can be switched within the dialog. These actions are disabled while typing and are supported from keyboard-only navigation.
+- In both Scan and Explore, `f` opens filter controls and `s` opens sorting controls. In Scan, these dialogs target Recommended skills; the detected-technologies strip is not filterable or sortable in the TUI. These actions are disabled while typing and are supported from keyboard-only navigation.
 - An active confirmation or other modal traps keyboard input; `Tab`/`Shift+Tab` navigate dialog controls rather than changing top-level sections. `Esc` cancels the modal.
 - `?`: open keybinding help. `q` quits from non-input, non-modal contexts.
 - Preserve in-memory view state (queries, selections, cursor) while changing tabs in the same session.
 
 ### Screen requirements
 
-**Scan** (default): From skills list press `←` to return focus to detected technologies; from detected technologies press `→` to focus recommended skills. Auto-run detection on launch; technology list with evidence and rule IDs; recommended skill rows with name, priority, provenance, installation status, optional quality/score/repository average and reason; `r` rescan, `Space` select, `a` select/deselect all **visible eligible** skills, `i` review install, `/` focus live search, `f` filter, and `s` sort. Initially, nothing is selected. Detected technologies and recommended skills are two separately focusable sections with independent sort and filter state. A 'No technologies found' state still links to Explore. Filtering and sorting are mandatory MVP functionality in Scan, not limited to Explore.
+**Scan** (default): Auto-run detection on launch; a read-only, non-focusable strip of detected technology names, truncated to one line, with `t` opening the full list; recommended skill rows with name, priority, provenance, installation status, optional quality/score/repository average and reason; `r` rescan, `Space` select, `a` select/deselect all **visible eligible** skills, `i` review install, `/` focus live search, `f` filter, and `s` sort. Initially, nothing is selected. Recommended skills are the only focusable Scan section. Rule IDs and evidence paths are available through `nosey scan --json`, not in the TUI. A 'No technologies found' state still links to Explore. Filtering and sorting are mandatory MVP functionality in Scan, not limited to Explore.
 
-**Scan filters and sorting:** The two focusable Scan sections expose independently stored filters and sort orders. All normative facet combinations, ranking, null handling, and tie breakers are defined in **Canonical filtering and sorting contract** below. Filtering never re-runs detection and never changes which skills were recommended.
+**Scan filters and sorting:** The TUI exposes filters and sort orders for recommended skills. Detected-technology filters and sort orders are CLI-only (`nosey scan`). All normative facet combinations, ranking, null handling, and tie breakers are defined in **Canonical filtering and sorting contract** below. Filtering never re-runs detection and never changes which skills were recommended.
 
 **Scan selection, counts, and state:** Filtered-out skills remain selected; the count distinguishes `N selected total` from `M selected visible` when they differ. Install confirmation includes all selected skills, including hidden selections, and explicitly notes that some are hidden by active filters. `a` acts on **visible** eligible skills only, while `i` includes the full selection. Clearing filters restores hidden rows and does not reset checkboxes. `r` rescan updates matches/recommendations but retains filter/sort preferences during the session; selections for skills no longer available are removed with a visible notice. Scan and Explore have separate filter/sort state, kept when switching tabs. Empty states differentiate no detections, no applicable recommendations, and all results hidden by filters, with an accessible `Clear filters` action. Filter/sort dialogs show a preview count, apply/cancel semantics and no surprise modification of the underlying scan. Recommended skills remain selectable even if a different section is focused by moving the cursor to that section.
 
@@ -89,7 +90,7 @@
 
 **Explore empty states:** No query matches; filters exclude all results; no configured registries; repository has no scored skills. These states must be distinguishable and allow clearing filters or navigating to Settings.
 
-**Manage:** Read-only installed skill inventory for project scope with agent/source/status where the underlying CLI exposes them, recent operation results from current session, and an `r` refresh shortcut. Installation updates/removal actions are explicitly out of MVP. Never conflate global inventory with project inventory.
+**Manage:** Read-only installed skill inventory for project scope with agent/source/status where the underlying CLI exposes them, recent operation results from current session, an `r` refresh shortcut, and a `u` read-only update check that asks the pinned upstream CLI which installed skills have updates and labels them `update available`. The result reports only what upstream compared: skills it could not compare or check are shown as a gap and never as up to date. Installing updates and removal are explicitly out of MVP. Never conflate global inventory with project inventory.
 
 **Settings:** Two top-level content groups: `Registries` and `Installation`. Registries allow add Git URL/local directory, enable/disable, remove, priority, refresh TTL, manual refresh, cache status. Installation allows target agent IDs, installation method (symlink/copy), execute-or-print default and verbose mode. `Ctrl+S` saves, `Esc` cancels unsaved editing, and changed values are validated inline. Registry edits do not modify the source Git repository itself.
 
@@ -128,25 +129,24 @@ This is an illustrative terminal state, not a claim that Nosey is implemented. R
 
 | Scope | Filter facets | Sort choices and default |
 |---|---|---|
-| Scan / detected technologies | Technology name/ID and case-insensitive query over matched rule IDs and safe evidence paths, explicit technology ID, **matched** rule kind | `name-asc` (default), `name-desc`, `evidence-count-desc` (distinct evidence paths), `matched-rules-desc` (distinct rule IDs) |
+| Scan / detected technologies (CLI only) | Technology name/ID and case-insensitive query over matched rule IDs and safe evidence paths, explicit technology ID, **matched** rule kind | `name-asc` (default), `name-desc`, `evidence-count-desc` (distinct evidence paths), `matched-rules-desc` (distinct rule IDs) |
 | Scan / recommended skills | Name/ID, description, tags, reasons, source repository text; technology, source registry, repository ID, mapping priority, status (`installed`, `missing`, `unknown`), quality/unassessed plus scored/unscored, min score, min authored repository average | `priority-desc` (default), `score-desc`, `quality-desc`, `repository-average-desc`, `name-asc`; flat skill list |
 | Explore / all skills | Search across name/ID/description/tags/technology/repository; source registry, technology, repository, installation status, quality/unassessed plus scored/unscored, min score, min authored repository average | `relevance` (default), `score-desc`, `quality-desc`, `repository-average-desc`, `name-asc`; **always** retains technology → repository → skill tree |
 
 **Text relevance (with query):** Rank exact ID or name, then name prefix, name substring, tags, description, technologies, and repository name; ties fall back to passing mapping priority (`core` > `recommended` > `optional` > unmapped), numeric score descending null-last, normalized name, then stable skill ID. With no query, retain default priority ordering. Quality order: `excellent` > `good` > `fair` > `poor` > unassessed. Numeric score and authored repository average compare descending with missing last; all ties use normalized name and stable ID. Technology headings order detected-workspace technologies before other alphabetical technologies, with `Other / Uncategorized` last; repository headings sort alphabetical by name except for `repository-average-desc`, which sorts authored average descending then name. Within repository groups sort skills by chosen comparator (`repository-average-desc` uses skill score as secondary comparator). Group collapse preserves selected IDs; group counts represent visible rows, selected counts distinct IDs.
 
-**Focus independence:** Scan technology-list facets never implicitly hide recommended skills; recommendation facet `technology`/CLI `--rec-technology` explicitly narrows the recommendations only. CLI `--technology` narrows the detected list. `--query-target` chooses technologies, skills, or both. Views preserve per-section sort/filter state through tab changes and rescans. Queries do not change registry content. A filter yielding no rows produces a `Clear filters` affordance, not an empty detection result.
+**Facet independence:** Scan technology-list facets never implicitly hide recommended skills; recommendation facet `technology`/CLI `--rec-technology` explicitly narrows the recommendations only. CLI `--technology` narrows the detected list. `--query-target` chooses technologies, skills, or both. Scan and Explore each preserve their own sort/filter state through tab changes and rescans. Queries do not change registry content. A filter yielding no rows produces a `Clear filters` affordance, not an empty detection result.
 
 ### Dynamic footer keybinding specification
 
 | Context | Visible footer bindings |
 |---|---|
-| Scan (technology focused) | `↑↓ Move` · `F Filters` · `S Sort` · `/ Search` · `R Rescan` · `→ Skills` |
-| Scan (skills focused) | `↑↓ Move` · `Space Select` · `F Filters` · `S Sort` · `I Install` · `← Tech` |
+| Scan | `↑↓ Move` · `Space Select` · `F Filter` · `S Sort` · `I Install` · `Tab Section` |
 | Scan (filter/sort modal) | `↑↓ Navigate` · `Space Toggle` · `Enter Apply` · `Esc Cancel` |
 | Explore | `/ Search` · `F Filters` · `S Sort` · `↑↓ Move` · `Space Select` · `I Install` |
 | Explore (group focused) | `← Collapse` · `→ Expand` · `Enter Toggle` · `F Filters` · `S Sort` |
 | Explore (filter/sort modal) | `↑↓ Navigate` · `Space Toggle` · `Enter Apply` · `Esc Cancel` |
-| Manage | `↑↓ Move` · `Enter Details` · `R Refresh` · `Tab Sections` · `? Help` |
+| Manage | `↑↓ Move` · `R Refresh inventory` · `U Check updates` · `? Help` · `Tab Section` · `Q Quit` |
 | Settings (view) | `↑↓ Move` · `N New registry` · `A Add registry` (in Registries) · `Enter Edit/Review trust` · `Tab Sections` |
 | Settings → Registries → Trust approval | `↑↓ Review source/fingerprint` · `Enter Approve/Revoke` · `Esc Cancel` |
 | Settings (editing) | `Enter Apply` · `Ctrl+S Save` · `Esc Cancel` |

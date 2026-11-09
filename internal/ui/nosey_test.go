@@ -65,7 +65,7 @@ func TestNoseyModalTrapsTabAndEscapeCancels(t *testing.T) {
 func TestNoseyExploreDuplicateRowsShareSelectionAndHiddenSelectionPersists(t *testing.T) {
 	m := productModel()
 	m.tab = 1
-	m.filters[2].Query = "Shared"
+	m.filters[1].Query = "Shared"
 	rows := m.rows()
 	count := 0
 	for i, row := range rows {
@@ -81,7 +81,7 @@ func TestNoseyExploreDuplicateRowsShareSelectionAndHiddenSelectionPersists(t *te
 	if len(m.selected) != 1 || !m.selected["s"] {
 		t.Fatal("duplicate rows got independent selection")
 	}
-	m.filters[2].Query = "no-match"
+	m.filters[1].Query = "no-match"
 	if len(m.selected) != 1 {
 		t.Fatal("filter cleared hidden selection")
 	}
@@ -95,17 +95,22 @@ func TestNoseyExploreDuplicateRowsShareSelectionAndHiddenSelectionPersists(t *te
 		t.Fatal("hidden selection did not reach the install page", m.modal, m.err)
 	}
 }
-func TestNoseyScanFocusTargetsIndependentFilterState(t *testing.T) {
+func TestNoseyScanFiltersTargetRecommendationsOnly(t *testing.T) {
 	m := productModel()
-	if m.section != 1 {
-		t.Fatal("Scan does not start on recommendations")
-	}
 	m = productUpdate(t, m, keypress('f'))
 	m.form.inputs[0].SetValue("skill-query")
+	m.form.inputs[1].SetValue("a")
 	updated, _ := m.submitForm()
 	m = updated
-	if m.filters[1].Query != "skill-query" || m.filters[0].Query != "" {
-		t.Fatal("independent Scan filters were conflated")
+	if m.err != nil || m.filters[0].Query != "skill-query" || m.filters[1].Query != "" {
+		t.Fatal("Scan filter did not target recommendations", m.err)
+	}
+	if !slices.Equal(m.filters[0].RecommendationTechnologies, []string{"a"}) || len(m.filters[0].Technologies) != 0 {
+		t.Fatal("Scan technology filter was not applied to recommendations", m.filters[0])
+	}
+	m = productUpdate(t, m, keypress('f'))
+	if got := m.form.inputs[1].Value(); got != "a" {
+		t.Fatalf("reopened form lost the recommendation technology filter: %q", got)
 	}
 }
 
@@ -134,7 +139,7 @@ func TestLoadingAllowsNavigationQuitAndIgnoresStaleInventory(t *testing.T) {
 		t.Fatal("stale inventory replaced the current generation")
 	}
 }
-func TestSharedResultTreeShowsBadgesAndKeepsEvidenceInDetails(t *testing.T) {
+func TestSharedResultTreeShowsBadgesAndKeepsEvidenceOutOfRows(t *testing.T) {
 	m := productModel()
 	score, average := 87.0, 91.0
 	quality := "good"
@@ -148,7 +153,7 @@ func TestSharedResultTreeShowsBadgesAndKeepsEvidenceInDetails(t *testing.T) {
 	m.scan.Technologies[0].Evidence[0].Path = "private-evidence/package.json"
 	for _, tab := range []int{0, 1} {
 		m.tab = tab
-		m.filters[2].Query = "Shared"
+		m.filters[1].Query = "Shared"
 		m.rowCache = nil
 		rows := m.rows()
 		foundRepo, foundSkill := false, false
@@ -175,7 +180,7 @@ func TestSharedResultTreeShowsBadgesAndKeepsEvidenceInDetails(t *testing.T) {
 func TestLargeResultWindowBoundsRenderingAndRetainsFocus(t *testing.T) {
 	m := productModel()
 	m.tab = 1
-	m.filters[2].Query = "skill"
+	m.filters[1].Query = "skill"
 	for i := 0; i < 2000; i++ {
 		id := fmt.Sprintf("skill-%04d", i)
 		m.session.Catalog.Skills[id] = domain.Skill{ID: id, Name: id, Technologies: []string{"a"}, RepositoryID: "repo"}
@@ -199,7 +204,7 @@ func TestLargeResultWindowBoundsRenderingAndRetainsFocus(t *testing.T) {
 func BenchmarkNoseyLargeResultView(b *testing.B) {
 	m := productModel()
 	m.tab = 1
-	m.filters[2].Query = "skill"
+	m.filters[1].Query = "skill"
 	for i := 0; i < 2000; i++ {
 		id := fmt.Sprintf("skill-%04d", i)
 		m.session.Catalog.Skills[id] = domain.Skill{ID: id, Name: id, Technologies: []string{"a"}, RepositoryID: "repo"}
@@ -235,7 +240,7 @@ func TestSpacedFormsKeepLastFieldVisibleAndNoColorIsRespected(t *testing.T) {
 func TestGroupSelectionIncludesCollapsedChildrenAndSkipsInstalled(t *testing.T) {
 	m := productModel()
 	m.tab = 1
-	m.filters[2].Query = "Alpha"
+	m.filters[1].Query = "Alpha"
 	m.session.Catalog.Skills["t"] = domain.Skill{ID: "t", Name: "Second", Technologies: []string{"a"}, RepositoryID: "other"}
 	m.session.Catalog.Skills["installed"] = domain.Skill{ID: "installed", Name: "Installed", Technologies: []string{"a"}, RepositoryID: "other"}
 	m.session.Catalog.InstallStatus = map[string]string{"installed": "installed"}
@@ -283,7 +288,7 @@ func TestInstalledSkillCheckboxInScanAndSearch(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			m := productModel()
 			m.tab = tab
-			m.filters[2].Query = "Shared"
+			m.filters[1].Query = "Shared"
 			m.selected["s"] = true
 			skill := m.session.Catalog.Skills["s"]
 			skill.Source.SkillName = "Shared"
@@ -383,7 +388,7 @@ func TestTechnologyStripIsHorizontalBorderedAndNotSelectable(t *testing.T) {
 	m.cursor[0] = 0
 	for _, key := range []rune{tea.KeyRight, tea.KeyLeft, tea.KeyEnter} {
 		m = productUpdate(t, m, keypress(key))
-		if m.modal != "" || m.section != 1 {
+		if m.modal != "" {
 			t.Fatal("technology strip took focus", key)
 		}
 	}
@@ -393,12 +398,11 @@ func TestTechnologyStripIsHorizontalBorderedAndNotSelectable(t *testing.T) {
 }
 
 func TestSortSelectAppliesValidChoicesAndEscapeCancels(t *testing.T) {
-	for target := 0; target < 3; target++ {
+	for target := 0; target < 2; target++ {
 		m := productModel()
-		m.section = target
-		if target == 2 {
+		if target == 1 {
 			m.tab = 1
-			m.filters[2].Query = "Shared"
+			m.filters[1].Query = "Shared"
 		}
 		original := m.sort[target]
 		m = productUpdate(t, m, keypress('s'))
@@ -425,7 +429,7 @@ func TestSortSelectAppliesValidChoicesAndEscapeCancels(t *testing.T) {
 			t.Fatal("cancel changed the sort")
 		}
 		for _, option := range sortChoices(target) {
-			if err := catalog.ValidateSort(option.id, target == 0, target == 2); err != nil {
+			if err := catalog.ValidateSort(option.id, false, target == 1); err != nil {
 				t.Fatal("select exposed invalid sort", err)
 			}
 		}
@@ -508,7 +512,7 @@ func TestUpdateCheckMarksInstalledSkillsAndSurvivesInventoryRefresh(t *testing.T
 		t.Fatal("update check did not show progress", m.busyLabel)
 	}
 	generation := m.generation
-	m, cmd := updateModel(t, m, noseyUpdates{generation: generation, names: []string{"alpha"}})
+	m, cmd := updateModel(t, m, noseyUpdates{generation: generation, check: installation.UpdateCheck{Names: []string{"alpha"}}})
 	if m.loading || cmd == nil || !strings.Contains(m.message, "alpha") || !slices.Equal(m.updates, []string{"alpha"}) {
 		t.Fatal("update result not applied", m.message)
 	}
@@ -527,5 +531,80 @@ func TestUpdateCheckMarksInstalledSkillsAndSurvivesInventoryRefresh(t *testing.T
 	m, _ = updateModel(t, m, noseyUpdates{generation: generation, err: errors.New("offline")})
 	if m.err == nil || m.loading {
 		t.Fatal("failed check not reported")
+	}
+}
+
+func TestUpdateCheckIgnoresRepeatKeyWhileLoading(t *testing.T) {
+	m := productModel()
+	m.tab = 2
+	m.session.Store = settings.Store{Workspace: t.TempDir()}
+	m = productUpdate(t, m, keypress('u'))
+	next, cmd := updateModel(t, m, keypress('u'))
+	if cmd != nil {
+		t.Fatal("second key started another check")
+	}
+	if !next.loading || next.busyLabel == "" {
+		t.Fatal("second key disturbed the running check")
+	}
+}
+
+func TestUpdateCheckReportsIncompleteResults(t *testing.T) {
+	m := productModel()
+	m.tab = 2
+	m.loading = true
+	check := installation.UpdateCheck{Names: []string{"alpha"}, Failures: []string{"Failed to check skills from o/two"}}
+	m, _ = updateModel(t, m, noseyUpdates{generation: m.generation, check: check})
+	if !strings.Contains(m.message, "alpha") || !strings.Contains(m.warning, "o/two") || !strings.Contains(screenText(m), "o/two") {
+		t.Fatal("partial check not surfaced", m.message, m.warning)
+	}
+	m.loading = true
+	m, _ = updateModel(t, m, noseyUpdates{generation: m.generation, check: installation.UpdateCheck{NothingToCompare: true}})
+	if strings.Contains(m.message, "up to date") || m.warning != "" {
+		t.Fatal("uncompared skills reported as current", m.message, m.warning)
+	}
+}
+
+func TestBusyLabelEndsWithItsLoad(t *testing.T) {
+	m := productModel()
+	m.loading, m.busyLabel = true, "Checking installed skills for updates…"
+	m, _ = updateModel(t, m, noseyOperation{generation: m.generation, message: "done"})
+	if !m.loading || m.busyLabel != "" {
+		t.Fatal("newer load kept the old busy label", m.loading, m.busyLabel)
+	}
+	m.busyLabel = "Checking installed skills for updates…"
+	m, _ = updateModel(t, m, noseyUpdates{generation: m.generation - 1})
+	if !m.loading || m.busyLabel == "" {
+		t.Fatal("stale result touched the current load")
+	}
+	m, _ = updateModel(t, m, noseyLoaded{generation: m.generation, err: errors.New("offline")})
+	if m.loading || m.busyLabel != "" || !strings.Contains(screenText(m), "offline") {
+		t.Fatal("busy label outlived its load", m.loading, m.busyLabel)
+	}
+}
+
+func TestTechnologyStripStaysOnOneLineAndFullListIsReachable(t *testing.T) {
+	m := productModel()
+	names := []string{}
+	m.session.Catalog.Technologies = map[string]domain.Technology{}
+	m.scan.Technologies = nil
+	for i := range 30 {
+		id, name := fmt.Sprintf("t%02d", i), fmt.Sprintf("Technology %02d", i)
+		names = append(names, name)
+		m.session.Catalog.Technologies[id] = domain.Technology{ID: id, Name: name}
+		m.scan.Technologies = append(m.scan.Technologies, domain.Detection{ID: id})
+	}
+	for _, width := range []int{78, 40, 24} {
+		if lines := technologyStrip("Detected", names, width, m.styles); len(lines) != 4 {
+			t.Fatalf("width %d wrapped to %d lines", width, len(lines))
+		}
+	}
+	m = productUpdate(t, m, keypress('t'))
+	if m.modal != "details" || !strings.Contains(m.details, "Technology 00") || !strings.Contains(m.details, "Technology 29") {
+		t.Fatal("full technology list not reachable", m.modal, m.details)
+	}
+	m.modal, m.loading = "", true
+	m = productUpdate(t, m, keypress('t'))
+	if m.modal != "" {
+		t.Fatal("technology list opened during a load")
 	}
 }

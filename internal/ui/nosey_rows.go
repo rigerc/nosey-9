@@ -2,27 +2,30 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/storage"
 )
 
 func (m noseyModel) activeFilter() int {
 	if m.tab == 1 {
-		return 2
+		return 1
 	}
-	return m.section
+	return 0
 }
 
-// technologyChips lists detected technologies for display only; they are never focusable rows.
-func (m noseyModel) technologyChips() (string, []string) {
-	view := catalog.Project(m.session.Catalog, m.scan, m.filters[0], domain.Sort{Technologies: m.sort[0], Skills: m.sort[1]})
-	names := []string{}
-	for _, t := range view.Technologies {
-		names = append(names, m.session.Catalog.Technologies[t.ID].Name)
+// technologyNames lists detected technologies for display only; they are never focusable rows.
+// View calls it every frame, so it reads the scan directly rather than re-projecting the catalog.
+func (m noseyModel) technologyNames() []string {
+	names := make([]string, 0, len(m.scan.Technologies))
+	for _, t := range m.scan.Technologies {
+		names = append(names, storage.Safe(m.session.Catalog.Technologies[t.ID].Name))
 	}
-	return fmt.Sprintf("Detected technologies  %d/%d", len(view.Technologies), m.scan.TechnologyTotal), names
+	slices.SortFunc(names, func(a, b string) int { return strings.Compare(strings.ToLower(a), strings.ToLower(b)) })
+	return names
 }
 
 // isCollapsed reports a group's state: an explicit toggle wins, otherwise repositories follow the setting.
@@ -39,7 +42,7 @@ func (m noseyModel) rows() []noseyRow {
 	rows := []noseyRow{}
 	switch m.tab {
 	case 0:
-		skillView := catalog.Project(m.session.Catalog, m.scan, m.filters[1], domain.Sort{Technologies: m.sort[0], Skills: m.sort[1]})
+		skillView := catalog.Project(m.session.Catalog, m.scan, m.filters[0], domain.Sort{Technologies: "name-asc", Skills: m.sort[0]})
 		rows = append(rows, noseyRow{"heading", "skills", fmt.Sprintf("Recommended skills  %d/%d", len(skillView.Skills), m.scan.SkillTotal)})
 		rows = append(rows, resultRows(scanResultGroups(m.session.Catalog, skillView.Skills), m.isCollapsed, m.selected)...)
 		switch {
@@ -51,10 +54,10 @@ func (m noseyModel) rows() []noseyRow {
 			rows = append(rows, noseyRow{"notice", "", "All recommendations are hidden. Press x to clear filters."})
 		}
 	case 1:
-		if strings.TrimSpace(m.filters[2].Query) == "" {
+		if strings.TrimSpace(m.filters[1].Query) == "" {
 			return m.registryOverview()
 		}
-		result := catalog.Search(m.session.Catalog, m.filters[2], m.sort[2])
+		result := catalog.Search(m.session.Catalog, m.filters[1], m.sort[1])
 		rows = append(rows, resultRows(searchResultGroups(m.session.Catalog, result), m.isCollapsed, m.selected)...)
 		if len(rows) == 0 {
 			rows = append(rows, noseyRow{"notice", "", "No matching skills. Press x to clear filters."})

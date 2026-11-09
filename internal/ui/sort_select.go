@@ -7,11 +7,8 @@ import (
 type sortOption struct{ id, label string }
 
 func sortChoices(target int) []sortOption {
-	if target == 0 {
-		return []sortOption{{"name-asc", "Name · A to Z"}, {"name-desc", "Name · Z to A"}, {"evidence-count-desc", "Most evidence"}, {"matched-rules-desc", "Most matched rules"}}
-	}
 	options := []sortOption{{"score-desc", "Highest skill score"}, {"quality-desc", "Highest quality"}, {"repository-average-desc", "Highest repository score"}, {"name-asc", "Name · A to Z"}}
-	if target == 2 {
+	if target == 1 {
 		return append([]sortOption{{"relevance", "Most relevant"}}, options...)
 	}
 	return append([]sortOption{{"priority-desc", "Highest recommendation priority"}}, options...)

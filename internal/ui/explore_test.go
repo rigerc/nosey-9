@@ -49,7 +49,7 @@ func TestExploreSearchFocusAndResults(t *testing.T) {
 		t.Fatal("Explore did not focus its search input")
 	}
 	m = productUpdate(t, m, tea.KeyPressMsg{Code: 's', Text: "s"})
-	if m.filters[2].Query != "s" {
+	if m.filters[1].Query != "s" {
 		t.Fatal("typing did not update live search")
 	}
 	found := false

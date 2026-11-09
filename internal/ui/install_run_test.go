@@ -277,7 +277,7 @@ func TestOutdatedSkillsShowUpdateAvailableAndStaySelectable(t *testing.T) {
 	m, _ := installModel(t, nil)
 	m.selected = map[string]bool{}
 	m.tab = 1
-	m.filters[2].Query = "gamma"
+	m.filters[1].Query = "gamma"
 	m.session.Catalog.InstallStatus = map[string]string{"c": "outdated"}
 	rows := m.rows()
 	found := false

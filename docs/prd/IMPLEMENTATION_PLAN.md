@@ -176,7 +176,7 @@ Detailed execution sequence: [Skills and mappings import plan](CATALOG_IMPORT_PL
 **Owner:** TUI engineer. **Dependencies:** M2 for an initial shell; final acceptance requires M3–M6.
 
 1. Replace the demonstration root with default `nosey`/`nosey ui`, auto-scan and a one-column scroll area with persistent header and context footer (at most six bindings). Reuse theme/responsive helpers without carrying directory-manager behavior into the product.
-2. Build Scan's separately focusable technology/recommendation sections, independent filters/sorts, evidence/details and three distinct empty states. Filtering does not rescan; preserve selections and total/visible counts.
+2. Build Scan's read-only technology strip, recommendation section with filters/sorts and details, and three distinct empty states. Filtering does not rescan; preserve selections and total/visible counts.
 3. Build Explore technology/repository grouping and collapse, live query/facets and unique-ID selections across duplicate rows. Show hidden selections in the install plan. `a` acts on visible eligible skills; every skill begins unchecked.
 4. Build Manage inventory (including unmanaged/unknown), Settings registry editing/TTL/installation preferences, explicit trust Approve/Revoke and New registry vs Add existing. Connect init wizard to M6 without a nested Bubble Tea program.
 5. Implement exact Tab/Shift+Tab, search exit, modal focus trap, arrows, Enter/Space, `f`/`s` and cancellation semantics from PRD §4. Preserve session query/cursor/selection state across tabs; refresh removes unavailable selections with notice. Run asynchronous work through commands and cancel stale work safely.
