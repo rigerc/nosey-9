@@ -67,7 +67,11 @@ func (s *Server) gitState(ctx context.Context) GitState {
 
 // finalize writes ops into dir and runs everything CI would run on the result.
 func (s *Server) finalize(ctx context.Context, dir string, ops []Op) ([]Conflict, error) {
-	docs, err := loadDocuments(dir, s.cfg)
+	cfg, err := registrygen.Load(dir)
+	if err != nil {
+		return nil, err
+	}
+	docs, err := loadDocuments(dir, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -276,6 +280,10 @@ func (s *Server) handleApply(r *http.Request) (response, error) {
 	s.draft = Draft{Version: 1, Ops: []Op{}}
 	if err = saveDraft(s.opts.Store.Data, s.root, s.draft); err != nil {
 		return response{}, err
+	}
+	// The applied changes exist only locally, so a remote view would hide them.
+	if s.source.Mode == sourceRemote {
+		s.useCheckout("Showing your working tree, which now holds the applied changes. Refresh to return to the remote.")
 	}
 	return ok(map[string]int{"applied": count})
 }

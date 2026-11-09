@@ -50,7 +50,7 @@ func overrides(docs map[string]*document) (map[string][]byte, error) {
 func (s *Server) stagedCatalog(ctx context.Context, ops []Op) (domain.Catalog, []domain.Diagnostic, func(), error) {
 	cleanup := func() {}
 	diagnostics := []domain.Diagnostic{}
-	docs, err := loadDocuments(s.root, s.cfg)
+	docs, err := loadDocuments(s.view, s.cfg)
 	if err != nil {
 		return domain.Catalog{}, diagnostics, cleanup, err
 	}
@@ -65,7 +65,7 @@ func (s *Server) stagedCatalog(ctx context.Context, ops []Op) (domain.Catalog, [
 	if err != nil {
 		return domain.Catalog{}, diagnostics, cleanup, err
 	}
-	staged, err := registrygen.Stage(s.root, data)
+	staged, err := registrygen.Stage(s.view, data)
 	if err != nil {
 		return domain.Catalog{}, append(diagnostics, errorDiagnostic("E_STUDIO_STAGE", err.Error(), "")), cleanup, nil
 	}
@@ -128,7 +128,7 @@ func (s *Server) materialize(dir string, staged registrygen.Staged, skills *docu
 			continue
 		}
 		name := skill.Source.Path + "/SKILL.md"
-		if data, err := storage.Read(s.root, name, 1<<20); err == nil {
+		if data, err := storage.Read(s.view, name, 1<<20); err == nil {
 			if err = storage.Write(filepath.Join(dir, name), data); err != nil {
 				return err
 			}

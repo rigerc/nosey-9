@@ -42,21 +42,27 @@ type Options struct {
 	Root           string
 	Store          settings.Store
 	RegistryChecks bool
-	Runner         process.Executor
+	// Local edits the checkout as it stands instead of the remote default branch.
+	Local  bool
+	Runner process.Executor
 	// GitURL rewrites upstream URLs; tests point it at local repositories.
 	GitURL func(string) string
 }
 
 // Server is one studio session bound to a registry directory.
 type Server struct {
-	opts      Options
-	root      string
+	opts    Options
+	root    string
+	token   string
+	allowed map[string]bool
+
+	mu sync.Mutex
+	// view is the directory being read: root, or a snapshot of the remote.
+	view      string
+	exported  string
+	source    Source
 	cfg       registrygen.Config
 	automated bool
-	token     string
-	allowed   map[string]bool
-
-	mu        sync.Mutex
 	draft     Draft
 	conflicts map[string]Conflict
 }
@@ -89,7 +95,7 @@ func New(opts Options) (*Server, error) {
 		opts.GitURL = func(uri string) string { return uri }
 	}
 	return &Server{
-		opts: opts, root: root, cfg: cfg, automated: cfg.Registry.ID == officialID,
+		opts: opts, root: root, view: root, source: Source{Mode: sourceCheckout}, cfg: cfg, automated: cfg.Registry.ID == officialID,
 		token: hex.EncodeToString(secret), allowed: map[string]bool{}, draft: draft, conflicts: map[string]Conflict{},
 	}, nil
 }
@@ -116,6 +122,7 @@ func (s *Server) Handler() http.HandlerFunc {
 	mux.Handle("POST /api/preview", s.api(s.handlePreview))
 	mux.Handle("POST /api/rules/test", s.api(s.handleRuleTest))
 	mux.Handle("POST /api/skills/resolve", s.api(s.handleResolveSkill))
+	mux.Handle("POST /api/refresh", s.api(s.handleRefresh))
 	mux.Handle("POST /api/apply", s.api(s.handleApply))
 	mux.Handle("POST /api/publish", s.api(s.handlePublish))
 	return s.guard(mux)
@@ -217,7 +224,9 @@ type Meta struct {
 	Automated      bool     `json:"automated"`
 	RegistryChecks bool     `json:"registryChecks"`
 	Roles          []string `json:"roles"`
+	Local          bool     `json:"local"`
 	Git            GitState `json:"git"`
+	Source         Source   `json:"source"`
 }
 
 // State is the full editor payload.
@@ -233,15 +242,15 @@ type State struct {
 func (s *Server) handleState(r *http.Request) (response, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	docs, err := loadDocuments(s.root, s.cfg)
+	docs, err := loadDocuments(s.view, s.cfg)
 	if err != nil {
 		return response{}, err
 	}
 	state := State{
-		Meta:      Meta{ID: s.cfg.Registry.ID, Name: s.cfg.Registry.Name, Root: s.root, Automated: s.automated, RegistryChecks: s.opts.RegistryChecks, Git: s.gitState(r.Context())},
+		Meta:      Meta{ID: s.cfg.Registry.ID, Name: s.cfg.Registry.Name, Root: s.root, Automated: s.automated, RegistryChecks: s.opts.RegistryChecks, Local: s.opts.Local, Git: s.gitState(r.Context()), Source: s.source},
 		Documents: make(map[string][]json.RawMessage, len(docs)),
 		Ops:       s.draft.Ops, Published: s.draft.Published,
-		Assessments: readAssessments(s.root),
+		Assessments: readAssessments(s.view),
 	}
 	for role, doc := range docs {
 		state.Documents[role] = doc.entities()
@@ -274,7 +283,7 @@ func (s *Server) handleDraft(r *http.Request) (response, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	docs, err := loadDocuments(s.root, s.cfg)
+	docs, err := loadDocuments(s.view, s.cfg)
 	if err != nil {
 		return response{}, err
 	}
@@ -282,7 +291,7 @@ func (s *Server) handleDraft(r *http.Request) (response, error) {
 	for _, op := range s.draft.Ops {
 		next[op.key()] = op
 	}
-	probes := readProbes(s.root)
+	probes := readProbes(s.view)
 	for _, change := range input.Ops {
 		if err = s.stageOp(next, docs, probes, change); err != nil {
 			return response{}, err
@@ -420,6 +429,11 @@ func Run(ctx context.Context, opts Options, port int, openBrowser bool, out io.W
 	if err != nil {
 		return err
 	}
+	defer server.Close()
+	if !opts.Local {
+		_, _ = fmt.Fprintln(out, "Fetching the latest registry data…")
+	}
+	source := server.Sync(ctx)
 	listener, err := (&net.ListenConfig{}).Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
 		return err
@@ -429,7 +443,7 @@ func Run(ctx context.Context, opts Options, port int, openBrowser bool, out io.W
 	_, bound, _ := net.SplitHostPort(address)
 	server.Allow("localhost:" + bound)
 	link := "http://" + address + "/#token=" + server.Token()
-	_, _ = fmt.Fprintf(out, "Registry studio for %s\n%s\nPress Ctrl+C to stop.\n", server.cfg.Registry.ID, link)
+	_, _ = fmt.Fprintf(out, "Registry studio for %s\n%s\n%s\nPress Ctrl+C to stop.\n", server.cfg.Registry.ID, describeSource(source), link)
 	if openBrowser {
 		openURL(ctx, link)
 	}
@@ -443,6 +457,17 @@ func Run(ctx context.Context, opts Options, port int, openBrowser bool, out io.W
 		shutdown, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(shutdown)
+	}
+}
+
+func describeSource(source Source) string {
+	switch {
+	case source.Warning != "":
+		return "Warning: " + source.Warning
+	case source.Mode == sourceRemote:
+		return "Editing " + source.Ref + " at " + source.Commit[:min(len(source.Commit), 7)]
+	default:
+		return "Editing the local checkout"
 	}
 }
 

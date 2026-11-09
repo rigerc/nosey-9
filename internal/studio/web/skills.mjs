@@ -28,7 +28,7 @@ function ManualAssessment({ form, set }) {
 function SkillEditor({ ctx, original }) {
   const [form, setForm] = useState(() => clone(original));
   const [confirm, setConfirm] = useState(false);
-  useEffect(() => setForm(clone(original)), [original]);
+  useEffect(() => setForm(clone(original)), [JSON.stringify(original)]);
   const set = (patch) => setForm({ ...form, ...patch });
   const { automated, registryChecks } = ctx.state.meta;
   const elevated = !automated || registryChecks;

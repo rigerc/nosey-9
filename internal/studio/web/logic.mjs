@@ -330,6 +330,20 @@ export function healthQueue(state, model) {
   return { sections: sections.filter((section) => section.items.length), backlog: backlog.filter((section) => section.items.length) };
 }
 
+/** What the header says about the data being edited, and anything to flag. */
+export function sourceSummary(source) {
+  const commit = source.commit ? source.commit.slice(0, 7) : '';
+  const behind = source.mode === 'remote' && source.behind > 0 ? ` · checkout ${source.behind} behind` : '';
+  const label = source.mode === 'remote' ? `${source.ref} · ${commit}${behind}` : `Local checkout${commit ? ` · ${commit}` : ''}`;
+  const notices = [];
+  if (source.warning) notices.push(source.warning);
+  if (source.mode === 'remote') {
+    if (source.ahead > 0) notices.push(`Your checkout has ${source.ahead} commit${source.ahead === 1 ? '' : 's'} not on ${source.ref}. They are not shown here; use --local to edit them.`);
+    if (source.dirty) notices.push('Your checkout has uncommitted changes. They are not shown here; use --local to edit them.');
+  }
+  return { label, notices };
+}
+
 /** Line diff for the changes screen (LCS; entities are small). */
 export function lineDiff(before, after) {
   const a = before === null ? [] : JSON.stringify(before, null, 2).split('\n');

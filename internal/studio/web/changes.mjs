@@ -14,8 +14,8 @@ function Conflicts({ ctx, conflicts, onResolved }) {
     await ctx.resolveConflict(conflict, action);
     onResolved(conflicts.filter((item) => item !== conflict));
   };
-  return html`<div class="card conflicts"><h3>Conflicts with upstream</h3>
-    <p class="hint">These entities changed on the remote since you edited them. Keep your version or drop your edit.</p>
+  return html`<div class="card conflicts"><h3>Conflicts</h3>
+    <p class="hint">These entities changed since you edited them. Keep your version or drop your edit.</p>
     ${conflicts.map((conflict) => html`<div class="row" key=${conflict.id}><span class="row-main"><code>${conflict.id}</code><small>${conflict.reason}</small></span>
       <span class="row-side"><button type="button" onClick=${() => resolve(conflict, 'keep')}>Keep mine</button><button type="button" onClick=${() => resolve(conflict, 'discard')}>Discard</button></span></div>`)}
   </div>`;
@@ -42,7 +42,7 @@ export function Changes({ ctx }) {
   const blocked = !ops.length || errors > 0 || ctx.busy;
   return html`<section class="page">
     <h1>Changes</h1>
-    <p class="muted">${ops.length} staged · ${errors} error${errors === 1 ? '' : 's'} · checkout <code>${meta.git.commit ? meta.git.commit.slice(0, 7) : 'not a Git repository'}</code></p>
+    <p class="muted">${ops.length} staged · ${errors} error${errors === 1 ? '' : 's'} · editing <code>${meta.source.commit ? meta.source.commit.slice(0, 7) : 'local files'}</code></p>
     <${Diagnostics} diagnostics=${diagnostics} />
     ${conflicts.length ? html`<${Conflicts} ctx=${ctx} conflicts=${conflicts} onResolved=${setConflicts} />` : null}
     ${roles.map((role) => html`<div class="card" key=${role}><h3>${ROLE_LABELS[role]}</h3>${ops.filter((op) => op.role === role).map((op) => html`<${OpRow} key=${op.id} ctx=${ctx} op=${op} />`)}</div>`)}

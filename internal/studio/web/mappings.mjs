@@ -29,7 +29,7 @@ function RecommendationRow({ rec, onChange, onRemove }) {
 function MappingEditor({ ctx, mapping, isNew }) {
   const [form, setForm] = useState(() => clone(mapping));
   const [confirm, setConfirm] = useState(false);
-  useEffect(() => setForm(clone(mapping)), [mapping]);
+  useEffect(() => setForm(clone(mapping)), [JSON.stringify(mapping)]);
   const setRec = (index, rec) => setForm({ ...form, recommendations: form.recommendations.map((r, i) => (i === index ? rec : r)) });
   const entity = { ...form, recommendations: form.recommendations.map(cleanRecommendation) };
   const dirty = isNew || !same(entity, mapping);

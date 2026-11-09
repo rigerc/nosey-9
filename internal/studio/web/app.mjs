@@ -1,6 +1,6 @@
 import { Badge, html, useEffect, useMemo, useState } from './components.mjs';
 import { render } from './vendor/htm-preact.mjs';
-import { buildModel } from './logic.mjs';
+import { buildModel, sourceSummary } from './logic.mjs';
 import { Health } from './health.mjs';
 import { Technologies } from './technologies.mjs';
 import { Mappings } from './mappings.mjs';
@@ -100,12 +100,21 @@ function App() {
   };
   const errors = state.diagnostics.filter((d) => d.severity === 'error').length;
   const [page, first, second] = route;
+  const source = sourceSummary(state.meta.source);
+  const refresh = async () => {
+    const result = await ctx.action('/api/refresh', {});
+    if (result.error) notify(result.error, 'error');
+    else notify(result.commit ? `Showing ${result.commit.slice(0, 7)}.` : 'Reloaded.');
+  };
   return html`<div class="shell">
     <header class="top">
       <a class="brand" href="#/health"><span class="logo"></span><span>${state.meta.name}<small>Registry Studio</small></span></a>
       <nav aria-label="Sections">${TABS.map(([id, label]) => html`<a key=${id} class=${page === id ? 'on' : ''} href=${`#/${id}`}>${label}${id === 'changes' && state.ops.length ? html` <span class="count">${state.ops.length}</span>` : null}</a>`)}</nav>
       ${errors ? html`<a href="#/changes"><${Badge} tone="poor">${errors} error${errors === 1 ? '' : 's'}<//></a>` : null}
+      <span class="source mono" title=${state.meta.source.commit}>${source.label}</span>
+      <button type="button" disabled=${busy} onClick=${refresh}>${busy ? 'Working…' : state.meta.local ? 'Reload' : 'Refresh'}</button>
     </header>
+    ${source.notices.map((notice) => html`<p class="banner" key=${notice} role="status">${notice}</p>`)}
     <main>
       ${page === 'mappings' ? html`<${Mappings} ctx=${ctx} pivot=${first} id=${first === 'skill' || first === 'tech' || first === 'mapping' ? second : undefined} />` : null}
       ${page === 'technologies' ? html`<${Technologies} ctx=${ctx} id=${first} />` : null}
