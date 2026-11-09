@@ -608,3 +608,154 @@ func TestTechnologyStripStaysOnOneLineAndFullListIsReachable(t *testing.T) {
 		t.Fatal("technology list opened during a load")
 	}
 }
+
+func scoredModel() noseyModel {
+	m := productModel()
+	hi, lo := 90.0, 40.0
+	m.session.Catalog.Skills = map[string]domain.Skill{
+		"hi":   {ID: "hi", Name: "High", Technologies: []string{"a"}, RepositoryID: "repo", Score: &hi},
+		"lo":   {ID: "lo", Name: "Low", Technologies: []string{"a"}, RepositoryID: "repo", Score: &lo},
+		"none": {ID: "none", Name: "None", Technologies: []string{"a"}, RepositoryID: "repo"},
+	}
+	m.scan.Skills = []domain.SkillView{
+		{ID: "hi", Name: "High", Status: "unknown", Priority: "optional", Technologies: []string{"a"}, RepositoryID: "repo", Score: &hi},
+		{ID: "lo", Name: "Low", Status: "unknown", Priority: "optional", Technologies: []string{"a"}, RepositoryID: "repo", Score: &lo},
+		{ID: "none", Name: "None", Status: "unknown", Priority: "optional", Technologies: []string{"a"}, RepositoryID: "repo"},
+	}
+	m.scan.SkillTotal = 3
+	return m
+}
+func skillRowIDs(m noseyModel) []string {
+	ids := []string{}
+	for _, row := range m.rows() {
+		if row.kind == "skill" {
+			ids = append(ids, row.id)
+		}
+	}
+	return ids
+}
+func rowText(m noseyModel) string {
+	text := []string{}
+	for _, row := range m.rows() {
+		text = append(text, row.label)
+	}
+	return strings.Join(text, "\n")
+}
+
+func TestMinScoreSettingHidesLowResultsAndReportsCountOnScan(t *testing.T) {
+	m := scoredModel()
+	if ids := skillRowIDs(m); len(ids) != 3 || strings.Contains(rowText(m), "hidden below") {
+		t.Fatal("threshold off must show everything silently", ids)
+	}
+	m.session.Resolved.Settings.UI.MinScore = 50
+	if ids := skillRowIDs(m); !slices.Equal(ids, []string{"hi"}) {
+		t.Fatal("low and unscored skills must be hidden", ids)
+	}
+	if text := rowText(m); !strings.Contains(text, "1/3") || !strings.Contains(text, "2 hidden below score 50") {
+		t.Fatal("results page does not report filtered count", text)
+	}
+	m.session.Resolved.Settings.UI.MinScore = 100
+	if text := rowText(m); !strings.Contains(text, "3 hidden below score 100") || !strings.Contains(text, "Relax the score/quality settings") {
+		t.Fatal("all-hidden state does not explain the threshold", text)
+	}
+}
+
+func TestMinScoreSettingAppliesToExploreAndKeepsStricterFilter(t *testing.T) {
+	m := scoredModel()
+	m.tab = 1
+	m.filters[1].Query = "o"
+	m.session.Resolved.Settings.UI.MinScore = 50
+	if ids := skillRowIDs(m); !slices.Equal(ids, []string{"hi"}) {
+		t.Fatal("explore did not apply threshold", ids)
+	}
+	if !strings.Contains(rowText(m), "hidden below score 50") {
+		t.Fatal("explore does not report filtered count", rowText(m))
+	}
+	strict := 95.0
+	m.filters[1].MinScore = &strict
+	if ids := skillRowIDs(m); len(ids) != 0 {
+		t.Fatal("stricter interactive filter must win over the setting", ids)
+	}
+}
+
+func TestMinScoreSettingIsValidatedAndSaved(t *testing.T) {
+	m := editableSettingsModel(t)
+	m, _ = m.setting(noseyRow{kind: "setting", id: "minscore"})
+	m.form.inputs[0].SetValue("abc")
+	m = productUpdate(t, m, keypress(tea.KeyEnter))
+	if m.err == nil || m.modal != "form" || m.session.Resolved.Settings.UI.MinScore != 0 {
+		t.Fatal("invalid score was accepted", m.err)
+	}
+	m.form.inputs[0].SetValue("101")
+	m = productUpdate(t, m, keypress(tea.KeyEnter))
+	if m.err == nil || m.modal != "form" {
+		t.Fatal("out-of-range score was accepted")
+	}
+	m.form.inputs[0].SetValue("60")
+	m = productUpdate(t, m, keypress(tea.KeyEnter))
+	resolved, err := m.session.Store.Resolve()
+	if err != nil || resolved.Settings.UI.MinScore != 60 || m.session.Resolved.Settings.UI.MinScore != 60 || m.modal != "" {
+		t.Fatal("score not saved", err, m.session.Resolved.Settings.UI.MinScore)
+	}
+}
+
+func TestQualityAndRepoScoreSettingsHideAndReport(t *testing.T) {
+	m := scoredModel()
+	good, poor := "good", "fair"
+	avgHi, avgLo := 80.0, 30.0
+	for i := range m.scan.Skills {
+		switch m.scan.Skills[i].ID {
+		case "hi":
+			m.scan.Skills[i].Quality, m.scan.Skills[i].RepositoryAverage = &good, &avgHi
+		case "lo":
+			m.scan.Skills[i].Quality, m.scan.Skills[i].RepositoryAverage = &poor, &avgLo
+		}
+	}
+	m.session.Resolved.Settings.UI.MinQuality = "good"
+	if ids := skillRowIDs(m); !slices.Equal(ids, []string{"hi"}) {
+		t.Fatal("quality threshold must hide lower and unassessed skills", ids)
+	}
+	if text := rowText(m); !strings.Contains(text, "2 hidden below quality good") {
+		t.Fatal("quality count missing", text)
+	}
+	m.session.Resolved.Settings.UI.MinQuality = "excellent"
+	if ids := skillRowIDs(m); len(ids) != 0 {
+		t.Fatal("excellent threshold must hide good skills", ids)
+	}
+	m.session.Resolved.Settings.UI.MinQuality = "any"
+	m.session.Resolved.Settings.UI.MinRepoScore = 50
+	if ids := skillRowIDs(m); !slices.Equal(ids, []string{"hi"}) {
+		t.Fatal("repo score threshold not applied", ids)
+	}
+	m.session.Resolved.Settings.UI.MinScore = 50
+	m.session.Resolved.Settings.UI.MinQuality = "good"
+	if text := rowText(m); !strings.Contains(text, "2 hidden below score 50, repo score 50, quality good") {
+		t.Fatal("combined notice missing", text)
+	}
+	m.filters[0].Qualities = []string{"fair"}
+	if ids := skillRowIDs(m); len(ids) != 0 {
+		t.Fatal("interactive quality filter must intersect with the setting", ids)
+	}
+}
+
+func TestQualityAndRepoScoreSettingsAreValidatedAndSaved(t *testing.T) {
+	m := editableSettingsModel(t)
+	m, _ = m.setting(noseyRow{kind: "setting", id: "minrepo"})
+	m.form.inputs[0].SetValue("-1")
+	m = productUpdate(t, m, keypress(tea.KeyEnter))
+	if m.err == nil || m.modal != "form" {
+		t.Fatal("invalid repo score accepted")
+	}
+	m.form.inputs[0].SetValue("70")
+	m = productUpdate(t, m, keypress(tea.KeyEnter))
+	m, _ = m.setting(noseyRow{kind: "setting", id: "minquality"})
+	if len(m.form.choices[0]) != 4 {
+		t.Fatal("quality is not a fixed choice", m.form.choices[0])
+	}
+	m.form.inputs[0].SetValue("good")
+	m = productUpdate(t, m, keypress(tea.KeyEnter))
+	resolved, err := m.session.Store.Resolve()
+	if err != nil || resolved.Settings.UI.MinRepoScore != 70 || resolved.Settings.UI.MinQuality != "good" || m.session.Resolved.Settings.UI.MinQuality != "good" {
+		t.Fatal("settings not saved", err, resolved.Settings.UI)
+	}
+}

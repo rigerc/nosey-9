@@ -22,6 +22,8 @@ func (m *noseyModel) configureFormChoices() {
 			m.form.choices[0] = []sortOption{{"fullscreen", "Fullscreen"}, {"inline", "Inline"}}
 		case "ui.collapseRepos":
 			m.form.choices[0] = []sortOption{{"false", "Expanded by default"}, {"true", "Collapsed by default"}}
+		case "ui.minQuality":
+			m.form.choices[0] = []sortOption{{"any", "Any (show all)"}, {"fair", "Fair or better"}, {"good", "Good or better"}, {"excellent", "Excellent only"}}
 		case "installation.method":
 			m.form.choices[0] = []sortOption{{"symlink", "Symlink"}, {"copy", "Copy"}}
 		case "detection.enableMcpPackage":
@@ -114,7 +116,7 @@ func (m noseyModel) updateChoiceField(key tea.KeyPressMsg) (noseyModel, tea.Cmd)
 }
 func settingFieldLabel(label string) string {
 	names := map[string]string{
-		"ui.mode": "Display mode (next launch)", "ui.collapseRepos": "Repository groups in results", "installation.agents": "Target agents", "installation.method": "Install method", "detection.enableMcpPackage": "MCP inspection", "updates.ttlHours": "Refresh interval (hours)", "detection.maxFileBytes": "Maximum inspected file (bytes)", "detection.exclude": "Excluded paths (comma separated)",
+		"ui.mode": "Display mode (next launch)", "ui.collapseRepos": "Repository groups in results", "ui.minScore": "Minimum score (0–100, 0 shows all)", "ui.minRepoScore": "Minimum repository score (0–100, 0 shows all)", "ui.minQuality": "Minimum quality", "installation.agents": "Target agents", "installation.method": "Install method", "detection.enableMcpPackage": "MCP inspection", "updates.ttlHours": "Refresh interval (hours)", "detection.maxFileBytes": "Maximum inspected file (bytes)", "detection.exclude": "Excluded paths (comma separated)",
 		"Enabled: true or false": "Enabled", "Remove: type REMOVE": "Action", "Template registry ID": "Template registry", "GitHub CI: true or false": "GitHub CI", "Initialize Git: true or false": "Initialize Git", "Register for this user: true or false": "Register for this user", "GitHub repository: OWNER/NAME or blank": "GitHub repository (blank for none)", "GitHub repository visibility": "Repository visibility",
 	}
 	if name, ok := names[label]; ok {

@@ -152,9 +152,9 @@ func selectionMark(skills []domain.SkillView, selected map[string]bool) string {
 }
 func (m noseyModel) resultGroups() []resultGroup {
 	if m.tab == 1 {
-		return searchResultGroups(m.session.Catalog, catalog.Search(m.session.Catalog, m.filters[1], m.sort[1]))
+		return searchResultGroups(m.session.Catalog, catalog.Search(m.session.Catalog, m.effectiveFilters(1), m.sort[1]))
 	}
-	view := catalog.Project(m.session.Catalog, m.scan, m.filters[0], domain.Sort{Technologies: "name-asc", Skills: m.sort[0]})
+	view := catalog.Project(m.session.Catalog, m.scan, m.effectiveFilters(0), domain.Sort{Technologies: "name-asc", Skills: m.sort[0]})
 	return scanResultGroups(m.session.Catalog, view.Skills)
 }
 func (m *noseyModel) toggleGroup(key string) {
