@@ -14,8 +14,8 @@ Package paths below are relative to `docs/prd/`, the specification root.
 - `source-planning-package/schemas/registry.schema.json`, `technologies.schema.json`, `technologies.v2.schema.json`, `repositories.schema.json` — registry/technology/repository data.
 - `source-planning-package/schemas/skills.schema.json`, `skills.effective.schema.json`, `mappings.schema.json`, `mappings.effective.schema.json` — source overlays and effective objects.
 - `source-planning-package/schemas/settings.schema.json`, `template.schema.json`, `scaffold.schema.json`, `install-origins.schema.json` — local configuration, template and origin attribution.
-- Active extensions: [install-plan v3](../schemas/install-plan-output.v3.schema.json), [list v1](../schemas/list-output.schema.json), [registry-list v1](../schemas/registry-list-output.schema.json), [doctor v1](../schemas/doctor-output.schema.json); authority and semantics in [D1–D7](17-approved-decisions.md).
-- `source-planning-package/schemas/scan-output.schema.json`, `search-output.schema.json`, `install-plan-output.schema.json`, `registry-init-output.schema.json` — original command-output v2 baseline; install-plan v2 is historical, the other three stay active.
+- Active extensions: [list v1](../schemas/list-output.schema.json), [registry-list v1](../schemas/registry-list-output.schema.json), [doctor v1](../schemas/doctor-output.schema.json); authority and semantics in [D1–D8](17-approved-decisions.md).
+- `source-planning-package/schemas/scan-output.schema.json`, `search-output.schema.json`, `install-plan-output.schema.json`, `registry-init-output.schema.json` — original command-output v2 baseline; install-plan v2 is historical, v3 is removed by D8, and the other three stay active.
 - `source-planning-package/example-registry/` — planning examples only, not a fixture test suite.
 - `source-planning-package/reference/technology-registry-v2/technologies-894-v2.json` — unchanged reference source catalog; not a runtime-embedded default.
 

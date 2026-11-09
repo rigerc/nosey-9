@@ -4,6 +4,8 @@
 
 ## 10. Installation execution and preflight
 
+> **Superseded by [D8](17-approved-decisions.md#d8--thin-installer-delegation).** This chapter records the original design. Current behavior: Nosey builds one `skills add` per source and delegates the rest to the Skills CLI.
+
 **Approved amendments:** [D2](17-approved-decisions.md#d2--persistent-installation-sources) requires a durable installation-source store separate from refresh caches; [D3](17-approved-decisions.md#d3--reviewed-installation-approval) adds exact-content review/approval and immutable execution. Active dry-run output is v3, with the original v2 retained as historical. Noninteractive project/unpinned overrides require both `--approve-plan SHA256` and `--yes`; consent must match current sources/revisions/agents/method. No matching digest can bypass source trust, conflicts or project scope.
 
 Nosey invokes the upstream installer from Go via `exec.CommandContext` with explicit argument tokens and the workspace root as `Dir`, never via a shell; **Nosey itself has no Node.js runtime requirement**. If the approved `npx` launcher is used, the pinned upstream Skills CLI still requires its compatible Node.js/npm runtime. Release config pins the supported upstream `skills` version. Proposed baseline for validation is **`skills@1.7.6`**, which must be exercised in CI before release; exact dependency versions may advance only with golden-fixture updates. An optional `installation.cliVersion` may select an exact version **inside** Nosey's published range. An incompatible version causes `nosey doctor` / install prerequisite exit 6; scan and Explore remain available. `npx --yes skills@1.7.6 ...` is the illustrative pinned invocation (not a claim that v1.7.6 was executed in this spec environment).

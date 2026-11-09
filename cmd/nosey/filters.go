@@ -14,7 +14,7 @@ func filterFlags(cmd *cobra.Command, f *domain.Filters, scan bool) {
 	flags.StringSliceVar(&f.Technologies, "technology", nil, "technology IDs")
 	flags.StringSliceVar(&f.Registries, "registry", nil, "source registry IDs (result filter)")
 	flags.StringSliceVar(&f.Repositories, "repository", nil, "source repository IDs")
-	flags.StringSliceVar(&f.Statuses, "status", nil, "any, installed, missing or unknown")
+	flags.StringSliceVar(&f.Statuses, "status", nil, "any, installed, missing, outdated or unknown")
 	flags.StringSliceVar(&f.Qualities, "quality", nil, "excellent, good, fair, poor or unassessed")
 	flags.StringVar(&f.ScoreState, "score-state", "any", "any, scored or unscored")
 	flags.Float64("min-score", 0, "minimum authored score (0..100)")
@@ -42,7 +42,7 @@ func normalizeFilters(cmd *cobra.Command, f *domain.Filters, c domain.Catalog) e
 		return fmt.Errorf("invalid score-state")
 	}
 	for _, status := range f.Statuses {
-		if !slices.Contains([]string{"any", "installed", "missing", "unknown"}, status) {
+		if !slices.Contains([]string{"any", "installed", "missing", "outdated", "unknown"}, status) {
 			return fmt.Errorf("invalid status %s", status)
 		}
 	}

@@ -10,6 +10,8 @@ M1R/P1R closes when the separate registry repository is validated and published,
 
 ## D2 — Persistent installation sources
 
+> **Superseded by [D8](#d8--thin-installer-delegation).** Nosey no longer materializes sources; existing source directories are left untouched.
+
 Use a user-owned persistent source store separate from the disposable refresh cache. Prefer `$XDG_DATA_HOME/nosey/install-sources/` (platform application-data fallback), with immutable content-addressed directories. Before executing an installation sourced from a cached registry directory, safely materialize the validated source tree into this store and pass its persistent path to the pinned installer. Preserve the logical origin/requested ref separately from that execution path.
 
 The tree digest covers sorted relative paths, file types, executable bits, file bytes and confined symlink targets; reject external links and special files. Lock and atomically promote fully staged trees. Never update a published tree in place. Preparing a preview may read/fetch/hash source data, but dry-run/print must not execute upstream or write project files; durable materialization is an execution-stage action. The user confirmed that raw `--print`/TUI command copying is disabled for local sources until a prior confirmed execution has prepared and verified their persistent directory; previews remain read-only with respect to that store. Derive the future content-addressed execution path without requiring that it already exists during preview.
@@ -18,11 +20,13 @@ Automatic refresh-cache cleanup must never delete installation-source trees. MVP
 
 ## D3 — Reviewed installation approval
 
+> **Superseded by [D8](#d8--thin-installer-delegation).** Plan digests, `--approve-plan` and install-plan JSON v3 are removed.
+
 Use `--approve-plan SHA256` together with `--yes` for noninteractive installs requiring additional approval of project/unpinned source overrides. General `--yes` is insufficient. The digest represents the entire reviewed selection, not approval of arbitrary future changes from a source. It never grants workspace registry trust or bypasses validation, conflicts, prerequisite checks or project-only scope. Missing/mismatched approval is policy exit 2 with no installer invocation.
 
 Dry-run resolves the exact Git commit and source tree fingerprints without invoking the Skills CLI; local sources get content fingerprints. An unresolved revision or unreadable source may still produce a blocked preview, but cannot produce usable approval. The execution service recomputes the plan and fingerprints, verifies current trust, compares the approval digest, and executes the exact immutable reviewed content. A mutable branch must be resolved and pinned for execution, not re-resolved by upstream after approval. Local mutable source content must be sealed in the persistent store before execution. Reject a source form whose pinned execution cannot be proved with the selected upstream version.
 
-Install-plan JSON moves to **outputVersion 3**, with the [v3 schema](../schemas/install-plan-output.v3.schema.json). `approval` contains `required`, `digest`, `canonicalization`, `installerVersion`, `sourceFingerprints`, and `registryFingerprints`. `required` describes the additional-approval policy, not whether consent has already been supplied. `digest` is lowercase SHA-256, or null when source resolution/policy blockers prevent a reviewable plan. A non-null digest is not itself permission to execute.
+Install-plan JSON moves to **outputVersion 3**, with a v3 schema (removed by D8). `approval` contains `required`, `digest`, `canonicalization`, `installerVersion`, `sourceFingerprints`, and `registryFingerprints`. `required` describes the additional-approval policy, not whether consent has already been supplied. `digest` is lowercase SHA-256, or null when source resolution/policy blockers prevent a reviewable plan. A non-null digest is not itself permission to execute.
 
 `nosey-plan-v1` hashes UTF-8 canonical JSON of the complete v3 plan after removing top-level `diagnostics` and `blocked`, `approval.digest`, and each item's presentation `status`. Sort object keys lexicographically; preserve deterministic array order; use compact JSON with no BOM/trailing newline, no HTML escaping and no normalization of Unicode string contents. Encode controls and quote/backslash using JSON escapes; retain other valid Unicode as UTF-8. No floating-point values occur in this projection. All fingerprint arrays have deterministic ordering by source identity; agent arrays are sorted and deduplicated. Reject invalid Unicode rather than silently replacing it.
 
@@ -36,13 +40,13 @@ Every advertised JSON command has a closed versioned schema, not an ad hoc seria
 | --- | --- | --- |
 | `scan --json` | 2 | [scan](../source-planning-package/schemas/scan-output.schema.json) |
 | `search --json` | 2 | [search](../source-planning-package/schemas/search-output.schema.json) |
-| `install ... --dry-run --json` | 3 | [install plan](../schemas/install-plan-output.v3.schema.json) |
+| `install ... --dry-run --json` | Removed by D8 | No current JSON contract |
 | `registry init ... --json` | 2 | [registry init](../source-planning-package/schemas/registry-init-output.schema.json) |
 | `list --json` | 1 | [installed inventory](../schemas/list-output.schema.json) |
 | `registry list --json` | 1 | [registry inventory](../schemas/registry-list-output.schema.json) |
 | `doctor --json` | 1 | [doctor checks](../schemas/doctor-output.schema.json) |
 
-Retain original install-plan v2 as historical input; do not claim that current v3 output validates against it. `--json` on install is supported with `--dry-run`, not executable install or `--print`; reject other combinations with exit 2. `--print` remains shell-escaped text. Structured errors populate diagnostics when an operation has a schema-valid response; failures before a response can be constructed use stderr/nonzero exit and must not fabricate success. Keep stdout free of progress/ANSI/logging.
+Retain original install-plan v2 as historical input. D8 removes install JSON, dry-run and approval plans. `--print` remains shell-escaped text. Structured errors populate diagnostics when an operation has a schema-valid response; failures before a response can be constructed use stderr/nonzero exit and must not fabricate success. Keep stdout free of progress/ANSI/logging.
 
 Installed inventory is explicitly project-scoped, with completeness, nullable catalog identity/origin, target agents, observed path and conservative status. Missing records cannot establish absence unless the reader is complete. Registry inventory exposes normalized sources, priorities/TTL, trust and cache state without credentials. Doctor publishes stable check IDs/status/code/message; versions, provider and adapter checks are represented as named checks rather than unversioned extra fields. Validate counts/uniqueness/scope and redact all output in addition to schema checking.
 
@@ -87,6 +91,16 @@ Import requirements:
 4. Convert technology `skill_ids` to recommendation records and combinations to `when.allTechnologies`, keeping conditions separate from unconditional mappings. Missing priority uses the normative optional default; do not invent assessments or skill prerequisites.
 5. Ignore `frontend_essentials` entirely: no bonus recommendations, flags or follow-up decisions. Ledger skills are still imported independently. Ignore `mcp_scan_context` and detection examples as outside this skills/mappings import.
 6. Validate generated schemas, IDs, references, mapping conditions, source metadata preservation and deterministic output. Account for every supplied skill and technology/combination mapping; fix/report conversion problems without silent drops. Do not require new source-audit evidence before this import.
+
+## D8 — Thin installer delegation
+
+Approved 2026-11-09. Supersedes D2, D3 and any conflicting text in the CLI contract, the installation chapter and the architecture documents, including post-install hash verification, `.nosey/install-origins.json` and the project operation lock.
+
+`nosey install` and the TUI build one upstream `skills add` per source from the catalog and confirm the whole selection once in Nosey. Nosey chooses target agents once, displays project scope, method and overwrite warning, then runs all sources with `--yes` without further prompts. `nosey install --yes` skips the Nosey confirmation. The Skills CLI owns installation and progress. Nosey keeps requirement resolution, conflict and duplicate-name blocking, and catalog pins, which are passed through unchanged as `#sha`. Installed state comes from `skills list --json` and `skills-lock.json`.
+
+The CLI is an installed `skills` of the pinned version or, failing that, the pinned package located through `npx` from Nosey's cache directory and started with `node`, so workspace `node_modules` and `.npmrc` are never consulted. Nosey stops with exit 6 when neither is available and never installs the CLI itself. CI exercises both launchers against the real pinned CLI.
+
+Known consequences: installs are project-scoped and replace existing skills with the same name after the Nosey confirmation; hand-edited tracked skills still report as installed. The v3 plan schema is removed; the original planning package retains historical v2.
 
 ## Verification and delivery ownership
 

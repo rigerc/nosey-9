@@ -10,10 +10,8 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
-	"github.com/atotto/clipboard"
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/installation"
 	"github.com/rigerc/nosey-9/internal/registry"
 )
 
@@ -44,56 +42,11 @@ func (m noseyModel) updateModal(key tea.KeyPressMsg) (noseyModel, tea.Cmd) {
 		return m.updateSort(key)
 	}
 	if m.modal == "details" {
-		switch key.String() {
-		case "up", "k":
-			m.modalOffset = max(0, m.modalOffset-1)
-		case "down", "j":
-			m.modalOffset++
-		case "pgdown":
-			m.modalOffset += m.viewport.Height()
-		case "pgup":
-			m.modalOffset = max(0, m.modalOffset-m.viewport.Height())
-		}
+		m.scrollModal(key.String())
 		return m, nil
 	}
-	if m.modal == "plan" {
-		switch key.String() {
-		case "a":
-			m.extraApproved = !m.extraApproved
-		case "c":
-			if err := m.plan.CommandsReady(); err != nil {
-				m.err = err
-				return m, nil
-			}
-			generation := m.generation
-			return m, func() tea.Msg {
-				lines := []string{}
-				for _, cmd := range m.plan.Commands {
-					lines = append(lines, installation.CommandText(cmd.Argv))
-				}
-				err := clipboard.WriteAll(strings.Join(lines, "\n"))
-				return noseyOperation{message: "Commands copied", err: err, generation: generation}
-			}
-		case "enter":
-			if m.action == "print" {
-				return m, nil
-			}
-			if m.plan.Approval.Required && !m.extraApproved {
-				m.err = fmt.Errorf("press a to explicitly approve the displayed source override before execution")
-				return m, nil
-			}
-			approval := ""
-			if m.plan.Approval.Digest != nil {
-				approval = *m.plan.Approval.Digest
-			}
-			m.loading = true
-			generation := m.generation
-			return m, func() tea.Msg {
-				err := m.session.Installer.Execute(m.ctx, m.plan, approval, true)
-				return noseyOperation{message: "Project installation verified", err: err, generation: generation}
-			}
-		}
-		return m, nil
+	if m.modal == "install" {
+		return m.updateInstallPage(key.String())
 	}
 	switch key.String() {
 	case "tab", "shift+tab":
@@ -116,6 +69,18 @@ func (m noseyModel) updateModal(key tea.KeyPressMsg) (noseyModel, tea.Cmd) {
 		return m, cmd
 	}
 }
+func (m *noseyModel) scrollModal(key string) {
+	switch key {
+	case "up", "k":
+		m.modalOffset = max(0, m.modalOffset-1)
+	case "down", "j":
+		m.modalOffset++
+	case "pgdown":
+		m.modalOffset += m.viewport.Height()
+	case "pgup":
+		m.modalOffset = max(0, m.modalOffset-m.viewport.Height())
+	}
+}
 func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 	values := []string{}
 	for _, input := range m.form.inputs {
@@ -123,6 +88,13 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 	}
 	m.err = nil
 	switch m.form.kind {
+	case "install-agents":
+		agents := csv(values[0])
+		if len(agents) == 0 {
+			m.err = fmt.Errorf("select at least one target agent")
+			return m, nil
+		}
+		return m.openInstallForAgents(agents)
 	case "trust":
 		if values[0] != m.session.Resolved.Fingerprint || values[0] == "" {
 			m.err = fmt.Errorf("fingerprint does not match")
@@ -331,8 +303,6 @@ func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
 		m.openForm("setting", []string{"installation.defaultMode"}, []string{m.session.Resolved.Settings.Installation.Mode})
 	case "telemetry":
 		m.openForm("setting", []string{"installation.upstreamTelemetry"}, []string{m.session.Resolved.Settings.Installation.Telemetry})
-	case "verbose":
-		m.openForm("setting", []string{"installation.verbose"}, []string{strconv.FormatBool(m.session.Resolved.Settings.Installation.Verbose)})
 	case "bytes":
 		m.openForm("setting", []string{"detection.maxFileBytes"}, []string{strconv.FormatInt(m.session.Resolved.Settings.Detection.MaxBytes, 10)})
 	case "exclude":

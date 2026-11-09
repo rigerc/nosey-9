@@ -12,6 +12,7 @@ import (
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/installation"
+	"github.com/rigerc/nosey-9/internal/settings"
 )
 
 func productModel() noseyModel {
@@ -82,10 +83,14 @@ func TestNoseyExploreDuplicateRowsShareSelectionAndHiddenSelectionPersists(t *te
 	if len(m.selected) != 1 {
 		t.Fatal("filter cleared hidden selection")
 	}
+	m.session.Resolved.Settings = settings.Defaults()
 	m.session.Resolved.Settings.Installation.Agents = []string{"codex"}
+	skill := m.session.Catalog.Skills["s"]
+	skill.Source = domain.Source{Kind: "git", URI: "owner/repo", SkillName: "shared"}
+	m.session.Catalog.Skills["s"] = skill
 	m = productUpdate(t, m, keypress('i'))
-	if m.modal != "" || !m.loading {
-		t.Fatal("hidden selection did not go directly to planning")
+	if m.modal != "install" || m.err != nil || len(m.install.commands) != 1 || m.install.commands[0].Skills[0].ID != "s" {
+		t.Fatal("hidden selection did not reach the install page", m.modal, m.err)
 	}
 }
 func TestNoseyScanFocusTargetsIndependentFilterState(t *testing.T) {
@@ -354,33 +359,22 @@ func TestSortSelectAppliesValidChoicesAndEscapeCancels(t *testing.T) {
 	}
 }
 
-func TestStalePlanAndOperationResultsDoNotReplaceCurrentState(t *testing.T) {
+func TestStaleOperationResultsDoNotReplaceCurrentState(t *testing.T) {
 	m := productModel()
 	m.generation = 3
 	m.loading = true
-
-	updated, _ := m.Update(noseyPlan{generation: 2})
+	m.modal = "sort"
+	updated, cmd := m.Update(noseyOperation{generation: 2, message: "done"})
 	next, ok := updated.(noseyModel)
 	if !ok {
 		t.Fatal("unexpected model type")
 	}
-	if next.modal != "" || !next.loading {
-		t.Fatal("stale plan opened a review for superseded state")
-	}
-
-	m.modal = "plan"
-	updated, cmd := m.Update(noseyOperation{generation: 2, message: "done"})
-	next, ok = updated.(noseyModel)
-	if !ok {
-		t.Fatal("unexpected model type")
-	}
-	if cmd != nil || next.modal != "plan" || !next.loading || next.generation != 3 {
+	if cmd != nil || next.modal != "sort" || !next.loading || next.generation != 3 {
 		t.Fatal("stale operation disturbed the newer load or modal")
 	}
-
-	updated, _ = m.Update(noseyPlan{generation: 3})
+	updated, _ = m.Update(installReady{generation: 2})
 	next, ok = updated.(noseyModel)
-	if !ok || next.modal != "plan" || next.loading {
-		t.Fatal("current plan was ignored")
+	if !ok || next.modal != "sort" || !next.loading {
+		t.Fatal("stale installer result disturbed the newer load or modal")
 	}
 }

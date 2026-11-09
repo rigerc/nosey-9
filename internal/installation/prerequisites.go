@@ -13,24 +13,24 @@ type Check struct{ ID, Status, Code, Message string }
 // CheckPrerequisites checks executable versions and the pinned installer without project writes.
 func (s Service) CheckPrerequisites(ctx context.Context) []Check {
 	checks := []Check{}
-	for _, name := range []string{"git", "node", "npm", "npx", "skills"} {
-		executable, args := name, []string{"--version"}
-		if name == "skills" {
-			executable, args = "npx", []string{"--yes", "skills@" + Version, "--version"}
-		}
-		out, err := s.run(ctx, s.Store.Workspace, s.env(), executable, args...)
+	for _, name := range []string{"git", "node"} {
+		out, err := s.run(ctx, s.Store.Workspace, s.env(), name, "--version")
 		check := Check{ID: name, Status: "pass", Code: "OK", Message: strings.TrimSpace(string(out.Stdout))}
 		switch {
 		case err != nil:
 			check.Status, check.Code, check.Message = "fail", "E_PREREQUISITE", name+" version probe failed"
 		case name == "node" && !supportedNode(check.Message):
 			check.Status, check.Code, check.Message = "fail", "E_NODE_VERSION", "skills@"+Version+" requires Node >=22.20.0"
-		case name == "skills" && check.Message != Version:
-			check.Status, check.Code, check.Message = "fail", "E_INSTALLER_VERSION", "expected skills@"+Version
 		}
 		checks = append(checks, check)
 	}
-	return checks
+	check := Check{ID: "skills", Status: "pass", Code: "OK"}
+	if cli, err := s.resolveCLI(ctx); err != nil {
+		check.Status, check.Code, check.Message = "fail", "E_INSTALLER_VERSION", err.Error()
+	} else {
+		check.Message = Version + " (" + cli.Backend + ")"
+	}
+	return append(checks, check)
 }
 func supportedNode(version string) bool {
 	parts := strings.Split(strings.TrimPrefix(version, "v"), ".")

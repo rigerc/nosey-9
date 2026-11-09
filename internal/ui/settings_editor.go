@@ -17,7 +17,7 @@ func (m *noseyModel) configureFormChoices() {
 	m.form.multiple = map[int]bool{}
 	boolean := []sortOption{{"false", "Disabled"}, {"true", "Enabled"}}
 	switch m.form.kind {
-	case "setting":
+	case "setting", "install-agents":
 		switch m.form.labels[0] {
 		case "ui.mode":
 			m.form.choices[0] = []sortOption{{"fullscreen", "Fullscreen"}, {"inline", "Inline"}}
@@ -27,7 +27,7 @@ func (m *noseyModel) configureFormChoices() {
 			m.form.choices[0] = []sortOption{{"execute", "Execute after confirmation"}, {"print", "Print commands"}}
 		case "installation.upstreamTelemetry":
 			m.form.choices[0] = []sortOption{{"inherit", "Inherit upstream preference"}, {"disabled", "Disabled"}}
-		case "detection.enableMcpPackage", "installation.verbose":
+		case "detection.enableMcpPackage":
 			m.form.choices[0] = boolean
 		case "installation.agents":
 			m.form.multiple[0] = true
@@ -117,7 +117,7 @@ func (m noseyModel) updateChoiceField(key tea.KeyPressMsg) (noseyModel, tea.Cmd)
 }
 func settingFieldLabel(label string) string {
 	names := map[string]string{
-		"ui.mode": "Display mode (next launch)", "installation.agents": "Target agents", "installation.method": "Install method", "installation.defaultMode": "Default install action", "installation.upstreamTelemetry": "Upstream telemetry", "installation.verbose": "Verbose installation", "detection.enableMcpPackage": "MCP inspection", "updates.ttlHours": "Refresh interval (hours)", "detection.maxFileBytes": "Maximum inspected file (bytes)", "detection.exclude": "Excluded paths (comma separated)",
+		"ui.mode": "Display mode (next launch)", "installation.agents": "Target agents", "installation.method": "Install method", "installation.defaultMode": "Default install action", "installation.upstreamTelemetry": "Upstream telemetry", "detection.enableMcpPackage": "MCP inspection", "updates.ttlHours": "Refresh interval (hours)", "detection.maxFileBytes": "Maximum inspected file (bytes)", "detection.exclude": "Excluded paths (comma separated)",
 		"Enabled: true or false": "Enabled", "Remove: type REMOVE": "Action", "Template registry ID": "Template registry", "GitHub CI: true or false": "GitHub CI", "Initialize Git: true or false": "Initialize Git", "Register for this user: true or false": "Register for this user", "GitHub repository: OWNER/NAME or blank": "GitHub repository (blank for none)", "GitHub repository visibility": "Repository visibility",
 	}
 	if name, ok := names[label]; ok {
