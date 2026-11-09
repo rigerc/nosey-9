@@ -304,7 +304,11 @@ func TestInstalledSkillCheckboxInScanAndSearch(t *testing.T) {
 				Complete: true,
 				Skills:   []installation.InventoryItem{{SkillID: &id, Name: "Shared", Status: "installed"}},
 			}})
-			m = updated.(noseyModel)
+			var ok bool
+			m, ok = updated.(noseyModel)
+			if !ok {
+				t.Fatal("unexpected model after inventory refresh")
+			}
 			found := false
 			for i, row := range m.rows() {
 				if row.kind == "skill" || row.kind == "group" {
