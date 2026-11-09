@@ -367,6 +367,7 @@ func TestInitCreatesGitHubRepository(t *testing.T) {
 			{"git", "add", "-A"},
 			{"git", "commit", "-m", "Initial registry"},
 			{"gh", "repo", "create", "owner/my-registry", visibility, "--source", ".", "--remote", "origin", "--push"},
+			{"gh", "api", "--method", "PUT", "repos/owner/my-registry/actions/permissions/workflow", "-f", "default_workflow_permissions=read", "-F", "can_approve_pull_request_reviews=true"},
 		}
 		if !reflect.DeepEqual(runner.calls, want) {
 			t.Fatalf("calls = %v, want %v", runner.calls, want)

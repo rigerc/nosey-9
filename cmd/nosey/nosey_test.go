@@ -118,7 +118,7 @@ func TestIncompleteStrictAndUsageErrors(t *testing.T) {
 	session, _ := fixtureSession(t)
 	session.Resolved.Settings.Detection.MaxBytes = 1
 	open := func(context.Context, string, string, bool) (app.Session, error) { return session, nil }
-	for _, args := range [][]string{{"install", "local:workspace-style", "--agent", "*", "--print"}, {"scan", "--quality", "invented", "--json"}, {"scan", "--sort-skills", "invented"}, {"registry", "init", filepath.Join(t.TempDir(), "new")}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--public"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--github", "not-a-slug"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--ci", "gitlab"}} {
+	for _, args := range [][]string{{"install", "local:workspace-style", "--agent", "*", "--print"}, {"scan", "--quality", "invented", "--json"}, {"scan", "--sort-skills", "invented"}, {"registry", "init", filepath.Join(t.TempDir(), "new")}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--public"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--github", "not-a-slug"}, {"registry", "init", filepath.Join(t.TempDir(), "new"), "--yes", "--ci", "gitlab"}, {"registry", "pins", "update", t.TempDir(), "--quarantine", "maybe"}, {"registry", "pins", "check", t.TempDir()}, {"registry", "ci", "update", t.TempDir()}} {
 		cmd := newCommandTree(open)
 		var out bytes.Buffer
 		cmd.SetOut(&out)

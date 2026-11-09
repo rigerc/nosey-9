@@ -14,7 +14,10 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": 1
+      "enum": [
+        1,
+        2
+      ]
     },
     "templateId": {
       "type": "string",
@@ -48,6 +51,19 @@
         ]
       },
       "uniqueItems": true
+    },
+    "ciFiles": {
+      "type": "object",
+      "description": "SHA-256 of each CI file as generated, so an update can detect local edits.",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      }
+    },
+    "generatorRef": {
+      "type": "string",
+      "description": "Nosey commit the generated CI workflow pins.",
+      "pattern": "^[a-f0-9]{40}$"
     }
   }
 }

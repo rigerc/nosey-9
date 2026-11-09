@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/rigerc/nosey-9/internal/jsonobject"
 	"github.com/rigerc/nosey-9/internal/registrygen"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
@@ -160,26 +161,26 @@ func loadDocuments(root string, cfg registrygen.Config) (map[string]*document, e
 // fields stay last so sync.mjs reproduces the file byte for byte, and array
 // fields consumers read unconditionally are always present.
 func normalizeEntity(role string, entity json.RawMessage) (json.RawMessage, error) {
-	parsed, err := parseObject(entity)
+	parsed, err := jsonobject.Parse(entity)
 	if err != nil {
 		return nil, err
 	}
 	switch role {
 	case roleSkills:
-		if _, ok := parsed.get("technologies"); !ok {
-			parsed.set("technologies", json.RawMessage("[]"))
+		if _, ok := parsed.Get("technologies"); !ok {
+			parsed.Set("technologies", json.RawMessage("[]"))
 		}
-		parsed.moveLast(append(append([]string{}, projectedFields...), "quarantine")...)
+		parsed.MoveLast(append(append([]string{}, projectedFields...), "quarantine")...)
 	case roleTechnologies:
-		if _, ok := parsed.get("rules"); !ok {
-			parsed.set("rules", json.RawMessage("[]"))
+		if _, ok := parsed.Get("rules"); !ok {
+			parsed.Set("rules", json.RawMessage("[]"))
 		}
 	case roleMappings:
-		if _, ok := parsed.get("recommendations"); !ok {
-			parsed.set("recommendations", json.RawMessage("[]"))
+		if _, ok := parsed.Get("recommendations"); !ok {
+			parsed.Set("recommendations", json.RawMessage("[]"))
 		}
 	}
-	return parsed.marshal()
+	return parsed.Marshal()
 }
 
 // curated returns the entity without automation-owned fields, so upstream pin
@@ -188,14 +189,14 @@ func curated(role string, automated bool, entity json.RawMessage) json.RawMessag
 	if !automated || role != roleSkills || entity == nil {
 		return entity
 	}
-	parsed, err := parseObject(entity)
+	parsed, err := jsonobject.Parse(entity)
 	if err != nil {
 		return entity
 	}
 	for _, name := range automationFields {
-		parsed.remove(name)
+		parsed.Remove(name)
 	}
-	out, err := parsed.marshal()
+	out, err := parsed.Marshal()
 	if err != nil {
 		return entity
 	}
@@ -205,31 +206,31 @@ func curated(role string, automated bool, entity json.RawMessage) json.RawMessag
 // mergeOwned takes each automation field from current unless the edit
 // deliberately changed it away from its base.
 func mergeOwned(entity, base, current json.RawMessage) (json.RawMessage, error) {
-	edited, err := parseObject(entity)
+	edited, err := jsonobject.Parse(entity)
 	if err != nil {
 		return nil, err
 	}
-	original, err := parseObject(base)
+	original, err := jsonobject.Parse(base)
 	if err != nil {
 		return nil, err
 	}
-	latest, err := parseObject(current)
+	latest, err := jsonobject.Parse(current)
 	if err != nil {
 		return nil, err
 	}
 	for _, name := range automationFields {
-		editedValue, hasEdited := edited.get(name)
-		baseValue, hasBase := original.get(name)
+		editedValue, hasEdited := edited.Get(name)
+		baseValue, hasBase := original.Get(name)
 		if hasEdited != hasBase || hasEdited && !sameJSON(editedValue, baseValue) {
 			continue
 		}
-		if value, ok := latest.get(name); ok {
-			edited.set(name, value)
+		if value, ok := latest.Get(name); ok {
+			edited.Set(name, value)
 		} else {
-			edited.remove(name)
+			edited.Remove(name)
 		}
 	}
-	marshaled, err := edited.marshal()
+	marshaled, err := edited.Marshal()
 	if err != nil {
 		return nil, err
 	}
@@ -367,12 +368,12 @@ func guardSkill(op Op, checks bool, openProbe bool) error {
 }
 
 func guardNewSkill(op Op) error {
-	parsed, err := parseObject(op.Entity)
+	parsed, err := jsonobject.Parse(op.Entity)
 	if err != nil {
 		return err
 	}
 	for _, name := range []string{"quality", "score", "assessment", "quarantine"} {
-		if _, ok := parsed.get(name); ok {
+		if _, ok := parsed.Get(name); ok {
 			return denied("new skills cannot set %s; registry automation assesses them after merge", name)
 		}
 	}
@@ -382,7 +383,7 @@ func guardNewSkill(op Op) error {
 		Ref       string `json:"ref"`
 		SkillName string `json:"skillName"`
 	}
-	raw, _ := parsed.get("source")
+	raw, _ := parsed.Get("source")
 	if err = json.Unmarshal(raw, &source); err != nil {
 		return denied("skill source is invalid")
 	}
@@ -405,17 +406,17 @@ func validSkillPath(path string) bool {
 }
 
 func guardEditedSkill(op Op, checks bool) error {
-	edited, err := parseObject(op.Entity)
+	edited, err := jsonobject.Parse(op.Entity)
 	if err != nil {
 		return err
 	}
-	base, err := parseObject(op.Base)
+	base, err := jsonobject.Parse(op.Base)
 	if err != nil {
 		return err
 	}
 	changed := func(name string) bool {
-		a, hasA := edited.get(name)
-		b, hasB := base.get(name)
+		a, hasA := edited.Get(name)
+		b, hasB := base.Get(name)
 		return hasA != hasB || hasA && !sameJSON(a, b)
 	}
 	for _, name := range []string{"source", "quarantine"} {
@@ -435,7 +436,7 @@ func guardEditedSkill(op Op, checks bool) error {
 	var assessment struct {
 		Method string `json:"method"`
 	}
-	raw, ok := edited.get("assessment")
+	raw, ok := edited.Get("assessment")
 	if !ok || json.Unmarshal(raw, &assessment) != nil || assessment.Method == "" || assessment.Method == "automated" {
 		return denied("only a non-automated assessment may override quality or score")
 	}

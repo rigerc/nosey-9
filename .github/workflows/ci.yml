@@ -122,6 +122,9 @@ jobs:
       - name: Validate the official registry
         if: steps.scope.outputs.go == 'true'
         run: make registry-check
+      - name: Check a new scaffold against its pinned generator
+        if: steps.scope.outputs.go == 'true'
+        run: make scaffold-check
       - name: Set up Node
         if: steps.scope.outputs.go == 'true' || steps.scope.outputs.upstream == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
