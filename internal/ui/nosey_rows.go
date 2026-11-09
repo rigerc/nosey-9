@@ -87,7 +87,7 @@ func statusLabel(status string) string {
 }
 func skillLabel(s domain.SkillView, selected bool) string {
 	box := "[ ]"
-	if selected {
+	if selected || s.Status == "installed" {
 		box = "[x]"
 	}
 	label := box + " " + s.Name + "  ·  " + statusLabel(s.Status)
