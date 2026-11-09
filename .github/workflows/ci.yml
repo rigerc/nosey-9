@@ -123,10 +123,13 @@ jobs:
         if: steps.scope.outputs.go == 'true'
         run: make registry-check
       - name: Set up Node
-        if: steps.scope.outputs.upstream == 'true'
+        if: steps.scope.outputs.go == 'true' || steps.scope.outputs.upstream == 'true'
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
+      - name: Test the registry studio UI logic
+        if: steps.scope.outputs.go == 'true'
+        run: node --test internal/studio/testjs/*.test.mjs
       - name: Test both upstream CLI backends
         if: steps.scope.outputs.upstream == 'true'
         env:

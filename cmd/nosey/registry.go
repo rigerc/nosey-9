@@ -284,6 +284,6 @@ func registryInitCommand(o *cliOptions) *cobra.Command {
 func registryCommand(o *cliOptions) *cobra.Command {
 	root := &cobra.Command{Use: "registry", Short: "Manage data-only Git/local registries"}
 	root.AddCommand(registryListCommand(o), registryAddCommand(o), registryRemoveCommand(o), registryUpdateCommand(o), registryValidateCommand(o), registryInitCommand(o))
-	root.AddCommand(generateCommand(), refreshCommand())
+	root.AddCommand(generateCommand(), refreshCommand(), studioCommand(o))
 	return root
 }

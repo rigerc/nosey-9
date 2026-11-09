@@ -1,0 +1,6 @@
+htm-preact.mjs is htm 3.1.1's preact/standalone.module.js, unmodified, from
+https://registry.npmjs.org/htm/-/htm-3.1.1.tgz. It is vendored so the studio
+embeds without a build step, which keeps `go install` and `go run` working.
+
+The bundle contains htm (Apache-2.0, see htm.LICENSE) and Preact (MIT, see
+preact.LICENSE).
