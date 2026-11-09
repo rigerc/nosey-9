@@ -2,6 +2,7 @@ package registrygen
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -56,14 +57,33 @@ type mappingRef struct {
 	Recommendations []recommendationRef `json:"recommendations"`
 }
 
+// referenceProblem is one unresolved cross-document reference.
+type referenceProblem struct{ subject, message string }
+
 // validateReferences rejects cross-document references that cannot resolve.
 func validateReferences(docs documents) error {
+	problems, err := referenceProblems(docs)
+	if err != nil {
+		return err
+	}
+	if len(problems) > 0 {
+		return inputError("%s", problems[0].message)
+	}
+	return nil
+}
+
+// referenceProblems reports every unresolved reference in document order.
+func referenceProblems(docs documents) ([]referenceProblem, error) {
+	problems := []referenceProblem{}
+	report := func(subject, format string, args ...any) {
+		problems = append(problems, referenceProblem{subject, fmt.Sprintf(format, args...)})
+	}
 	technologies := idSet(docs["technologies"])
 	skills := map[string]bool{}
 	for _, entity := range entitiesOf(docs["skills"]) {
 		var skill skillRef
 		if err := json.Unmarshal(entity, &skill); err != nil {
-			return inputError("skills: %w", err)
+			return nil, inputError("skills: %w", err)
 		}
 		skills[skill.ID] = true
 	}
@@ -71,53 +91,53 @@ func validateReferences(docs documents) error {
 	for _, entity := range entitiesOf(docs["skills"]) {
 		var skill skillRef
 		if err := json.Unmarshal(entity, &skill); err != nil {
-			return inputError("skills: %w", err)
+			return nil, inputError("skills: %w", err)
 		}
 		if skill.RepositoryID != "" && !repositories[skill.RepositoryID] {
-			return inputError("skill %s references unknown repository %s", skill.ID, skill.RepositoryID)
+			report(skill.ID, "skill %s references unknown repository %s", skill.ID, skill.RepositoryID)
 		}
 		for _, technology := range skill.Technologies {
 			if !technologies[technology] {
-				return inputError("skill %s references unknown technology %s", skill.ID, technology)
+				report(skill.ID, "skill %s references unknown technology %s", skill.ID, technology)
 			}
 		}
 		for _, required := range skill.Requires {
 			if !skills[required] {
-				return inputError("skill %s requires unknown skill %s", skill.ID, required)
+				report(skill.ID, "skill %s requires unknown skill %s", skill.ID, required)
 			}
 			if required == skill.ID {
-				return inputError("skill %s requires itself", skill.ID)
+				report(skill.ID, "skill %s requires itself", skill.ID)
 			}
 			if slices.Contains(skill.ConflictsWith, required) {
-				return inputError("skill %s both requires and conflicts with %s", skill.ID, required)
+				report(skill.ID, "skill %s both requires and conflicts with %s", skill.ID, required)
 			}
 		}
 		for _, other := range skill.ConflictsWith {
 			if !skills[other] || other == skill.ID {
-				return inputError("skill %s conflicts with unknown or self skill %s", skill.ID, other)
+				report(skill.ID, "skill %s conflicts with unknown or self skill %s", skill.ID, other)
 			}
 		}
 	}
 	for _, entity := range entitiesOf(docs["mappings"]) {
 		var mapping mappingRef
 		if err := json.Unmarshal(entity, &mapping); err != nil {
-			return inputError("mappings: %w", err)
+			return nil, inputError("mappings: %w", err)
 		}
 		if mapping.TechnologyID == "" || !technologies[mapping.TechnologyID] {
-			return inputError("mapping %s references unknown technology %q", mapping.ID, mapping.TechnologyID)
+			report(mapping.ID, "mapping %s references unknown technology %q", mapping.ID, mapping.TechnologyID)
 		}
 		seen := map[string]bool{}
 		for _, recommendation := range mapping.Recommendations {
 			if seen[recommendation.SkillID] {
-				return inputError("mapping %s recommends skill %s twice", mapping.ID, recommendation.SkillID)
+				report(mapping.ID, "mapping %s recommends skill %s twice", mapping.ID, recommendation.SkillID)
 			}
 			seen[recommendation.SkillID] = true
 			if !skills[recommendation.SkillID] {
-				return inputError("mapping %s recommends unknown skill %s", mapping.ID, recommendation.SkillID)
+				report(mapping.ID, "mapping %s recommends unknown skill %s", mapping.ID, recommendation.SkillID)
 			}
 			for _, required := range append(slices.Clone(recommendation.Requires), recommendation.ConflictsWith...) {
 				if !skills[required] || required == recommendation.SkillID {
-					return inputError("mapping %s recommendation %s references unknown or self skill %s", mapping.ID, recommendation.SkillID, required)
+					report(mapping.ID, "mapping %s recommendation %s references unknown or self skill %s", mapping.ID, recommendation.SkillID, required)
 				}
 			}
 			if recommendation.When == nil {
@@ -125,12 +145,12 @@ func validateReferences(docs documents) error {
 			}
 			for _, technology := range append(append(slices.Clone(recommendation.When.All), recommendation.When.Any...), recommendation.When.None...) {
 				if !technologies[technology] {
-					return inputError("mapping %s recommendation %s references unknown technology %s", mapping.ID, recommendation.SkillID, technology)
+					report(mapping.ID, "mapping %s recommendation %s references unknown technology %s", mapping.ID, recommendation.SkillID, technology)
 				}
 			}
 		}
 	}
-	return nil
+	return problems, nil
 }
 
 func entitiesOf(doc *document) []json.RawMessage {
