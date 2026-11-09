@@ -15,7 +15,7 @@
 | [`internal/ui/`](https://github.com/rigerc/clackbt/tree/main/internal/ui) | Full-screen Bubble Tea v2 UI example | Four-section Scan / Explore / Manage / Settings with single-column layout and explicit focus/state ownership |
 | [`internal/clack/`](https://github.com/rigerc/clackbt/tree/main/internal/clack) | Bundled, internally licensed Clack-style prompt runtime | Inline registries setup, trust approval, install confirmation, progress; use separate workflows, not nested `.Run()` inside an active Bubble Tea loop |
 | `internal/config/`, `internal/runtimeconfig/`, `internal/utils/` | Typed config/environment/XDG extension points | User/workspace settings, paths and source trust state; preserve effective settings merge semantics |
-| `internal/adapters/` | Shell/clipboard/editor/terminal extension points | Go `exec.CommandContext` Skills CLI/Git execution; file caches, bounded observations and adapters |
+| `internal/adapters/` | Shell/clipboard/editor/terminal extension points | Go `exec.CommandContext` Git execution and the in-tree `internal/skillkit` installer; file caches, bounded observations and adapters |
 | [`scripts/setup/`](https://github.com/rigerc/clackbt/tree/main/scripts/setup) | Preview-by-default starter initializer with `--apply`, rename and validation | Initialize fresh Nosey checkout exactly once and inspect diff before proceeding |
 | [`Makefile`](https://github.com/rigerc/clackbt/blob/main/Makefile), CI | Format, race tests, coverage, build, security/dependency workflows | Rename binary targets; add Nosey schema/negative tests; retain source quality/security gates |
 
@@ -36,7 +36,7 @@
 4. Remove example `greet`, `prompt` and directory-list behavior from the **product routing**, retaining any reusable UI/Clack components and their license notices. Replace root help and file paths with Nosey commands; avoid duplicate standalone command-reference Markdown because Cobra help is authoritative.
 5. Create the default registry repository and exact `registries/default/` development submodule through [P1R / M1R](../IMPLEMENTATION_PLAN.md#m1r--create-the-official-registry-repository-and-development-submodule) once identity and local validation are available. Keep app builds independent of that checkout, exclude its payloads from releases, and test runtime remote/cache fetch separately. No recursive initialization of fetched registry submodules.
 6. First vertical slice: `nosey scan --json` using a trusted local example catalog → JSON Schema output v2 → initial fullscreen Scan projection. Use offline fake Git/provider/process runners before real remote and installation integration.
-7. Install mode only after pinned upstream Skills CLI compatibility, agent identity mapping, and project-only per-skill verification are demonstrated in disposable workspaces.
+7. Install mode only after `internal/skillkit` goldens (captured from `skills@1.7.6`), agent identity mapping, and project-only per-skill verification are demonstrated in disposable workspaces.
 
 **License handling:** preserve `internal/clack/LICENSE`, `third_party/` and all other starter/upstream notices. Do not copy proprietary private source into the PRD package; this guide describes read-only observations only.
 
@@ -67,6 +67,6 @@ Approved draft.4 [D1–D7](17-approved-decisions.md) additionally require all se
 
 - Exact immutable `rigerc/clackbt` commit to base the app on, resulting public/private Nosey repository/module path and permitted checkout for initialization.
 - Version-pinned Go schema validator supporting the supplied Draft 2020-12 features and separately tested semantic constraints.
-- Installer launcher distribution: external `skills` binary versus `npx --yes skills@1.7.6` (the latter requires Node/npm; both need proof in supported environments).
+- Installer distribution: resolved by [D9](17-approved-decisions.md#d9--native-installation-engine); Nosey installs natively and needs no launcher.
 - Supported operating systems, terminal matrix, binaries/releases and benchmark runner.
 - Whether to retain the starter's optional command-skill generator; it is not necessary for Nosey's MVP and must remain opt-in.

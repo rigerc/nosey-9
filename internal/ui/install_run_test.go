@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -14,6 +17,7 @@ import (
 	"github.com/rigerc/nosey-9/internal/installation"
 	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/settings"
+	"github.com/rigerc/nosey-9/internal/skillkit"
 )
 
 var testSHA = strings.Repeat("a", 40)
@@ -22,7 +26,47 @@ type installRunner struct{ calls int }
 
 func (r *installRunner) Run(context.Context, string, []string, string, ...string) (process.Output, error) {
 	r.calls++
-	return process.Output{Stdout: []byte("v22.20.0")}, nil
+	return process.Output{Stdout: []byte("git version 2.50.0")}, nil
+}
+
+// dirFetcher serves prepared directories instead of cloning; the key is "uri#ref".
+type dirFetcher map[string]string
+
+func (f dirFetcher) Fetch(_ context.Context, src skillkit.Source) (*skillkit.Checkout, error) {
+	parsed, err := skillkit.ParseSource(src)
+	if err != nil {
+		return nil, err
+	}
+	dir, ok := f[src.URI+"#"+src.Ref]
+	if !ok {
+		return nil, &skillkit.FetchError{Stage: "fetch", Ref: src.Ref, Err: errors.New("repository not found")}
+	}
+	return &skillkit.Checkout{Dir: dir, Ref: src.Ref, Parsed: parsed}, nil
+}
+
+func writeFixtureSkill(t *testing.T, root, name string) {
+	t.Helper()
+	dir := filepath.Join(root, "skills", name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: " + name + "\ndescription: Fixture.\n---\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// lockFree reports whether the workspace operation lock can be taken.
+func lockFree(t *testing.T, m noseyModel) bool {
+	t.Helper()
+	installer := m.installer()
+	installer.LockTimeout = 50 * time.Millisecond
+	op, err := installer.Begin(context.Background())
+	if err != nil {
+		return false
+	}
+	_ = op.Close()
+	return true
 }
 
 func fixtureSkill(id, name, uri string) domain.Skill {
@@ -43,10 +87,19 @@ func installModel(t *testing.T, mutate func(*settings.Settings)) (noseyModel, *i
 	}
 	runner := &installRunner{}
 	m.session.Resolved.Settings = cfg
-	m.session.Store = settings.Store{Workspace: t.TempDir()}
-	m.session.Installer = installation.Service{Store: m.session.Store, Runner: runner, Resolver: func(context.Context) (installation.CLI, error) {
-		return installation.CLI{Name: "/bin/true", Backend: "installed"}, nil
-	}}
+	workspace, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	one, two := t.TempDir(), t.TempDir()
+	writeFixtureSkill(t, one, "alpha")
+	writeFixtureSkill(t, one, "beta")
+	writeFixtureSkill(t, two, "gamma")
+	m.session.Store = settings.Store{Workspace: workspace, Data: t.TempDir()}
+	m.session.Installer = installation.Service{
+		Store: m.session.Store, Runner: runner, Home: t.TempDir(),
+		Fetcher: dirFetcher{"https://github.com/owner/one#" + testSHA: one, "owner/two#" + testSHA: two},
+	}
 	m.session.Catalog.Skills = map[string]domain.Skill{
 		"a": fixtureSkill("a", "alpha", "https://github.com/owner/one"),
 		"b": fixtureSkill("b", "beta", "https://github.com/owner/one"),
@@ -86,11 +139,11 @@ func TestInstallPageGroupsSkillsAndRunsNothing(t *testing.T) {
 			t.Fatal(want, screen)
 		}
 	}
-	if !slices.Contains(m.install.commands[0].Args, "--copy") || !slices.Contains(m.install.commands[0].Args, "--yes") {
-		t.Fatal(m.install.commands[0].Args)
+	if plan := m.install.plans[0]; plan.Method != "copy" || !slices.Equal(plan.Agents, []string{"claude-code", "codex"}) {
+		t.Fatal(plan)
 	}
 	if runner.calls != 0 {
-		t.Fatal("opening the page ran the CLI")
+		t.Fatal("opening the page started an operation")
 	}
 }
 
@@ -109,9 +162,9 @@ func TestInstallChoosesAgentsOnceBeforeReview(t *testing.T) {
 	if cmd != nil || m.err != nil || m.modal != "install" {
 		t.Fatal(m.modal, m.err)
 	}
-	for _, command := range m.install.commands {
-		if !slices.Contains(command.Args, "--yes") || !slices.Contains(command.Args, "codex") || !slices.Contains(command.Args, "claude-code") {
-			t.Fatal(command.Args)
+	for _, plan := range m.install.plans {
+		if !slices.Contains(plan.Agents, "codex") || !slices.Contains(plan.Agents, "claude-code") {
+			t.Fatal(plan.Agents)
 		}
 	}
 	if len(m.session.Resolved.Settings.Installation.Agents) != 0 || runner.calls != 0 {
@@ -180,8 +233,8 @@ func TestLongInstallPageWrapsAndScrolls(t *testing.T) {
 	}
 }
 
-func TestInstallRunsEachSourceThenReloads(t *testing.T) {
-	m, runner := installModel(t, nil)
+func TestInstallRunsEachSourceUnderOneLockThenReloads(t *testing.T) {
+	m, runner := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
 	m = openedInstall(t, m)
 	generation := m.generation
 	m, cmd := m.updateInstallPage("enter")
@@ -189,32 +242,59 @@ func TestInstallRunsEachSourceThenReloads(t *testing.T) {
 		t.Fatal("Enter did not start preparing")
 	}
 	ready, ok := cmd().(installReady)
-	if !ok || ready.err != nil || ready.cli.Name != "/bin/true" || runner.calls == 0 {
+	if !ok || ready.err != nil || ready.op == nil || runner.calls == 0 {
 		t.Fatalf("%+v", ready)
 	}
+	if lockFree(t, m) {
+		t.Fatal("the operation lock must be held once preparation finished")
+	}
 	m, cmd = updateModel(t, m, ready)
-	if cmd == nil || m.modal != "install" {
+	if cmd == nil || m.modal != "install" || m.install.op == nil {
 		t.Fatal("first source did not start")
 	}
-	m, cmd = updateModel(t, m, installStepDone{generation: m.generation, index: 0})
+	done, ok := cmd().(installStepDone)
+	if !ok || done.err != nil || len(done.result.Installed()) != 2 {
+		t.Fatalf("%+v", done)
+	}
+	if lockFree(t, m) {
+		t.Fatal("the lock must stay held between sources")
+	}
+	m, cmd = updateModel(t, m, done)
 	if cmd == nil || m.modal != "install" || m.generation != generation {
 		t.Fatal("second source did not start")
 	}
-	m, cmd = updateModel(t, m, installStepDone{generation: m.generation, index: 1})
-	if cmd == nil || m.modal != "" || !m.loading || m.generation != generation+1 || !strings.Contains(m.message, "Installer finished for 2 sources") {
+	done, ok = cmd().(installStepDone)
+	if !ok || done.err != nil {
+		t.Fatalf("%+v", done)
+	}
+	m, cmd = updateModel(t, m, done)
+	if cmd == nil || m.modal != "" || !m.loading || m.generation != generation+1 || !strings.Contains(m.message, "Installed 3 skills from 2 sources") {
 		t.Fatal("run did not finish and reload", m.modal, m.message)
 	}
-	if strings.Contains(m.message, "installed") {
-		t.Fatal("message claims installation it cannot prove", m.message)
+	if m.install.op != nil || !lockFree(t, m) {
+		t.Fatal("the lock was not released after the last source")
+	}
+	if _, err := os.Stat(filepath.Join(m.session.Store.Workspace, "skills-lock.json")); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestInstallFailureStopsAndSurvivesTheReload(t *testing.T) {
-	m, _ := installModel(t, nil)
+func TestInstallFailureStopsReleasesTheLockAndSurvivesTheReload(t *testing.T) {
+	m, _ := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
+	m.session.Installer.Fetcher = dirFetcher{} // every fetch fails
 	m = openedInstall(t, m)
-	m, cmd := updateModel(t, m, installStepDone{generation: m.generation, index: 0, err: errors.New("exit status 1")})
+	m, cmd := m.updateInstallPage("enter")
+	m, cmd = updateModel(t, m, cmd().(installReady))
+	done := cmd().(installStepDone)
+	if done.err == nil || done.result.Skills[0].Status != skillkit.StatusNotStarted {
+		t.Fatalf("%+v", done)
+	}
+	m, cmd = updateModel(t, m, done)
 	if cmd == nil || m.modal != "" || !strings.Contains(m.warning, "owner/one") || !strings.Contains(m.warning, "1 later source not started") {
 		t.Fatal(m.modal, m.warning)
+	}
+	if m.install.op != nil || !lockFree(t, m) {
+		t.Fatal("a failed install kept the lock")
 	}
 	m, _ = updateModel(t, m, noseyLoaded{generation: m.generation, session: m.session, scan: m.scan, recs: m.recs})
 	if !strings.Contains(screenText(m), "1 later source not started") {
@@ -226,40 +306,58 @@ func TestInstallFailureStopsAndSurvivesTheReload(t *testing.T) {
 	}
 }
 
+func TestInstallSurfacesSkippedAgentsAndKeepsPartialResults(t *testing.T) {
+	m, _ := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = []string{"codex", "windsurf"} })
+	m = openedInstall(t, m)
+	m, cmd := m.updateInstallPage("enter")
+	m, cmd = updateModel(t, m, cmd().(installReady))
+	for cmd != nil && m.install.running {
+		m, cmd = updateModel(t, m, cmd().(installStepDone))
+	}
+	if m.err != nil || !strings.Contains(m.warning, "skipped windsurf for alpha") || !strings.Contains(m.message, "Installed 3 skills") {
+		t.Fatal(m.err, m.warning, m.message)
+	}
+}
+
 func TestInstallPreparationFailureKeepsThePageOpen(t *testing.T) {
 	m, _ := installModel(t, nil)
 	m = openedInstall(t, m)
 	m.loading = true
-	m, cmd := updateModel(t, m, installReady{generation: m.generation, err: installation.PrerequisiteError{Reason: "skills CLI missing"}})
-	if cmd != nil || m.loading || m.modal != "install" || !strings.Contains(screenText(m), "skills CLI missing") {
+	m, cmd := updateModel(t, m, installReady{generation: m.generation, err: installation.PrerequisiteError{Reason: "git missing"}})
+	if cmd != nil || m.loading || m.modal != "install" || !strings.Contains(screenText(m), "git missing") {
 		t.Fatal(m.loading, m.modal, screenText(m))
 	}
 }
 
-func TestPrintModeShowsCommandsAndNeverStarts(t *testing.T) {
-	m, runner := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Mode = "print" })
+func TestInstallPageHasNoPrintOrCopyAndStartsOnEnter(t *testing.T) {
+	m, _ := installModel(t, nil)
 	m = openedInstall(t, m)
 	screen := screenText(m)
-	if !strings.Contains(screen, "Print mode") || !strings.Contains(screen, "'npx' '--yes'") || strings.Contains(screen, "Enter Start") {
-		t.Fatal(screen)
+	for _, want := range []string{"Enter Start", "owner/one", "alpha", "Agents: codex, claude-code", "Method: symlink"} {
+		if !strings.Contains(screen, want) {
+			t.Fatalf("missing %q in\n%s", want, screen)
+		}
 	}
-	m, cmd := updateModel(t, m, keypress(tea.KeyEnter))
-	if cmd != nil || m.loading || runner.calls != 0 {
-		t.Fatal("print mode started the installer")
+	for _, banned := range []string{"Print mode", "Copy", "npx"} {
+		if strings.Contains(screen, banned) {
+			t.Fatalf("install page still shows %q", banned)
+		}
+	}
+	m, cmd := updateModel(t, m, keypress('c'))
+	if cmd != nil || m.modal != "install" || m.loading {
+		t.Fatal("c key still acts on the install page")
+	}
+	m, cmd = updateModel(t, m, keypress(tea.KeyEnter))
+	if cmd == nil || !m.loading || !m.install.running {
+		t.Fatal("enter did not start the installer")
 	}
 }
 
-func TestCopyKeepsThePageOpen(t *testing.T) {
-	m, _ := installModel(t, nil)
-	m = openedInstall(t, m)
-	generation := m.generation
-	m, cmd := updateModel(t, m, installCopied{})
-	if cmd != nil || m.modal != "install" || m.loading || m.generation != generation || !strings.Contains(screenText(m), "Commands copied") {
-		t.Fatal("copy changed the page", m.modal, m.loading)
-	}
-	m, _ = updateModel(t, m, installCopied{err: errors.New("no clipboard")})
-	if m.modal != "install" || !strings.Contains(screenText(m), "no clipboard") {
-		t.Fatal("copy failure was not shown")
+func TestInstallWithoutAgentsAsksForThem(t *testing.T) {
+	m, _ := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = nil })
+	m = productUpdate(t, m, keypress('i'))
+	if m.modal == "install" || m.form.kind != "install-agents" {
+		t.Fatal("install opened without agents", m.modal, m.form.kind)
 	}
 }
 
@@ -326,9 +424,15 @@ func TestBackgroundInstallKeepsUIResponsiveAndCancels(t *testing.T) {
 			if cmd != nil || !m.install.cancelled || m.install.ctx.Err() == nil || !strings.Contains(screenText(m), "Cancelling installation") {
 				t.Fatal(m.install.cancelled, screenText(m))
 			}
+			if lockFree(t, m) {
+				t.Fatal("the lock must be held until the running source stops")
+			}
 			m, cmd = m.applyInstallStep(installStepDone{generation: m.generation, index: 0})
 			if cmd == nil || m.modal != "" || m.install.running || !strings.Contains(m.warning, "context canceled") || !strings.Contains(m.warning, "1 later source not started") {
 				t.Fatal(m.warning)
+			}
+			if m.install.op != nil || !lockFree(t, m) {
+				t.Fatal("cancellation kept the lock")
 			}
 		})
 	}
@@ -347,15 +451,26 @@ func TestCancelDuringInstallerPreparationStartsNoSource(t *testing.T) {
 	if cmd != nil || m.install.running || m.loading || m.modal != "" || !strings.Contains(m.message, "No sources started") {
 		t.Fatal(m.message)
 	}
+	if !lockFree(t, m) {
+		t.Fatal("a cancelled preparation kept the lock")
+	}
 }
 
 func TestStaleBackgroundResultDoesNotStartAnotherSource(t *testing.T) {
 	m, _ := installModel(t, nil)
 	m = openedInstall(t, m)
 	m.generation++
+	op, err := m.installer().Begin(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.install.op = op
 	next, cmd := m.applyInstallStep(installStepDone{generation: m.generation - 1, index: 0})
 	if cmd != nil || next.modal != "install" {
 		t.Fatal("stale result changed install")
+	}
+	if !lockFree(t, m) {
+		t.Fatal("a stale result leaked the lock")
 	}
 }
 

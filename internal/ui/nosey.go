@@ -137,7 +137,7 @@ func (m noseyModel) readInventory() tea.Cmd {
 	}
 }
 
-// checkUpdates asks the upstream CLI which installed skills have newer content; it needs network access.
+// checkUpdates fetches each installed skill's source and reports skills whose content differs; it needs network access.
 func (m noseyModel) checkUpdates() tea.Cmd {
 	installer, generation := m.session.Installer, m.generation
 	installer.Settings = m.session.Resolved.Settings
@@ -244,12 +244,6 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 		return m.applyInstallReady(value)
 	case installStepDone:
 		return m.applyInstallStep(value)
-	case installCopied:
-		m.err = value.err
-		if value.err == nil {
-			m.message = "Commands copied"
-		}
-		return m, nil
 	case noseyOperation:
 		if value.generation != m.generation {
 			// Report the outcome, but leave the newer load, modal and loading state alone.
@@ -285,7 +279,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 		if key == "q" && !m.search && m.modal == "" {
 			return m, tea.Quit
 		}
-		if m.loading && (m.modal != "" || !m.search && (key == "i" || key == "r" || key == "u" || key == "t" || key == "enter" || key == "a" || key == "n")) {
+		if m.loading && (m.modal != "" || !m.search && (key == "i" || key == "r" || key == "u" || key == "t" || key == "enter" || key == "a" || key == "n" || key == "U" || key == "d")) {
 			return m, nil
 		}
 		if m.session.Store.UserPath == "" && m.err != nil && key != "q" && key != "r" {
@@ -399,6 +393,14 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 				m.loading, m.busyLabel = true, "Checking installed skills for updates…"
 				return m, m.checkUpdates()
 			}
+		case "U":
+			if item, ok := m.cursorInventory(); ok && m.canUpdate(item) {
+				return m.openUpdate(item.Name)
+			}
+		case "d":
+			if item, ok := m.cursorInventory(); ok && m.canRemove(item) {
+				return m.openUninstall(item.Name)
+			}
 		case "r":
 			if m.tab == 2 {
 				return m, m.readInventory()
@@ -434,7 +436,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 		case "?":
 			m.modal = "details"
-			m.details = "Tab / Shift+Tab: change section\nArrows: navigate; ←/→: collapse or expand a group\nSpace: select skill or group; Enter: expand/collapse group\na: select visible skills\nf: filters; s: sort; /: search; x: clear filters\nt: list all detected technologies (Scan tab)\ni: install all selected skills, including hidden selections\nr: refresh registries (or inventory on the Manage tab); u: check installed skills for updates (Manage tab); q: quit; Escape: cancel dialog\nSettings: Enter edits; a adds existing; n creates registry"
+			m.details = "Tab / Shift+Tab: change section\nArrows: navigate; ←/→: collapse or expand a group\nSpace: select skill or group; Enter: expand/collapse group\na: select visible skills\nf: filters; s: sort; /: search; x: clear filters\nt: list all detected technologies (Scan tab)\ni: install all selected skills, including hidden selections\nr: refresh registries (or inventory on the Manage tab); u: check installed skills for updates (Manage tab)\nU: update the outdated skill under the cursor; d: remove the tracked skill under the cursor (Manage tab)\nq: quit; Escape: cancel dialog\nSettings: Enter edits; a adds existing; n creates registry"
 		case "enter":
 			if len(rows) == 0 {
 				break
@@ -466,4 +468,28 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// cursorInventory returns the Manage-tab inventory item under the cursor.
+func (m noseyModel) cursorInventory() (installation.InventoryItem, bool) {
+	rows := m.rows()
+	if m.tab != 2 || m.cursor[2] < 0 || m.cursor[2] >= len(rows) || rows[m.cursor[2]].kind != "inventory" {
+		return installation.InventoryItem{}, false
+	}
+	for _, item := range m.inventory.Skills {
+		if item.Name == rows[m.cursor[2]].id {
+			return item, true
+		}
+	}
+	return installation.InventoryItem{}, false
+}
+
+// canUpdate reports that the skill follows the catalog and is outdated.
+func (m noseyModel) canUpdate(item installation.InventoryItem) bool {
+	return m.session.Store.Workspace != "" && item.SkillID != nil && item.Status == "outdated"
+}
+
+// canRemove reports that the skill is tracked in skills-lock.json.
+func (m noseyModel) canRemove(item installation.InventoryItem) bool {
+	return m.session.Store.Workspace != "" && m.inventory.Tracked(item.Name)
 }

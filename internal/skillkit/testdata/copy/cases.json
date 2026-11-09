@@ -1,0 +1,237 @@
+{
+ "comment": "Inputs for TestCopyMatchesSkills176; expect captured once from `skills add <repo>/skill --copy -a claude-code`.",
+ "cases": [
+  {
+   "name": "plain-tree",
+   "note": "regular files, nested directory and executable bit",
+   "files": [
+    {
+     "path": "skill/SKILL.md",
+     "content": "---\nname: copy-probe\ndescription: Copy probe\n---\n# P\n"
+    },
+    {
+     "path": "skill/a.txt",
+     "content": "a\n"
+    },
+    {
+     "path": "skill/dir/b.txt",
+     "content": "b\n"
+    },
+    {
+     "path": "skill/run.sh",
+     "content": "#!/bin/sh\n",
+     "mode": "755"
+    }
+   ],
+   "expect": [
+    "f SKILL.md 644",
+    "f a.txt 644",
+    "d dir",
+    "f dir/b.txt 644",
+    "f run.sh 755"
+   ]
+  },
+  {
+   "name": "escaping-file-link",
+   "note": "link resolving outside the repository is skipped",
+   "files": [
+    {
+     "path": "skill/SKILL.md",
+     "content": "---\nname: copy-probe\ndescription: Copy probe\n---\n# P\n"
+    },
+    {
+     "path": "secret.txt",
+     "content": "TOP SECRET\n"
+    },
+    {
+     "path": "skill/leak.txt",
+     "symlink": "../../secret.txt"
+    },
+    {
+     "path": "skill/ok.txt",
+     "content": "ok\n"
+    }
+   ],
+   "expect": [
+    "f SKILL.md 644",
+    "f ok.txt 644"
+   ]
+  },
+  {
+   "name": "sibling-dir-link",
+   "note": "link inside the repository but outside the skill is skipped",
+   "files": [
+    {
+     "path": "skill/SKILL.md",
+     "content": "---\nname: copy-probe\ndescription: Copy probe\n---\n# P\n"
+    },
+    {
+     "path": "other/shared.txt",
+     "content": "shared\n"
+    },
+    {
+     "path": "skill/shared.txt",
+     "symlink": "../other/shared.txt"
+    }
+   ],
+   "expect": [
+    "f SKILL.md 644"
+   ]
+  },
+  {
+   "name": "escaping-dir-link",
+   "note": "directory link leaving the skill is skipped",
+   "files": [
+    {
+     "path": "skill/SKILL.md",
+     "content": "---\nname: copy-probe\ndescription: Copy probe\n---\n# P\n"
+    },
+    {
+     "path": "outside-dir/s.txt",
+     "content": "s\n"
+    },
+    {
+     "path": "skill/leakdir",
+     "symlink": "../outside-dir"
+    }
+   ],
+   "expect": [
+    "f SKILL.md 644"
+   ]
+  },
+  {
+   "name": "broken-link",
+   "note": "broken link is skipped",
+   "files": [
+    {
+     "path": "skill/SKILL.md",
+     "content": "---\nname: copy-probe\ndescription: Copy probe\n---\n# P\n"
+    },
+    {
+     "path": "skill/dangling",
+     "symlink": "nowhere.txt"
+    }
+   ],
+   "expect": [
+    "f SKILL.md 644"
+   ]
+  },
+  {
+   "name": "internal-file-link",
+   "note": "link to a file inside the skill is copied as a regular file",
+   "files": [
+    {
+     "path": "skill/SKILL.md",
+     "content": "---\nname: copy-probe\ndescription: Copy probe\n---\n# P\n"
+    },
+    {
+     "path": "skill/real.txt",
+     "content": "real\n"
+    },
+    {
+     "path": "skill/alias.txt",
+     "symlink": "real.txt"
+    }
+   ],
+   "expect": [
+    "f SKILL.md 644",
+    "f alias.txt 644",
+    "f real.txt 644"
+   ]
+  },
+  {
+   "name": "internal-dir-link",
+   "note": "link to a directory inside the skill is copied as a directory",
+   "files": [
+    {
+     "path": "skill/SKILL.md",
+     "content": "---\nname: copy-probe\ndescription: Copy probe\n---\n# P\n"
+    },
+    {
+     "path": "skill/sub/x.txt",
+     "content": "x\n"
+    },
+    {
+     "path": "skill/aliasdir",
+     "symlink": "sub"
+    }
+   ],
+   "expect": [
+    "f SKILL.md 644",
+    "d aliasdir",
+    "f aliasdir/x.txt 644",
+    "d sub",
+    "f sub/x.txt 644"
+   ]
+  },
+  {
+   "name": "cyclic-link",
+   "note": "directory cycle is cut",
+   "files": [
+    {
+     "path": "skill/SKILL.md",
+     "content": "---\nname: copy-probe\ndescription: Copy probe\n---\n# P\n"
+    },
+    {
+     "path": "skill/sub/y.txt",
+     "content": "y\n"
+    },
+    {
+     "path": "skill/sub/loop",
+     "symlink": ".."
+    }
+   ],
+   "expect": [
+    "f SKILL.md 644",
+    "d sub",
+    "f sub/y.txt 644"
+   ]
+  },
+  {
+   "name": "excluded-names",
+   "note": "metadata.json, .git, __pycache__ and __pypackages__ are excluded; node_modules is copied",
+   "files": [
+    {
+     "path": "skill/SKILL.md",
+     "content": "---\nname: copy-probe\ndescription: Copy probe\n---\n# P\n"
+    },
+    {
+     "path": "skill/metadata.json",
+     "content": "{}\n"
+    },
+    {
+     "path": "skill/sub/metadata.json",
+     "content": "{}\n"
+    },
+    {
+     "path": "skill/.git/HEAD",
+     "content": "ref\n"
+    },
+    {
+     "path": "skill/__pycache__/m.pyc",
+     "content": "x\n"
+    },
+    {
+     "path": "skill/__pypackages__/p.txt",
+     "content": "x\n"
+    },
+    {
+     "path": "skill/node_modules/m/i.js",
+     "content": "x\n"
+    },
+    {
+     "path": "skill/keep.txt",
+     "content": "k\n"
+    }
+   ],
+   "expect": [
+    "f SKILL.md 644",
+    "f keep.txt 644",
+    "d node_modules",
+    "d node_modules/m",
+    "f node_modules/m/i.js 644",
+    "d sub"
+   ]
+  }
+ ]
+}

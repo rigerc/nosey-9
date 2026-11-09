@@ -2,62 +2,13 @@ package installation
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/rigerc/nosey-9/internal/domain"
-	"github.com/rigerc/nosey-9/internal/storage"
+	"github.com/rigerc/nosey-9/internal/skillkit"
 )
-
-// lockEntry mirrors the fields Nosey reads from a project-scoped skills-lock.json entry.
-type lockEntry struct {
-	Source    string `json:"source"`
-	SourceURL string `json:"sourceUrl"`
-	Type      string `json:"sourceType"`
-	Ref       string `json:"ref"`
-}
-
-type projectLock struct {
-	Version int                  `json:"version"`
-	Skills  map[string]lockEntry `json:"skills"`
-}
-
-// LockError describes why skills-lock.json cannot be used; Reason is safe to show to users.
-type LockError struct{ Reason string }
-
-func (e LockError) Error() string { return "skills-lock.json " + e.Reason }
-
-var errLockMissing = LockError{"is missing"}
-
-func (s Service) readLock() (projectLock, error) {
-	var lock projectLock
-	data, err := storage.Read(s.Store.Workspace, "skills-lock.json", 16<<20)
-	if errors.Is(err, os.ErrNotExist) {
-		return lock, errLockMissing
-	}
-	if err != nil {
-		return lock, LockError{"cannot be read: " + err.Error()}
-	}
-	if err = json.Unmarshal(data, &lock); err != nil {
-		reason := "is not valid JSON"
-		if strings.Contains(string(data), "<<<<<<<") {
-			reason += " (unresolved merge conflict markers)"
-		}
-		return projectLock{}, LockError{reason}
-	}
-	if lock.Version != 1 {
-		return projectLock{}, LockError{fmt.Sprintf("has unsupported version %d (expected 1)", lock.Version)}
-	}
-	if lock.Skills == nil {
-		return projectLock{}, LockError{`has no "skills" map`}
-	}
-	return lock, nil
-}
 
 func normalizeSource(value, workspace string) string {
 	if filepath.IsAbs(value) {
@@ -78,16 +29,16 @@ func sourceMatches(workspace, wanted, source, sourceURL string) bool {
 }
 
 // catalogIdentity maps an installed skill to its catalog entry using the name and source recorded in the lock.
-func (s Service) catalogIdentity(item upstreamItem, lock lockEntry, c domain.Catalog) (*string, *string, *string) {
+func (s Service) catalogIdentity(name string, lock skillkit.LockEntry, c domain.Catalog) (*string, *string, *string) {
 	matches := []string{}
 	logicalByID := map[string]string{}
 	for id, skill := range c.Skills {
-		if skill.Source.SkillName != item.Name {
+		if skill.Source.SkillName != name {
 			continue
 		}
 		logical := skill.Source.URI
 		if skill.Source.Kind == "git" {
-			if !sourceMatches(s.Store.Workspace, logical, item.Source, lock.SourceURL) {
+			if !sourceMatches(s.Store.Workspace, logical, lock.Source, lock.SourceURL) {
 				continue
 			}
 		} else {
@@ -113,8 +64,8 @@ func (s Service) catalogIdentity(item upstreamItem, lock lockEntry, c domain.Cat
 }
 
 // localSourceMatches accepts the registry path itself or a copy from the install-source store older versions used.
-func (s Service) localSourceMatches(skill domain.Skill, lock lockEntry, c domain.Catalog) bool {
-	if lock.Type != "local" {
+func (s Service) localSourceMatches(skill domain.Skill, lock skillkit.LockEntry, c domain.Catalog) bool {
+	if lock.SourceType != "local" {
 		return false
 	}
 	source := lock.Source
@@ -129,35 +80,21 @@ func (s Service) localSourceMatches(skill domain.Skill, lock lockEntry, c domain
 }
 
 // installedStatus classifies a listed skill from its lock entry and catalog pin.
-func installedStatus(item upstreamItem, entry lockEntry, tracked bool, linkedAgents int, skill *domain.Skill) string {
+func installedStatus(path string, entry skillkit.LockEntry, tracked bool, linkedAgents int, skill *domain.Skill) string {
 	switch {
-	case item.Path == "":
+	case path == "":
 		return "missing"
 	case !tracked || linkedAgents == 0:
 		return "unknown"
-	case skill != nil && skill.Source.Kind == "git" && fullSHARef.MatchString(skill.Source.Ref) && !strings.EqualFold(skill.Source.Ref, entry.Ref):
+	case pinChanged(entry, skill):
 		return "outdated"
 	}
 	return "installed"
 }
 
-type upstreamItem struct {
-	Name   string   `json:"name"`
-	Path   string   `json:"path"`
-	Scope  string   `json:"scope"`
-	Agents []string `json:"agents"`
-	Source string   `json:"source"`
-}
-
-func (s Service) read(ctx context.Context, cli CLI) ([]upstreamItem, error) {
-	name, args := cli.argv("list", "--json")
-	out, err := s.run(ctx, s.Store.Workspace, s.env(), name, args...)
-	if err != nil {
-		return nil, err
-	}
-	var items []upstreamItem
-	err = json.Unmarshal(out.Stdout, &items)
-	return items, err
+// pinChanged reports that the catalog pins a full SHA different from the one the lock recorded.
+func pinChanged(entry skillkit.LockEntry, skill *domain.Skill) bool {
+	return skill != nil && skill.Source.Kind == "git" && fullSHARef.MatchString(skill.Source.Ref) && !strings.EqualFold(skill.Source.Ref, entry.Ref)
 }
 
 // InventoryItem is a conservative project-scoped inventory wire record.
@@ -180,49 +117,64 @@ type Inventory struct {
 	Workspace   string              `json:"workspace"`
 	Complete    bool                `json:"complete"`
 	Skills      []InventoryItem     `json:"skills"`
+
+	// tracked holds the names recorded in skills-lock.json; it is not part of the wire format.
+	tracked map[string]bool
 }
 
-// Inventory reads installed project skills from the upstream list and lock file.
+// Tracked reports whether the installed skill is recorded in skills-lock.json.
+func (i Inventory) Tracked(name string) bool { return i.tracked[name] }
+
+// Inventory reads installed project skills from the agent skill directories and skills-lock.json.
 func (s Service) Inventory(ctx context.Context, c domain.Catalog) Inventory {
 	result := Inventory{Version: 1, Diagnostics: []domain.Diagnostic{}, Workspace: s.Store.Workspace, Skills: []InventoryItem{}}
-	var items []upstreamItem
-	cli, err := s.resolveCLI(ctx)
-	if err == nil {
-		items, err = s.read(ctx, cli)
+	unknown := func(message string) {
+		result.Diagnostics = append(result.Diagnostics, domain.Diagnostic{Code: "W_INVENTORY_UNKNOWN", Severity: "warning", Message: message})
 	}
-	if err != nil {
-		result.Diagnostics = append(result.Diagnostics, domain.Diagnostic{Code: "W_INVENTORY_UNKNOWN", Severity: "warning", Message: "Pinned upstream project inventory unavailable"})
+	if err := ctx.Err(); err != nil {
+		unknown("Project skill inventory unavailable: " + err.Error())
 		return result
 	}
-	locked, lockErr := s.readLock()
-	result.Complete = lockErr == nil || len(items) == 0
-	if lockErr != nil && len(items) > 0 {
-		result.Diagnostics = append(result.Diagnostics, domain.Diagnostic{Code: "W_INVENTORY_UNKNOWN", Severity: "warning", Message: "Project lock attribution unavailable: " + lockErr.Error() + "; fix or delete skills-lock.json"})
+	table, err := s.agentTable()
+	var listed skillkit.Inventory
+	if err == nil {
+		listed, err = skillkit.ListInstalled(skillkit.Target{Workspace: s.Store.Workspace, Agents: table})
 	}
-	for _, item := range items {
-		if item.Scope != "project" {
-			continue
+	if err != nil {
+		unknown("Project skill inventory unavailable: " + err.Error())
+		return result
+	}
+	locked, lockErr := skillkit.ReadLock(s.Store.Workspace)
+	result.Complete = (lockErr == nil || len(listed.Skills) == 0) && len(listed.Warnings) == 0
+	if lockErr != nil && len(listed.Skills) > 0 {
+		unknown("Project lock attribution unavailable: " + lockErr.Error() + "; fix or delete skills-lock.json")
+	}
+	if len(listed.Warnings) > 0 {
+		message := "Project skill inventory is incomplete: " + listed.Warnings[0].Message
+		if more := len(listed.Warnings) - 1; more > 0 {
+			message += fmt.Sprintf(" (and %d more)", more)
 		}
-		record := InventoryItem{Name: item.Name, Agents: []string{}, Scope: "project", Status: "unknown", Unmanaged: true}
-		if item.Path != "" {
-			record.Path = &item.Path
-		}
-		for id, name := range agents {
-			if slices.Contains(item.Agents, name) {
-				record.Agents = append(record.Agents, id)
-			}
-		}
-		slices.Sort(record.Agents)
+		unknown(message)
+	}
+	for _, item := range listed.Skills {
+		path := filepath.Join(s.Store.Workspace, filepath.FromSlash(item.Path))
+		record := InventoryItem{Name: item.Name, Agents: append([]string{}, item.Agents...), Scope: "project", Status: "unknown", Unmanaged: true, Path: &path}
 		if lockErr == nil {
 			entry, tracked := locked.Skills[item.Name]
-			record.SkillID, record.LogicalSource, record.Ref = s.catalogIdentity(item, entry, c)
+			if tracked {
+				if result.tracked == nil {
+					result.tracked = map[string]bool{}
+				}
+				result.tracked[item.Name] = true
+			}
+			record.SkillID, record.LogicalSource, record.Ref = s.catalogIdentity(item.Name, entry, c)
 			record.Unmanaged = record.SkillID == nil
 			var skill *domain.Skill
 			if record.SkillID != nil {
 				match := c.Skills[*record.SkillID]
 				skill = &match
 			}
-			record.Status = installedStatus(item, entry, tracked, len(record.Agents), skill)
+			record.Status = installedStatus(path, entry, tracked, len(record.Agents), skill)
 		}
 		result.Skills = append(result.Skills, record)
 	}

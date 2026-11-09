@@ -10,7 +10,7 @@ func listCommand(o *cliOptions) *cobra.Command {
 	jsonMode, checkUpdates := false, false
 	cmd := &cobra.Command{Use: "list", Short: "Read project-scoped installed skill inventory", Args: cobra.NoArgs}
 	cmd.Flags().BoolVar(&jsonMode, "json", false, "emit project inventory JSON v1")
-	cmd.Flags().BoolVar(&checkUpdates, "check-updates", false, "ask the skills CLI which installed skills have upstream updates (network access)")
+	cmd.Flags().BoolVar(&checkUpdates, "check-updates", false, "fetch each installed skill's source and report skills whose content differs (network access)")
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		s, err := o.session(cmd.Context(), false)
 		if err != nil {

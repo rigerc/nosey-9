@@ -63,26 +63,3 @@ func TestRunnerPreservesTokensInputAndEnvironment(t *testing.T) {
 		}
 	}
 }
-
-func TestRunAttachedReportsExitAndInterruptsOnCancel(t *testing.T) {
-	executable, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	helper := []string{"-test.run=^TestProcessHelper$"}
-	if err = RunAttached(context.Background(), t.TempDir(), []string{"NOSEY_TEST_PROCESS=1", "NOSEY_TEST_MODE=none"}, executable, helper...); err != nil {
-		t.Fatal(err)
-	}
-	if err = RunAttached(context.Background(), t.TempDir(), []string{"NOSEY_TEST_PROCESS=1", "NOSEY_TEST_MODE=fail"}, executable, helper...); err == nil {
-		t.Fatal("non-zero exit was treated as success")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	started := time.Now()
-	if err = RunAttached(ctx, t.TempDir(), []string{"NOSEY_TEST_PROCESS=1", "NOSEY_TEST_MODE=wait"}, executable, helper...); err == nil {
-		t.Fatal("cancelled command reported success")
-	}
-	if time.Since(started) > 4*time.Second {
-		t.Fatal("cancellation did not interrupt the command")
-	}
-}

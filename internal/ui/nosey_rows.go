@@ -81,8 +81,6 @@ func (m noseyModel) rows() []noseyRow {
 		}
 		rows = append(rows, noseyRow{"setting", "agents", "Target agents: " + agents}, noseyRow{"setting", "method", "Install method: " + m.session.Resolved.Settings.Installation.Method}, noseyRow{"setting", "ttl", fmt.Sprintf("Refresh interval: %d hours", m.session.Resolved.Settings.Updates.TTL)}, noseyRow{"setting", "mcp", fmt.Sprintf("MCP inspection: %t", m.session.Resolved.Settings.Detection.MCP)})
 		rows = append(rows,
-			noseyRow{"setting", "mode", "Default install action: " + m.session.Resolved.Settings.Installation.Mode},
-			noseyRow{"setting", "telemetry", "Upstream telemetry: " + m.session.Resolved.Settings.Installation.Telemetry},
 			noseyRow{"setting", "bytes", fmt.Sprintf("Maximum inspected file: %d bytes", m.session.Resolved.Settings.Detection.MaxBytes)},
 			noseyRow{"setting", "exclude", "Excluded paths: " + strings.Join(m.session.Resolved.Settings.Detection.Exclude, ", ")})
 		for _, r := range m.session.Resolved.Settings.Registries {

@@ -118,7 +118,7 @@ func newCommandTree(open func(context.Context, string, string, bool) (app.Sessio
 		return runNoseyUI(cmd, o)
 	}
 	root.AddCommand(&cobra.Command{Use: "ui", Short: "Open the four-tab workspace interface", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error { return runNoseyUI(cmd, o) }})
-	root.AddCommand(scanCommand(o), searchCommand(o), installCommand(o), registryCommand(o), settingsCommand(o), trustCommand(o), listCommand(o), doctorCommand(o), newCompletionCmd(), newSkillsCmd(root))
+	root.AddCommand(scanCommand(o), searchCommand(o), installCommand(o), updateCommand(o), uninstallCommand(o), registryCommand(o), settingsCommand(o), trustCommand(o), listCommand(o), doctorCommand(o), newCompletionCmd(), newSkillsCmd(root))
 	return root
 }
 

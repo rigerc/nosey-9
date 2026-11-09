@@ -200,7 +200,7 @@ func TestDisplayModeSettingsPreserveLegacyFilesUntilExplicitSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	r, err := s.Resolve()
-	if err != nil || r.Settings.UI.Mode != "fullscreen" || r.Settings.Version != 2 {
+	if err != nil || r.Settings.UI.Mode != "fullscreen" || r.Settings.Version != 3 {
 		t.Fatal("legacy settings did not receive defaults", r, err)
 	}
 	before, err := os.ReadFile(s.UserPath)
@@ -223,8 +223,8 @@ func TestDisplayModeSettingsPreserveLegacyFilesUntilExplicitSave(t *testing.T) {
 	var header struct {
 		Version int `json:"schemaVersion"`
 	}
-	if json.Unmarshal(saved, &header) != nil || header.Version != 2 {
-		t.Fatal("new preference did not use settings v2")
+	if json.Unmarshal(saved, &header) != nil || header.Version != 3 {
+		t.Fatal("new preference did not use settings v3")
 	}
 	r, err = s.Resolve()
 	if err != nil || r.Settings.UI.Mode != "inline" || len(r.Settings.Installation.Agents) != 1 {
@@ -236,5 +236,122 @@ func TestDisplayModeSettingsPreserveLegacyFilesUntilExplicitSave(t *testing.T) {
 	r, err = s.Resolve()
 	if err != nil || r.Settings.UI.Mode != "inline" {
 		t.Fatal("later save lost display preference", err)
+	}
+}
+
+func writeUser(t *testing.T, s Store, doc string) {
+	t.Helper()
+	if err := storage.Write(s.UserPath, []byte(doc)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func savedVersion(t *testing.T, path string) (int, map[string]any) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err = json.Unmarshal(data, &doc); err != nil {
+		t.Fatal(err)
+	}
+	return int(doc["schemaVersion"].(float64)), doc
+}
+
+func TestV1AndV2MigrateToV3OnLoadAndPersistOnSet(t *testing.T) {
+	retired := `"installation":{"agents":["codex"],"defaultMode":"print","cliVersion":"1.7.6","upstreamTelemetry":"disabled","method":"copy"}`
+	for version, doc := range map[int]string{1: `{"schemaVersion":1,` + retired + `}`, 2: `{"schemaVersion":2,"ui":{"mode":"inline"},` + retired + `}`} {
+		s := testStore(t)
+		writeUser(t, s, doc)
+		r, err := s.Resolve()
+		if err != nil || r.Settings.Version != 3 || r.Settings.Installation.Method != "copy" || len(r.Settings.Installation.Agents) != 1 || len(r.Settings.Installation.CustomAgents) != 0 {
+			t.Fatal(version, r.Settings, err)
+		}
+		if before, _ := os.ReadFile(s.UserPath); string(before) != doc {
+			t.Fatal("load rewrote the file", version)
+		}
+		if err = s.Set("updates.ttlHours", []byte(`12`), false); err != nil {
+			t.Fatal(version, err)
+		}
+		got, saved := savedVersion(t, s.UserPath)
+		installation := saved["installation"].(map[string]any)
+		for _, key := range []string{"defaultMode", "cliVersion", "upstreamTelemetry"} {
+			if _, ok := installation[key]; ok {
+				t.Fatalf("v%d: retired key %s survived the write", version, key)
+			}
+		}
+		if got != 3 || installation["method"] != "copy" {
+			t.Fatal(version, saved)
+		}
+	}
+}
+
+func TestRetiredKeysAreRejectedByV3Writes(t *testing.T) {
+	s := testStore(t)
+	for _, key := range []string{"installation.defaultMode", "installation.cliVersion", "installation.upstreamTelemetry"} {
+		if err := s.Set(key, []byte(`"print"`), false); err == nil {
+			t.Fatal("retired key accepted", key)
+		}
+	}
+	if err := s.Set("installation.verbose", []byte(`true`), false); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := savedVersion(t, s.UserPath); v != 3 {
+		t.Fatal("new file is not v3", v)
+	}
+}
+
+func TestCustomAgentsValidation(t *testing.T) {
+	good := `[{"id":"my-agent","name":"My Agent","skillsDir":".my-agent/skills"}]`
+	s := testStore(t)
+	if err := s.Set("installation.customAgents", []byte(good), false); err != nil {
+		t.Fatal(err)
+	}
+	r, err := s.Resolve()
+	if err != nil || len(r.Settings.Installation.CustomAgents) != 1 || r.Settings.Installation.CustomAgents[0].SkillsDir != ".my-agent/skills" {
+		t.Fatal(r.Settings.Installation.CustomAgents, err)
+	}
+	for name, doc := range map[string]string{
+		"absolute dir":  `[{"id":"a","name":"A","skillsDir":"/etc"}]`,
+		"escaping dir":  `[{"id":"a","name":"A","skillsDir":"../x"}]`,
+		"dot dir":       `[{"id":"a","name":"A","skillsDir":"."}]`,
+		"backslash dir": `[{"id":"a","name":"A","skillsDir":"x\\y"}]`,
+		"unsafe id":     `[{"id":"../a","name":"A","skillsDir":"x"}]`,
+		"uppercase id":  `[{"id":"A","name":"A","skillsDir":"x"}]`,
+		"empty name":    `[{"id":"a","name":"","skillsDir":"x"}]`,
+		"missing dir":   `[{"id":"a","name":"A"}]`,
+		"extra field":   `[{"id":"a","name":"A","skillsDir":"x","global":true}]`,
+		"duplicate id":  `[{"id":"a","name":"A","skillsDir":"x"},{"id":"a","name":"B","skillsDir":"y"}]`,
+		"builtin id":    `[{"id":"codex","name":"A","skillsDir":"x"}]`,
+		"control name":  `[{"id":"a","name":"A\u001b[31m","skillsDir":"x"}]`,
+		"not an array":  `{"id":"a"}`,
+	} {
+		if err = testStore(t).Set("installation.customAgents", []byte(doc), false); err == nil {
+			t.Fatal("accepted:", name)
+		}
+	}
+}
+
+func TestProjectSettingsRejectCustomAgents(t *testing.T) {
+	s := testStore(t)
+	agents := `[{"id":"my-agent","name":"My Agent","skillsDir":".my-agent/skills"}]`
+	if err := s.Set("installation.customAgents", []byte(agents), true); err == nil {
+		t.Fatal("project write accepted customAgents")
+	}
+	if err := s.Set("installation", []byte(`{"customAgents":`+agents+`}`), true); err == nil {
+		t.Fatal("project write of installation accepted customAgents")
+	}
+	if err := storage.Write(filepath.Join(s.Workspace, ".nosey", "config.json"), []byte(`{"schemaVersion":3,"installation":{"customAgents":`+agents+`}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Resolve(); err == nil {
+		t.Fatal("project file with customAgents resolved")
+	}
+	if err := storage.Write(filepath.Join(s.Workspace, ".nosey", "config.json"), []byte(`{"schemaVersion":3,"installation":{"method":"copy"}}`)); err != nil {
+		t.Fatal(err)
+	}
+	if r, err := s.Resolve(); err != nil || r.Settings.Installation.Method != "copy" {
+		t.Fatal(r.Settings.Installation, err)
 	}
 }

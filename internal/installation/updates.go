@@ -2,45 +2,34 @@ package installation
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"regexp"
+	"os"
+	"path"
+	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
-	"time"
 
-	"github.com/charmbracelet/x/ansi"
-	"github.com/rigerc/nosey-9/internal/process"
+	"github.com/rigerc/nosey-9/internal/skillkit"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
 
-// The upstream `skills check` command has no machine-readable output, so its report lines are parsed.
-var (
-	updateLine      = regexp.MustCompile(`^↑ (.+) has an update$`)
-	outdatedSummary = regexp.MustCompile(`^\d+ skill\(s\) can be updated\b`)
-	failedSummary   = regexp.MustCompile(`^Failed to update (\d+) skill\(s\)$`)
-	upToDateLine    = regexp.MustCompile(`^(\d+) project skill\(s\) already up to date$`)
-	legacyLine      = regexp.MustCompile(`^(\d+) project skill\(s\) cannot be updated automatically\b`)
-)
-
-// UpdateCheck is what the upstream CLI could establish about installed project skills.
+// UpdateCheck is what a native update check established about installed project skills.
 type UpdateCheck struct {
-	// Names lists skills with newer upstream content.
+	// Names lists skills whose source content differs from the installed tree.
 	Names []string
-	// Failures holds upstream's detail for each source it could not check.
+	// Failures holds the reason for each source or skill that could not be checked.
 	Failures []string
-	// Failed counts skills upstream could not check.
+	// Failed counts skills that could not be checked.
 	Failed int
-	// UpToDate counts skills upstream confirmed as current.
+	// UpToDate counts skills confirmed identical to their source.
 	UpToDate int
-	// AllCurrent is true only when upstream confirmed every checkable skill as current.
+	// AllCurrent is true only when every installed skill was checked and found current.
 	AllCurrent bool
-	// Legacy counts skills whose lock entries predate upstream's update tracking.
+	// Legacy counts lock entries without a skillPath, which cannot be compared with a source.
 	Legacy int
-	// NothingToCompare is true when upstream had no skill it could compare with a source.
+	// NothingToCompare is true when no skill could be compared with its source.
 	NothingToCompare bool
-	// finished records that upstream reached the closing summary of a run that exits non-zero.
-	finished bool
 }
 
 // Summary states what the check established, without claiming more than upstream compared.
@@ -77,7 +66,7 @@ func (c UpdateCheck) failureDetail() string {
 	case len(c.Failures) > 1:
 		return fmt.Sprintf("%s (and %d more)", c.Failures[0], len(c.Failures)-1)
 	case c.Failed > 0:
-		return "upstream reported " + skillCount(c.Failed) + " failed"
+		return skillCount(c.Failed) + " failed"
 	}
 	return ""
 }
@@ -89,104 +78,150 @@ func skillCount(count int) string {
 	return fmt.Sprintf("%d skills", count)
 }
 
-// CheckUpdates asks the pinned upstream CLI which installed project skills have newer upstream content.
-// A failed check is an error, never "no updates"; a partly failed one reports the gap through Warning.
+// updateGroup is every lock entry fetched from the same source and ref.
+type updateGroup struct {
+	source skillkit.Source
+	label  string
+	names  []string
+}
+
+// CheckUpdates compares each installed project skill with its source. Lock entries are grouped
+// by source and ref and each group is fetched once; a skill differs when the FolderHash of its
+// fetched copy differs from the FolderHash of the installed tree, so local edits count too.
+// A fetch or read failure is reported in Failures, never as "no updates".
 func (s Service) CheckUpdates(ctx context.Context) (UpdateCheck, error) {
-	cli, err := s.resolveCLI(ctx)
+	check := UpdateCheck{Names: []string{}}
+	lock, err := skillkit.ReadLock(s.Store.Workspace)
+	if errors.Is(err, skillkit.ErrLockMissing) {
+		check.NothingToCompare = true
+		return check, nil
+	}
 	if err != nil {
 		return UpdateCheck{}, err
 	}
-	if runner, ok := s.Runner.(process.Runner); ok || s.Runner == nil {
-		if runner.Timeout == 0 {
-			runner.Timeout = 3 * time.Minute
+	table, err := s.agentTable()
+	if err != nil {
+		return UpdateCheck{}, err
+	}
+	listed, err := skillkit.ListInstalled(skillkit.Target{Workspace: s.Store.Workspace, Agents: table})
+	if err != nil {
+		return UpdateCheck{}, fmt.Errorf("reading installed skills: %w", err)
+	}
+	installed := map[string]string{}
+	for _, item := range listed.Skills {
+		installed[item.Name] = filepath.Join(s.Store.Workspace, filepath.FromSlash(item.Path))
+	}
+	groups := map[string]*updateGroup{}
+	for _, name := range lock.Names() {
+		entry := lock.Skills[name]
+		if entry.SkillPath == "" {
+			check.Legacy++
+			continue
 		}
-		s.Runner = runner
-	}
-	name, args := cli.argv("check", "--project")
-	out, err := s.run(ctx, s.Store.Workspace, s.env(), name, args...)
-	if ctx.Err() != nil {
-		return UpdateCheck{}, ctx.Err()
-	}
-	check := parseUpdates(string(out.Stdout))
-	// Upstream also exits 1 when updates exist, so a non-zero exit is only a usable result
-	// once it has printed its closing summary and named at least one update. Anything else,
-	// such as a killed process with partial output, is a failed check.
-	if err != nil && (!check.finished || len(check.Names) == 0) {
-		return UpdateCheck{}, updateCheckError(err, check, out)
-	}
-	return check, nil
-}
-
-func updateCheckError(err error, check UpdateCheck, out process.Output) error {
-	detail := check.failureDetail()
-	if detail == "" {
-		detail = meaningfulStderr(string(out.Stderr))
-	}
-	if detail == "" {
-		detail = lastLine(ansi.Strip(string(out.Stdout)))
-	}
-	detail = storage.Safe(detail)
-	if detail == "" {
-		return fmt.Errorf("skills check failed: %w", err)
-	}
-	return fmt.Errorf("skills check failed: %w: %s", err, detail)
-}
-
-// meaningfulStderr drops npm's own chatter, which `npx --yes` prints even when the real failure is elsewhere.
-func meaningfulStderr(stderr string) string {
-	kept := []string{}
-	for _, line := range strings.Split(ansi.Strip(stderr), "\n") {
-		line = strings.TrimSpace(line)
-		lower := strings.ToLower(line)
-		if line != "" && !strings.HasPrefix(lower, "npm warn") && !strings.HasPrefix(lower, "npm notice") {
-			kept = append(kept, line)
+		source := skillkit.Source{URI: entry.Source, Ref: entry.Ref}
+		label := entry.Source
+		if entry.SourceType == "local" {
+			source = skillkit.Source{LocalPath: entry.Source}
+		} else if entry.SourceURL != "" {
+			source.URI = entry.SourceURL
 		}
-	}
-	return strings.Join(kept, " ")
-}
-
-func parseUpdates(stdout string) UpdateCheck {
-	check := UpdateCheck{Names: []string{}}
-	for _, raw := range strings.Split(ansi.Strip(stdout), "\n") {
-		line := strings.TrimSpace(raw)
-		if match := updateLine.FindStringSubmatch(line); match != nil {
-			// Names are only displayed and compared with the inventory, so upstream's raw name stands.
-			if name := storage.Safe(match[1]); name != "" {
-				check.Names = append(check.Names, name)
+		key := strings.Join([]string{entry.SourceType, source.URI, source.LocalPath, source.Ref}, "\x00")
+		if groups[key] == nil {
+			groups[key] = &updateGroup{source: source, label: label}
+			if entry.Ref != "" {
+				groups[key].label += "@" + entry.Ref
 			}
-			continue
 		}
-		if detail, ok := strings.CutPrefix(line, "✗ "); ok {
-			check.Failures = append(check.Failures, storage.Safe(detail))
-			continue
+		groups[key].names = append(groups[key].names, name)
+	}
+	keys := make([]string, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	for _, key := range keys {
+		if err = ctx.Err(); err != nil {
+			return UpdateCheck{}, err
 		}
-		switch {
-		case outdatedSummary.MatchString(line):
-			check.finished = true
-		case failedSummary.MatchString(line):
-			check.finished = true
-			check.Failed = reportedCount(failedSummary, line)
-		case upToDateLine.MatchString(line):
-			check.UpToDate = reportedCount(upToDateLine, line)
-		case legacyLine.MatchString(line):
-			check.Legacy = reportedCount(legacyLine, line)
-		case line == "✓ All project skills are up to date":
-			check.AllCurrent = true
-		case line == "No project skills to update." || line == "No project skills can be updated in place.":
-			check.NothingToCompare = true
-		}
+		s.checkGroup(ctx, groups[key], lock, installed, &check)
+	}
+	if err = ctx.Err(); err != nil {
+		return UpdateCheck{}, err
 	}
 	slices.Sort(check.Names)
 	check.Names = slices.Compact(check.Names)
-	return check
+	slices.Sort(check.Failures)
+	check.NothingToCompare = check.UpToDate == 0 && len(check.Names) == 0 && check.Failed == 0
+	check.AllCurrent = check.UpToDate > 0 && len(check.Names) == 0 && check.Failed == 0 && check.Legacy == 0
+	return check, nil
 }
 
-func reportedCount(pattern *regexp.Regexp, line string) int {
-	count, err := strconv.Atoi(pattern.FindStringSubmatch(line)[1])
-	if err != nil {
-		return 0
+func (s Service) checkGroup(ctx context.Context, g *updateGroup, lock skillkit.ProjectLock, installed map[string]string, check *UpdateCheck) {
+	fail := func(count int, reason string) {
+		check.Failed += count
+		check.Failures = append(check.Failures, storage.Safe(reason))
 	}
-	return count
+	checkout, err := s.fetcher().Fetch(ctx, g.source)
+	if err != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		fail(len(g.names), fmt.Sprintf("%s: %v", g.label, err))
+		return
+	}
+	defer func() { _ = checkout.Close() }()
+	for _, name := range g.names {
+		same, err := s.sameAsSource(ctx, checkout.Dir, lock.Skills[name], installed[name])
+		switch {
+		case ctx.Err() != nil:
+			return
+		case err != nil:
+			fail(1, fmt.Sprintf("%s (%s): %v", name, g.label, err))
+		case same:
+			check.UpToDate++
+		default:
+			check.Names = append(check.Names, storage.Safe(name))
+		}
+	}
+}
+
+// sameAsSource hashes the skill at the entry's skillPath in the fetched tree the way an install
+// would copy it, and the installed tree as it is on disk.
+func (s Service) sameAsSource(ctx context.Context, checkout string, entry skillkit.LockEntry, installed string) (bool, error) {
+	if installed == "" {
+		return false, errors.New("recorded in skills-lock.json but not installed")
+	}
+	skillPath := path.Clean(filepath.ToSlash(entry.SkillPath))
+	dir := path.Dir(skillPath)
+	if path.Base(skillPath) != "SKILL.md" || !filepath.IsLocal(filepath.FromSlash(dir)) {
+		return false, fmt.Errorf("invalid skillPath %q in skills-lock.json", entry.SkillPath)
+	}
+	root, err := filepath.EvalSymlinks(checkout)
+	if err != nil {
+		return false, err
+	}
+	full, err := filepath.EvalSymlinks(filepath.Join(root, filepath.FromSlash(dir)))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, fmt.Errorf("%s no longer exists in the source", entry.SkillPath)
+	}
+	if err != nil {
+		return false, err
+	}
+	if full != root && !strings.HasPrefix(full, root+string(filepath.Separator)) {
+		return false, fmt.Errorf("skillPath %q leaves the source", entry.SkillPath)
+	}
+	if info, err := os.Stat(filepath.Join(full, "SKILL.md")); err != nil || info.IsDir() {
+		return false, fmt.Errorf("%s no longer exists in the source", entry.SkillPath)
+	}
+	fetched, err := skillkit.CopyHash(ctx, full)
+	if err != nil {
+		return false, err
+	}
+	current, err := skillkit.FolderHash(installed)
+	if err != nil {
+		return false, err
+	}
+	return fetched == current, nil
 }
 
 // MarkOutdated flags installed skills that the upstream check reported as having an update.

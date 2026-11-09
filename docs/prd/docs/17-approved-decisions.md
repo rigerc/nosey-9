@@ -46,7 +46,7 @@ Every advertised JSON command has a closed versioned schema, not an ad hoc seria
 | `registry list --json` | 1 | [registry inventory](../schemas/registry-list-output.schema.json) |
 | `doctor --json` | 1 | [doctor checks](../schemas/doctor-output.schema.json) |
 
-Retain original install-plan v2 as historical input. D8 removes install JSON, dry-run and approval plans. `--print` remains shell-escaped text. Structured errors populate diagnostics when an operation has a schema-valid response; failures before a response can be constructed use stderr/nonzero exit and must not fabricate success. Keep stdout free of progress/ANSI/logging.
+Retain original install-plan v2 as historical input. D8 removes install JSON, dry-run and approval plans. `--print` remained shell-escaped text until D9 removed it. Structured errors populate diagnostics when an operation has a schema-valid response; failures before a response can be constructed use stderr/nonzero exit and must not fabricate success. Keep stdout free of progress/ANSI/logging.
 
 Installed inventory is explicitly project-scoped, with completeness, nullable catalog identity/origin, target agents, observed path and conservative status. Missing records cannot establish absence unless the reader is complete. Registry inventory exposes normalized sources, priorities/TTL, trust and cache state without credentials. Doctor publishes stable check IDs/status/code/message; versions, provider and adapter checks are represented as named checks rather than unversioned extra fields. Validate counts/uniqueness/scope and redact all output in addition to schema checking.
 
@@ -94,6 +94,8 @@ Import requirements:
 
 ## D8 — Thin installer delegation
 
+> **Superseded by [D9](#d9--native-installation-engine).** Nosey no longer delegates installation to the Skills CLI. The text below is retained as history.
+
 Approved 2026-11-09. Supersedes D2, D3 and any conflicting text in the CLI contract, the installation chapter and the architecture documents, including post-install hash verification, `.nosey/install-origins.json` and the project operation lock.
 
 `nosey install` and the TUI build one upstream `skills add` per source from the catalog and confirm the whole selection once in Nosey. Nosey chooses target agents once, displays project scope, method and overwrite warning, then runs all sources with `--yes` without further prompts. `nosey install --yes` skips the Nosey confirmation. The Skills CLI owns installation and progress. Nosey keeps requirement resolution, conflict and duplicate-name blocking, and catalog pins, which are passed through unchanged as `#sha`. Installed state comes from `skills list --json` and `skills-lock.json`.
@@ -101,6 +103,24 @@ Approved 2026-11-09. Supersedes D2, D3 and any conflicting text in the CLI contr
 The CLI is an installed `skills` of the pinned version or, failing that, the pinned package located through `npx` from Nosey's cache directory and started with `node`, so workspace `node_modules` and `.npmrc` are never consulted. Nosey stops with exit 6 when neither is available and never installs the CLI itself. CI exercises both launchers against the real pinned CLI.
 
 Known consequences: installs are project-scoped and replace existing skills with the same name after the Nosey confirmation; hand-edited tracked skills still report as installed. The v3 plan schema is removed; the original planning package retains historical v2.
+
+## D9 — Native installation engine
+
+Approved 2026-11-09. Supersedes D8 and any text that makes the Skills CLI, Node.js, npm or `npx` a runtime dependency. The design and delivery plan are in `docs/prd/SKILLKIT_MIGRATION_PLAN.md`.
+
+Nosey owns the whole install lifecycle through `internal/skillkit`, an in-tree fork of ka2n/skills-go that matches `skills@1.7.6` on disk (agent table, copy rules, `computedHash`, `skills-lock.json`). `nosey install` and the TUI plan one source per catalog source and ref, confirm the whole selection once, then fetch each source once with Git, discover and install its skills and record them in the lock. Nosey keeps requirement resolution, conflict and duplicate-name blocking, and catalog pins, which are checked out exactly: a full-SHA ref must equal the fetched `HEAD`.
+
+- **Prerequisite:** Git only. A missing Git is exit 6. No Node.js, npm or `skills` CLI is needed or probed.
+- **No print mode:** `--print`, `installation.defaultMode` and the TUI copy action are removed; no code path emits commands. Retired settings (`defaultMode`, `cliVersion`, `upstreamTelemetry`) migrate away in settings v3.
+- **Git safety:** Only the shallow `git fetch` sees the user's git configuration (for credentials). `init` and `checkout` run with nulled configuration, with hooks, `ext`, submodules, LFS smudge and terminal prompts disabled, so untrusted content cannot trigger filters or hooks. Workspace code is never executed.
+- **Copy and symlinks:** Links that escape the skill or are broken are skipped with a warning; internal links are followed. Writes go through `os.Root`.
+- **Agents:** All 79 agents of `skills@1.7.6` plus user-defined custom agents (user settings only, workspace-relative directories). In symlink mode, built-in agents whose project directory is missing are skipped, as upstream does; Nosey reports every skipped agent and warning in the CLI and the TUI.
+- **Failure semantics:** Sources run in dependency order and stop at the first failed source; later sources are reported as not started. Results are structured per skill and agent (`installed`, `failed`, `skipped`, `not-started`). The lock is written after every attempted source, including failure and cancellation, and records every skill installed for at least one agent. If installation succeeds but the lock cannot be written, the operation is incomplete and exits 5.
+- **Operation lock:** Each lifecycle operation holds one kernel advisory lock (`flock`) per canonical workspace, kept in Nosey's data directory, from final preflight through lock persistence. A crash releases it. A busy workspace is refused with exit 2.
+- **Update check:** `list --check-updates` fetches each source and ref once and compares the hash of the fetched skill with the hash of the installed tree. A failed fetch or read is reported as a failure, never as "no updates"; lock entries without `skillPath` are reported as not checkable.
+- **Interoperability:** Projects written by Nosey are read by `npx skills`, and the reverse. Existing `skills@1.7.6` locks keep all fields, including unknown ones.
+
+Exit codes are unchanged: 2 policy and validation, 5 installation failure or partial success, 6 missing prerequisite.
 
 ## Verification and delivery ownership
 

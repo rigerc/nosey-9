@@ -7,7 +7,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/rigerc/nosey-9/internal/installation"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
 
@@ -25,15 +24,11 @@ func (m *noseyModel) configureFormChoices() {
 			m.form.choices[0] = []sortOption{{"false", "Expanded by default"}, {"true", "Collapsed by default"}}
 		case "installation.method":
 			m.form.choices[0] = []sortOption{{"symlink", "Symlink"}, {"copy", "Copy"}}
-		case "installation.defaultMode":
-			m.form.choices[0] = []sortOption{{"execute", "Execute after confirmation"}, {"print", "Print commands"}}
-		case "installation.upstreamTelemetry":
-			m.form.choices[0] = []sortOption{{"inherit", "Inherit upstream preference"}, {"disabled", "Disabled"}}
 		case "detection.enableMcpPackage":
 			m.form.choices[0] = boolean
 		case "installation.agents":
 			m.form.multiple[0] = true
-			for id, name := range installation.AgentNames() {
+			for id, name := range m.installer().AgentNames() {
 				m.form.choices[0] = append(m.form.choices[0], sortOption{id, name})
 			}
 			for _, id := range csv(m.form.inputs[0].Value()) {
@@ -119,7 +114,7 @@ func (m noseyModel) updateChoiceField(key tea.KeyPressMsg) (noseyModel, tea.Cmd)
 }
 func settingFieldLabel(label string) string {
 	names := map[string]string{
-		"ui.mode": "Display mode (next launch)", "ui.collapseRepos": "Repository groups in results", "installation.agents": "Target agents", "installation.method": "Install method", "installation.defaultMode": "Default install action", "installation.upstreamTelemetry": "Upstream telemetry", "detection.enableMcpPackage": "MCP inspection", "updates.ttlHours": "Refresh interval (hours)", "detection.maxFileBytes": "Maximum inspected file (bytes)", "detection.exclude": "Excluded paths (comma separated)",
+		"ui.mode": "Display mode (next launch)", "ui.collapseRepos": "Repository groups in results", "installation.agents": "Target agents", "installation.method": "Install method", "detection.enableMcpPackage": "MCP inspection", "updates.ttlHours": "Refresh interval (hours)", "detection.maxFileBytes": "Maximum inspected file (bytes)", "detection.exclude": "Excluded paths (comma separated)",
 		"Enabled: true or false": "Enabled", "Remove: type REMOVE": "Action", "Template registry ID": "Template registry", "GitHub CI: true or false": "GitHub CI", "Initialize Git: true or false": "Initialize Git", "Register for this user: true or false": "Register for this user", "GitHub repository: OWNER/NAME or blank": "GitHub repository (blank for none)", "GitHub repository visibility": "Repository visibility",
 	}
 	if name, ok := names[label]; ok {

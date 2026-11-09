@@ -1,24 +1,25 @@
-// Package installation builds upstream Skills CLI commands and reads project skill state.
+// Package installation plans catalog installs, runs them through the native skillkit engine
+// and reads project skill state.
 package installation
 
 import (
 	"context"
+	"os"
 	"regexp"
 	"slices"
+	"time"
 
 	"github.com/rigerc/nosey-9/internal/process"
 	"github.com/rigerc/nosey-9/internal/settings"
+	"github.com/rigerc/nosey-9/internal/skillkit"
 )
 
-// Version pins the tested upstream parser and JSON inventory format.
-const Version = "1.7.6"
-
-// PolicyError marks a blocked operation that must never invoke the installer.
+// PolicyError marks a blocked operation that must never change the project.
 type PolicyError struct{ Reason string }
 
 func (e PolicyError) Error() string { return e.Reason }
 
-// PrerequisiteError marks a missing or incompatible installer prerequisite.
+// PrerequisiteError marks a missing or incompatible prerequisite, such as Git.
 type PrerequisiteError struct{ Reason string }
 
 func (e PrerequisiteError) Error() string { return e.Reason }
@@ -28,15 +29,23 @@ var (
 	fullSHARef    = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
 )
 
-// Service builds project installs and reads their state through the upstream CLI.
+// SourceFetcher fetches one source into a temporary checkout. skillkit.Fetcher implements it.
+type SourceFetcher interface {
+	Fetch(ctx context.Context, src skillkit.Source) (*skillkit.Checkout, error)
+}
+
+// Service plans project installs, runs them and reads their state.
 type Service struct {
 	Store    settings.Store
 	Settings settings.Settings
-	Runner   process.Executor
-	// Resolver overrides CLI discovery; nil uses an installed or npx-provided CLI.
-	Resolver func(context.Context) (CLI, error)
-	// Attach overrides how interactive installs reach the terminal; nil uses process.RunAttached.
-	Attach func(ctx context.Context, dir string, env []string, name string, args ...string) error
+	// Runner runs the Git prerequisite probe; nil uses a process.Runner.
+	Runner process.Executor
+	// Fetcher fetches git sources; nil uses a skillkit.Fetcher with its own timeouts.
+	Fetcher SourceFetcher
+	// LockTimeout bounds waiting for another Nosey operation in the same workspace; zero uses ten seconds.
+	LockTimeout time.Duration
+	// Home overrides the user's home directory for agent detection; empty uses os.UserHomeDir.
+	Home string
 }
 
 // Options selects catalog skills to install.
@@ -45,15 +54,8 @@ type Options struct {
 	Agents          []string
 	Method          string
 	IgnoreConflicts bool
-	// Yes makes the installer run without prompts; it requires explicit agents.
+	// Yes marks a non-interactive install; it requires explicit agents.
 	Yes bool
-}
-
-func (s Service) env() []string {
-	if s.Settings.Installation.Telemetry == "disabled" {
-		return []string{"DISABLE_TELEMETRY=1", "DO_NOT_TRACK=1"}
-	}
-	return nil
 }
 
 func unique(v []string) []string { v = slices.Clone(v); slices.Sort(v); return slices.Compact(v) }
@@ -64,4 +66,19 @@ func (s Service) run(ctx context.Context, dir string, env []string, name string,
 		runner = process.Runner{}
 	}
 	return runner.Run(ctx, dir, env, name, args...)
+}
+
+func (s Service) fetcher() SourceFetcher {
+	if s.Fetcher != nil {
+		return s.Fetcher
+	}
+	return skillkit.Fetcher{}
+}
+
+func (s Service) home() string {
+	if s.Home != "" {
+		return s.Home
+	}
+	home, _ := os.UserHomeDir()
+	return home
 }

@@ -6,7 +6,7 @@ Nosey provides Scan, Explore, Manage and Settings tabs, plus scriptable CLI comm
 
 ## Build and run
 
-Use the Go version declared in [go.mod](go.mod). Git is required for remote registries. Installation uses **Node >=22.20.0** and the pinned **Skills CLI 1.7.6**, from an installed `skills` when its version matches and otherwise through `npx`. Nosey stops with a clear error when neither is available.
+Use the Go version declared in [go.mod](go.mod). Git is required for remote registries and for installing skills from Git sources. Nosey installs skills itself: it needs no Node.js, npm or `skills` CLI at runtime. Node is only used by the registry studio's UI tests.
 
 ```sh
 git clone --recurse-submodules https://github.com/rigerc/nosey-9.git
@@ -32,20 +32,36 @@ Install skills by the ID returned from search:
 nosey install SKILL_ID
 nosey install SKILL_ID --agent codex --agent claude-code
 nosey install SKILL_ID --agent codex --yes
-nosey install SKILL_ID --print
 nosey list --json
 ```
 
-Nosey resolves required skills and blocks catalog conflicts and selections that would install under the same name (`--ignore-conflicts` opts out of conflicts only). Nosey asks for target agents once when none are configured, then shows the whole selection and asks for one confirmation. After approval it runs one `skills add --yes` per source without further prompts. All installs target the project and replace existing skills with the same names. Git sources use the ref declared by the registry; official catalog sources use pinned commits.
+Nosey resolves required skills and blocks catalog conflicts and selections that would install under the same name (`--ignore-conflicts` opts out of conflicts only). Nosey asks for target agents once when none are configured, then shows the whole selection and asks for one confirmation. After approval it fetches each source once and installs without further prompts, in dependency order. All installs target the project, replace existing skills with the same names and are recorded in `skills-lock.json`, which stays compatible with `npx skills`. Git sources use the ref declared by the registry; official catalog sources use pinned commits.
 
 - `--yes` needs target agents, installs into the project without prompts and replaces existing skills with the same name.
-- `--print` shows the commands without running anything; `--copy` installs by copy.
-- Cancelling the Nosey confirmation installs nothing. Nosey stops at the first source that fails.
-- Installed state comes from `skills list --json` and `skills-lock.json`. Skills behind the catalog's pin show as outdated; install them again to update. `skills update` does not move a pinned skill.
+- `--copy` installs by copy.
+- Cancelling the Nosey confirmation installs nothing. Nosey stops at the first source that fails, keeps and records what already installed, and reports the sources it did not start (exit code 5).
+- In symlink mode, agents whose project directory does not exist (for example `.windsurf`) are skipped; Nosey lists every skipped agent. `--copy` installs into all selected agents.
+- Only one Nosey install runs per project at a time; a second one stops with a message instead of waiting indefinitely.
+- Installed state comes from the agent skill directories and `skills-lock.json`. Skills behind the catalog's pin show as outdated. `nosey list --check-updates` fetches each installed skill's source and compares content.
 
-To install from a source that is not in a registry, run `npx skills add` directly.
+## Update and uninstall
 
-In the TUI, use Tab to change tabs, arrows to navigate, Space to select, `/` to search, `f`/`s` for filters/sorting and `i` to install all selections, including hidden selections. Escape cancels a dialog; `q` quits.
+```sh
+nosey update                      # every outdated catalog-managed skill
+nosey update SKILL_ID --yes
+nosey uninstall NAME_OR_ID...
+nosey uninstall NAME_OR_ID --ignore-requirements --yes
+```
+
+`nosey update [SKILL_ID...] [--ignore-conflicts] [--yes]` updates skills that follow the catalog. A skill is outdated when the catalog pin differs from the ref in `skills-lock.json` or when the upstream content differs from what is installed; the confirmation and the results state which. Each skill is refreshed at every location where it is installed in the project, keeping each location's symlink or copy mode. Requirements the catalog added are installed where the skills requiring them live. Skills outside the catalog are listed as skipped and never updated. The check needs network access, and a failed check stops the command without changing anything. Sources update in dependency order and stop at the first failure; completed updates stay recorded.
+
+`nosey uninstall NAME_OR_ID... [--ignore-requirements] [--yes]` removes skills tracked in `skills-lock.json` from every agent directory and deletes their lock entries. Targets are tracked names or catalog IDs; untracked or unknown targets are refused (exit code 2). The whole selection is checked together: removal is blocked while a skill that stays installed requires a target unless `--ignore-requirements` is passed, and a skill selected together with what it requires is removed first. Removal stops at the first failure, keeps lock entries of skills that were not fully removed and reports what was not started.
+
+Both commands show the whole selection, confirm once, need `--yes` without a terminal, hold the same per-project operation lock as `install`, and have no JSON output. Exit codes: 2 policy or validation (including a busy workspace), 5 operation failure or partial success, 6 missing prerequisite.
+
+Projects installed with Nosey and with `npx skills` interoperate: both read and write the same agent directories and `skills-lock.json`. To install from a source that is not in a registry, run `npx skills add` directly.
+
+In the TUI, use Tab to change tabs, arrows to navigate, Space to select, `/` to search, `f`/`s` for filters/sorting and `i` to install all selections, including hidden selections. On the Manage tab, `u` checks installed skills for updates, `U` updates the outdated catalog skill under the cursor and `d` removes the tracked skill under the cursor, each with one confirmation. Escape cancels a dialog; `q` quits.
 
 ## Settings and registries
 
@@ -53,7 +69,7 @@ Settings use JSON: user configuration defaults to the OS configuration directory
 
 ```sh
 nosey config set installation.agents '["codex","claude-code"]'
-nosey config set installation.upstreamTelemetry '"disabled"'
+nosey config set installation.method '"copy"'
 nosey config get
 nosey registry add /absolute/path/to/registry --id user:local
 nosey registry list --json
@@ -71,10 +87,10 @@ Use each command's `--help` for options. Scan/search/init output remains v2; lis
 ```sh
 go test ./...
 make check
-NOSEY_UPSTREAM_INTEGRATION=1 go test ./internal/installation -run '^TestUpstream' -v
+NOSEY_SKILLKIT_INTEGRATION=1 go test ./internal/installation -run '^TestPinned' -v
 ```
 
-`make check` runs formatting, vet/custom lint, race tests, coverage and build. The integration tests invoke the real pinned upstream CLI in disposable projects and need Node/npm plus network access. Ordinary tests use local fixtures and fake installers.
+`make check` runs formatting, vet/custom lint, race tests, coverage and build. The gated integration test installs the current official pin from GitHub into a disposable project and needs Git plus network access. Ordinary tests need neither Node nor network: they use local repositories and fake fetchers.
 
 Official registry data lives in `registries/default/`. Edit the root JSON documents, then run `nosey registry generate registries/default` to canonicalize them and refresh `nosey.registry.json` and `nosey.registry.lock.json`. `make registry-check` verifies the committed output.
 
