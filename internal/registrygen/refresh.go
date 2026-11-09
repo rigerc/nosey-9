@@ -39,19 +39,8 @@ func (g GitFetcher) Fetch(ctx context.Context, upstream Upstream) (string, []byt
 		return "", nil, err
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	env := []string{
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_ALLOW_PROTOCOL=https:ssh",
-		"GIT_LFS_SKIP_SMUDGE=1",
-		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL=" + os.DevNull,
-	}
 	run := func(args ...string) (process.Output, error) {
-		return runner.Run(ctx, dir, env, "git", append([]string{
-			"-c", "core.hooksPath=" + os.DevNull,
-			"-c", "protocol.ext.allow=never",
-			"-c", "submodule.recurse=false",
-		}, args...)...)
+		return runner.Run(ctx, dir, gitpolicy.HardenedEnv(), "git", gitpolicy.HardenedArgs(args...)...)
 	}
 	if _, err = run("init", "--quiet"); err != nil {
 		return "", nil, err

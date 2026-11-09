@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/rigerc/nosey-9/internal/contracts"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/registrygen"
 	"github.com/rigerc/nosey-9/internal/settings"
@@ -29,6 +28,9 @@ type InitOptions struct {
 	Public        bool
 	Register, Git bool
 }
+
+// defaultBranch is the branch the scaffold's workflow triggers on.
+const defaultBranch = "main"
 
 var githubRepoPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+$`)
 
@@ -49,17 +51,19 @@ type InitResult struct {
 	CreatedBy        string              `json:"createdBy"`
 }
 
+type templateCIFile struct {
+	Provider    string `json:"provider"`
+	Source      string `json:"source"`
+	Destination string `json:"destination"`
+}
+
 type templateDescriptor struct {
 	Generator string `json:"generator"`
 	Files     []struct {
 		Source      string `json:"source"`
 		Destination string `json:"destination"`
 	} `json:"files"`
-	CI []struct {
-		Provider    string `json:"provider"`
-		Source      string `json:"source"`
-		Destination string `json:"destination"`
-	} `json:"ci"`
+	CI []templateCIFile `json:"ci"`
 }
 
 // Init stages and validates data-only template output before publication.
@@ -89,19 +93,9 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 		return result, fmt.Errorf("template %s not published by registry %s", templateID, result.SourceRegistryID)
 	}
 	descriptor := manifest.Templates[index].Descriptor
-	bytes, err := storage.Read(root, descriptor, 1<<20)
+	template, err := readTemplate(root, descriptor)
 	if err != nil {
 		return result, err
-	}
-	if err = contracts.Validate("template.schema.json", bytes); err != nil {
-		return result, err
-	}
-	var template templateDescriptor
-	if err = json.Unmarshal(bytes, &template); err != nil {
-		return result, err
-	}
-	if template.Generator != "registry-v1" {
-		return result, fmt.Errorf("unsupported template generator")
 	}
 	target, err := filepath.Abs(opts.Path)
 	if err != nil {
@@ -144,23 +138,27 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 		}
 		result.Files = append(result.Files, file.Destination)
 	}
-	ciProviders := []string{}
+	record := scaffold{Version: scaffoldVersion, Template: templateID, Source: result.SourceRegistryID, Revision: result.Revision, CreatedBy: opts.Version}
 	if opts.CI {
 		for _, ci := range template.CI {
-			if ci.Provider != "github" {
-				return result, fmt.Errorf("unsupported CI provider %s", ci.Provider)
+			if err = checkCIFile(ci.Provider, ci.Destination); err != nil {
+				return result, err
 			}
 			if err = copyFile(ci.Source, ci.Destination); err != nil {
 				return result, err
 			}
 			result.Files = append(result.Files, ci.Destination)
-			ciProviders = append(ciProviders, ci.Provider)
+			var copied []byte
+			if copied, err = storage.Read(stage, ci.Destination, 1<<20); err != nil {
+				return result, err
+			}
+			record.recordCI(ci.Provider, ci.Destination, copied)
 		}
 	}
 	if _, err = os.Stat(filepath.Join(stage, registrygen.ConfigName)); err != nil {
 		return result, fmt.Errorf("template registry %s provides an outdated %q template without %s; run `nosey registry update` to refresh it", result.SourceRegistryID, templateID, registrygen.ConfigName)
 	}
-	id := "local:" + regexp.MustCompile(`[^A-Za-z0-9._:-]+`).ReplaceAllString(filepath.Base(target), "-")
+	id := registryID(target, opts.GitHubRepo)
 	if err = rewriteConfig(stage, id, filepath.Base(target)); err != nil {
 		return result, err
 	}
@@ -172,18 +170,10 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 	if err != nil {
 		return result, err
 	}
-	scaffold := struct {
-		Version   int      `json:"schemaVersion"`
-		Template  string   `json:"templateId"`
-		Source    string   `json:"sourceRegistryId"`
-		Revision  *string  `json:"sourceRevision"`
-		CreatedBy string   `json:"createdBy"`
-		CI        []string `json:"ci,omitempty"`
-	}{1, templateID, result.SourceRegistryID, result.Revision, opts.Version, ciProviders}
-	if err = storage.JSON(filepath.Join(stage, "nosey.scaffold.json"), scaffold); err != nil {
+	if err = storage.JSON(filepath.Join(stage, scaffoldName), record); err != nil {
 		return result, err
 	}
-	result.Files = append(result.Files, "nosey.scaffold.json")
+	result.Files = append(result.Files, scaffoldName)
 	if err = validateSource(stage); err != nil {
 		return result, err
 	}
@@ -219,8 +209,18 @@ func (s Service) Init(ctx context.Context, c domain.Catalog, opts InitOptions) (
 		if err = s.publishGitHub(ctx, target, opts); err != nil {
 			return result, fmt.Errorf("registry created; GitHub repository creation failed: %w", err)
 		}
+		if opts.CI {
+			if err = s.allowActionsPullRequests(ctx, target, opts.GitHubRepo); err != nil {
+				result.Diagnostics = append(result.Diagnostics, domain.Diagnostic{
+					Code:     "W_ACTIONS_PULL_REQUESTS",
+					Severity: "warning",
+					Message:  "Could not let GitHub Actions open pull requests; enable it under Settings > Actions > General, or regeneration PRs will fail: " + storage.Safe(err.Error()),
+					Subject:  opts.GitHubRepo,
+				})
+			}
+		}
 	case opts.Git:
-		if _, err = s.run(ctx, target, nil, "git", "init"); err != nil {
+		if _, err = s.run(ctx, target, nil, "git", "init", "-b", defaultBranch); err != nil {
 			return result, fmt.Errorf("registry created; optional git init failed: %w", err)
 		}
 	}
@@ -235,7 +235,7 @@ func (s Service) publishGitHub(ctx context.Context, dir string, opts InitOptions
 		visibility = "--public"
 	}
 	steps := [][]string{
-		{"git", "init", "-b", "main"},
+		{"git", "init", "-b", defaultBranch},
 		{"git", "add", "-A"},
 		{"git", "commit", "-m", "Initial registry"},
 		{"gh", "repo", "create", opts.GitHubRepo, visibility, "--source", ".", "--remote", "origin", "--push"},
@@ -246,6 +246,24 @@ func (s Service) publishGitHub(ctx context.Context, dir string, opts InitOptions
 		}
 	}
 	return nil
+}
+
+// allowActionsPullRequests lets the scaffold's workflow open review pull
+// requests, which GitHub disables by default. GitHub exposes opening and
+// approving as one setting.
+func (s Service) allowActionsPullRequests(ctx context.Context, dir, repo string) error {
+	_, err := s.run(ctx, dir, nil, "gh", "api", "--method", "PUT", "repos/"+repo+"/actions/permissions/workflow",
+		"-f", "default_workflow_permissions=read", "-F", "can_approve_pull_request_reviews=true")
+	return err
+}
+
+// registryID names a published registry after its repository, so its identity
+// is unique and does not claim to be local. IDs cannot contain "/".
+func registryID(target, githubRepo string) string {
+	if githubRepo != "" {
+		return "github:" + strings.ReplaceAll(githubRepo, "/", ":")
+	}
+	return "local:" + regexp.MustCompile(`[^A-Za-z0-9._:-]+`).ReplaceAllString(filepath.Base(target), "-")
 }
 
 // rewriteConfig sets the staged registry identity and removes any seed source.

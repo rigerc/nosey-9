@@ -224,13 +224,21 @@ func registryInitCommand(o *cliOptions) *cobra.Command {
 	initCmd := &cobra.Command{
 		Use:   "init PATH",
 		Short: "Create an empty registry from the published template",
+		Long: "Create an empty, regenerable registry from a template provider's published template.\n\n" +
+			"--ci github adds a workflow that validates pull requests, regenerates on\n" +
+			"main and weekly opens one review pull request for upstream data and skill\n" +
+			"pins, plus Dependabot for its actions. Update it later with\n" +
+			"`nosey registry ci update`.\n\n" +
+			"With --github the registry ID is github:OWNER:NAME; otherwise it is\n" +
+			"local:DIRECTORY. With --ci github, --github also lets GitHub Actions open\n" +
+			"pull requests in the new repository; GitHub ties that setting to approving them.",
 		Example: `  nosey registry init ./my-registry --yes
   nosey registry init ./my-registry --ci github --register --yes
   nosey registry init ./my-registry --ci github --github owner/my-registry --yes`,
 		Args: cobra.ExactArgs(1),
 	}
 	initCmd.Flags().StringVar(&opts.RegistryID, "template-registry", "", "configured template provider ID (official by default)")
-	initCmd.Flags().StringVar(&ci, "ci", "", "include a CI workflow (github)")
+	initCmd.Flags().StringVar(&ci, "ci", "", "include CI workflow and Dependabot files (github)")
 	initCmd.Flags().BoolVar(&opts.Git, "git", false, "initialize Git after successful creation")
 	initCmd.Flags().StringVar(&opts.GitHubRepo, "github", "", "create and push a GitHub repository OWNER/NAME with the gh CLI (private unless --public)")
 	initCmd.Flags().BoolVar(&opts.Public, "public", false, "make the --github repository public")
@@ -273,6 +281,9 @@ func registryInitCommand(o *cliOptions) *cobra.Command {
 			return emit(cmd, "registry-init-output.schema.json", result)
 		}
 		cmd.Printf("Created %s from %s\n", result.Path, result.SourceRegistryID)
+		for _, d := range result.Diagnostics {
+			cmd.PrintErrf("%s: %s\n", d.Code, d.Message)
+		}
 		if opts.GitHubRepo != "" {
 			cmd.Printf("Published https://github.com/%s\n", opts.GitHubRepo)
 		}
@@ -284,6 +295,6 @@ func registryInitCommand(o *cliOptions) *cobra.Command {
 func registryCommand(o *cliOptions) *cobra.Command {
 	root := &cobra.Command{Use: "registry", Short: "Manage data-only Git/local registries"}
 	root.AddCommand(registryListCommand(o), registryAddCommand(o), registryRemoveCommand(o), registryUpdateCommand(o), registryValidateCommand(o), registryInitCommand(o))
-	root.AddCommand(generateCommand(), refreshCommand(), studioCommand(o))
+	root.AddCommand(generateCommand(), refreshCommand(), studioCommand(o), registryPinsCommand(), registryCICommand(o))
 	return root
 }

@@ -6,13 +6,13 @@ COVERAGE_MIN ?= 80
 # Name of the generated agent skill for this CLI.
 SKILL_NAME ?= $(notdir $(BIN))
 # Core services have a shared coverage gate; CLI/TUI tests exercise the same services.
-CORE_PACKAGES := ./internal/app ./internal/catalog ./internal/registrygen ./internal/contracts ./internal/detection ./internal/installation ./internal/process ./internal/registry ./internal/settings ./internal/storage
+CORE_PACKAGES := ./internal/app ./internal/catalog ./internal/registrygen ./internal/registrypins ./internal/contracts ./internal/detection ./internal/installation ./internal/process ./internal/registry ./internal/settings ./internal/storage
 empty :=
 space := $(empty) $(empty)
 CORE_COVERPKG = $(subst $(space),$(comma),$(strip $(CORE_PACKAGES)))
 comma := ,
 
-.PHONY: registry-check check fix format format-check tidy-check lint test test-coverage build smoke repro-check cross-build run skills audit hooks-install clean
+.PHONY: registry-check scaffold-check check fix format format-check tidy-check lint test test-coverage build smoke repro-check cross-build run skills audit hooks-install clean
 
 # Release platforms; keep in sync with the release.yml matrix.
 CROSS_TARGETS := linux/amd64 linux/arm64
@@ -22,6 +22,10 @@ check: format-check tidy-check lint registry-check test-coverage build smoke
 registry-check:
 	$(GO) run ./cmd/nosey registry generate registries/default --check
 	$(GO) run ./cmd/nosey registry validate registries/default --standalone
+
+# Needs the network: installs the generator commit the scaffold workflow pins.
+scaffold-check: build
+	NOSEY_BIN="$(abspath $(BIN))" bash .github/scripts/scaffold-check.sh
 
 tidy-check:
 	$(GO) mod tidy -diff
