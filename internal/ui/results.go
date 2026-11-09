@@ -135,16 +135,14 @@ func groupSkills(group resultGroup) []domain.SkillView {
 	return skills
 }
 func selectionMark(skills []domain.SkillView, selected map[string]bool) string {
-	eligible, chosen := map[string]bool{}, map[string]bool{}
+	all, chosen := map[string]bool{}, map[string]bool{}
 	for _, skill := range skills {
-		if skill.Status != "installed" {
-			eligible[skill.ID] = true
-			if selected[skill.ID] {
-				chosen[skill.ID] = true
-			}
+		all[skill.ID] = true
+		if skill.Status == "installed" || selected[skill.ID] {
+			chosen[skill.ID] = true
 		}
 	}
-	if len(eligible) > 0 && len(chosen) == len(eligible) {
+	if len(all) > 0 && len(chosen) == len(all) {
 		return "[x]"
 	}
 	if len(chosen) > 0 {

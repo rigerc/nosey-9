@@ -288,6 +288,81 @@ func TestGroupSelectionIncludesCollapsedChildrenAndSkipsInstalled(t *testing.T) 
 		t.Fatal("group deselection left duplicate selections", m.selected)
 	}
 }
+
+func TestInstalledSkillCheckboxInScanAndSearch(t *testing.T) {
+	for tab, name := range []string{"scan", "search"} {
+		t.Run(name, func(t *testing.T) {
+			m := productModel()
+			m.tab = tab
+			m.filters[2].Query = "Shared"
+			m.selected["s"] = true
+			skill := m.session.Catalog.Skills["s"]
+			skill.Source.SkillName = "Shared"
+			m.session.Catalog.Skills["s"] = skill
+			id := "s"
+			updated, _ := m.Update(noseyInventory{generation: m.generation, inventory: installation.Inventory{
+				Complete: true,
+				Skills:   []installation.InventoryItem{{SkillID: &id, Name: "Shared", Status: "installed"}},
+			}})
+			m = updated.(noseyModel)
+			found := false
+			for i, row := range m.rows() {
+				if row.kind == "skill" || row.kind == "group" {
+					if !strings.Contains(row.label, "[x]") {
+						t.Fatalf("installed result is unchecked: %s", row.label)
+					}
+				}
+				if row.kind == "skill" {
+					found = true
+					m.cursor[tab] = i
+				}
+			}
+			if !found {
+				t.Fatal("installed skill missing from results")
+			}
+			for _, key := range []rune{tea.KeySpace, 'a'} {
+				m = productUpdate(t, m, keypress(key))
+				if len(m.selected) != 0 {
+					t.Fatal("installed skill queued for installation", m.selected)
+				}
+				for _, row := range m.rows() {
+					if row.kind == "skill" && !strings.Contains(row.label, "[x]") {
+						t.Fatalf("installed skill became unchecked: %s", row.label)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestResultCheckboxStates(t *testing.T) {
+	for _, tt := range []struct {
+		status   string
+		selected bool
+		mark     string
+	}{
+		{"installed", false, "[x]"},
+		{"installed", true, "[x]"},
+		{"missing", false, "[ ]"},
+		{"outdated", false, "[ ]"},
+		{"unknown", false, "[ ]"},
+		{"missing", true, "[x]"},
+	} {
+		t.Run(fmt.Sprintf("%s/selected=%t", tt.status, tt.selected), func(t *testing.T) {
+			skill := domain.SkillView{ID: "s", Name: "Skill", Status: tt.status}
+			if label := skillLabel(skill, tt.selected); !strings.HasPrefix(label, tt.mark) {
+				t.Fatalf("skill label = %q, want %s", label, tt.mark)
+			}
+			if mark := selectionMark([]domain.SkillView{skill}, map[string]bool{"s": tt.selected}); mark != tt.mark {
+				t.Fatalf("group mark = %q, want %s", mark, tt.mark)
+			}
+		})
+	}
+	if mark := selectionMark([]domain.SkillView{{ID: "s", Status: "installed"}, {ID: "t", Status: "missing"}}, nil); mark != "[-]" {
+		t.Fatalf("partially installed group mark = %q, want [-]", mark)
+	}
+}
+
 func TestTechnologyStripIsHorizontalBorderedAndKeepsFocusVisible(t *testing.T) {
 	m := productModel()
 	rows := []noseyRow{{"heading", "technologies", "Detected technologies 3/3"}, {"technology", "a", "Alpha"}, {"technology", "b", "Beta"}, {"technology", "c", "Very long technology name"}}
