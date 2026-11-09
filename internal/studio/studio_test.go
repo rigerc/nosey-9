@@ -890,3 +890,230 @@ func TestOfficialRegistryRoundTrip(t *testing.T) {
 		t.Fatalf("meta = %+v, diagnostics = %+v", state.Meta, state.Diagnostics)
 	}
 }
+
+func stateOf(t *testing.T, h *harness) State {
+	t.Helper()
+	got := h.api("/api/state", nil)
+	wantStatus(t, got, http.StatusOK)
+	return decode[State](t, got)
+}
+
+func technologyName(t *testing.T, state State, id string) string {
+	t.Helper()
+	for _, entity := range state.Documents[roleTechnologies] {
+		var technology struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		}
+		if err := json.Unmarshal(entity, &technology); err != nil {
+			t.Fatal(err)
+		}
+		if technology.ID == id {
+			return technology.Name
+		}
+	}
+	t.Fatalf("technology %s not found", id)
+	return ""
+}
+
+func renameUpstream(t *testing.T, upstream, to string) {
+	t.Helper()
+	data, err := storage.Read(upstream, "technologies.json", maxDocumentBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := bytes.Replace(data, []byte(`"Vue`), []byte(`"`+to+` Vue`), 1)
+	if err = storage.Write(filepath.Join(upstream, "technologies.json"), updated); err != nil {
+		t.Fatal(err)
+	}
+	commitUpstream(t, upstream)
+}
+
+func TestSyncShowsRemoteWithoutMovingCheckout(t *testing.T) {
+	h, root, _, upstream := gitFixture(t, "x:y", &fakeRunner{}, false)
+	h.server.opts.Store.Cache = t.TempDir()
+	head := gitRun(t, root, "rev-parse", "HEAD")
+	renameUpstream(t, upstream, "Remote")
+	if name := technologyName(t, stateOf(t, h), "vue"); name != "Vue" {
+		t.Fatalf("before sync name = %q", name)
+	}
+	source := h.server.Sync(context.Background())
+	defer h.server.Close()
+	if source.Mode != sourceRemote || source.Ref != "origin/main" || source.Behind != 1 || source.Ahead != 0 || source.Dirty || source.Warning != "" {
+		t.Fatalf("source = %+v", source)
+	}
+	state := stateOf(t, h)
+	if name := technologyName(t, state, "vue"); name != "Remote Vue" {
+		t.Fatalf("after sync name = %q", name)
+	}
+	if state.Meta.Source.Commit != gitRun(t, upstream, "rev-parse", "HEAD") {
+		t.Fatalf("source = %+v", state.Meta.Source)
+	}
+	if gitRun(t, root, "rev-parse", "HEAD") != head || gitRun(t, root, "status", "--porcelain") != "" {
+		t.Fatal("sync moved or dirtied the checkout")
+	}
+	if worktrees := gitRun(t, root, "worktree", "list"); strings.Count(worktrees, "\n") != 0 {
+		t.Fatalf("sync registered a worktree:\n%s", worktrees)
+	}
+	view := h.server.exported
+	h.server.Close()
+	if _, err := os.Stat(view); !os.IsNotExist(err) {
+		t.Fatalf("snapshot left behind: %v", err)
+	}
+}
+
+func TestRefreshPicksUpNewCommitsAndFlagsDraftConflicts(t *testing.T) {
+	h, root, _, upstream := gitFixture(t, "x:y", &fakeRunner{}, false)
+	h.server.opts.Store.Cache = t.TempDir()
+	h.server.Sync(context.Background())
+	defer h.server.Close()
+	first := h.server.exported
+	wantStatus(t, h.stage(change{"role": roleTechnologies, "id": "vue", "entity": raw(`{"id":"vue","name":"Mine","category":"ui","rules":[{"id":"file-0001","kind":"file","glob":"**/vue.config"}]}`)}), http.StatusOK)
+	renameUpstream(t, upstream, "Remote")
+	got := h.api("/api/refresh", payload{})
+	wantStatus(t, got, http.StatusOK)
+	if source := decode[Source](t, got); source.Commit != gitRun(t, upstream, "rev-parse", "HEAD") {
+		t.Fatalf("source = %+v", source)
+	}
+	if _, err := os.Stat(first); !os.IsNotExist(err) {
+		t.Fatalf("previous snapshot left behind: %v", err)
+	}
+	state := stateOf(t, h)
+	if len(state.Ops) != 1 {
+		t.Fatalf("draft must survive refresh: %+v", state.Ops)
+	}
+	flagged := false
+	for _, diagnostic := range state.Diagnostics {
+		flagged = flagged || (diagnostic.Code == "W_STUDIO_CONFLICT" && diagnostic.Subject == "vue")
+	}
+	if !flagged {
+		t.Fatalf("diagnostics = %+v", state.Diagnostics)
+	}
+	if gitRun(t, root, "status", "--porcelain") != "" {
+		t.Fatal("refresh dirtied the checkout")
+	}
+}
+
+func TestDraftBaseComesFromRemoteSoPublishDoesNotConflict(t *testing.T) {
+	runner := &fakeRunner{}
+	h, _, origin, upstream := gitFixture(t, "x:y", runner, false)
+	h.server.opts.Store.Cache = t.TempDir()
+	renameUpstream(t, upstream, "Remote")
+	h.server.Sync(context.Background())
+	defer h.server.Close()
+	wantStatus(t, h.stage(change{"role": roleTechnologies, "id": "vue", "entity": raw(`{"id":"vue","name":"Mine","category":"ui","rules":[{"id":"file-0001","kind":"file","glob":"**/vue.config"}]}`)}), http.StatusOK)
+	got := h.api("/api/publish", payload{"title": "Rename"})
+	wantStatus(t, got, http.StatusOK)
+	branch := decode[publishResult](t, got).Published.Branch
+	if !strings.Contains(gitRun(t, origin, "show", branch+":technologies.json"), "Mine") {
+		t.Fatal("edit was not published")
+	}
+}
+
+func TestSyncFallsBackToCheckoutWithWarning(t *testing.T) {
+	plain, _ := fixture(t, "x:y", false)
+	if source := plain.server.Sync(context.Background()); source.Mode != sourceCheckout || !strings.Contains(source.Warning, "not a Git checkout") {
+		t.Fatalf("non-git source = %+v", source)
+	}
+	h, root, _, upstream := gitFixture(t, "x:y", &fakeRunner{}, false)
+	h.server.opts.Store.Cache = t.TempDir()
+	renameUpstream(t, upstream, "Remote")
+	gitRun(t, root, "remote", "set-url", "origin", filepath.Join(t.TempDir(), "missing.git"))
+	source := h.server.Sync(context.Background())
+	if source.Mode != sourceCheckout || !strings.Contains(source.Warning, "Could not fetch origin/main") {
+		t.Fatalf("offline source = %+v", source)
+	}
+	if name := technologyName(t, stateOf(t, h), "vue"); name != "Vue" {
+		t.Fatalf("name = %q", name)
+	}
+	gitRun(t, root, "remote", "remove", "origin")
+	if source = h.server.Sync(context.Background()); !strings.Contains(source.Warning, "no origin remote") {
+		t.Fatalf("no-remote source = %+v", source)
+	}
+}
+
+func TestSyncRejectsRemoteThatIsNotARegistry(t *testing.T) {
+	h, _, _, upstream := gitFixture(t, "x:y", &fakeRunner{}, false)
+	h.server.opts.Store.Cache = t.TempDir()
+	gitRun(t, upstream, "rm", "-q", registrygen.ConfigName)
+	gitRun(t, upstream, "commit", "-q", "-m", "remove config")
+	gitRun(t, upstream, "push", "-q", "origin", "main")
+	source := h.server.Sync(context.Background())
+	if source.Mode != sourceCheckout || !strings.Contains(source.Warning, "not a valid registry") {
+		t.Fatalf("source = %+v", source)
+	}
+	if h.server.exported != "" || h.server.view != h.server.root {
+		t.Fatalf("view = %q exported = %q", h.server.view, h.server.exported)
+	}
+}
+
+func TestLocalModeEditsCheckoutWithoutFetching(t *testing.T) {
+	runner := &fakeRunner{}
+	h, _, _, upstream := gitFixture(t, "x:y", runner, false)
+	h.server.opts.Local = true
+	renameUpstream(t, upstream, "Remote")
+	source := h.server.Sync(context.Background())
+	if source.Mode != sourceCheckout || source.Warning != "" {
+		t.Fatalf("source = %+v", source)
+	}
+	state := stateOf(t, h)
+	if !state.Meta.Local || technologyName(t, state, "vue") != "Vue" {
+		t.Fatalf("meta = %+v", state.Meta)
+	}
+}
+
+func TestSyncReportsLocalWorkHiddenByRemoteView(t *testing.T) {
+	h, root, _, _ := gitFixture(t, "x:y", &fakeRunner{}, false)
+	h.server.opts.Store.Cache = t.TempDir()
+	replaceInFile(t, filepath.Join(root, "technologies.json"), `"name": "Vue"`, `"name": "Local Vue"`)
+	gitRun(t, root, "commit", "-qam", "local work")
+	if err := storage.Write(filepath.Join(root, "untracked.txt"), []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	source := h.server.Sync(context.Background())
+	defer h.server.Close()
+	if source.Ahead != 1 || source.Behind != 0 || !source.Dirty {
+		t.Fatalf("source = %+v", source)
+	}
+	if name := technologyName(t, stateOf(t, h), "vue"); name != "Vue" {
+		t.Fatalf("remote view must not include local work: %q", name)
+	}
+}
+
+func TestApplyFromRemoteViewShowsTheWorkingTree(t *testing.T) {
+	h, root, _, upstream := gitFixture(t, "x:y", &fakeRunner{}, false)
+	h.server.opts.Store.Cache = t.TempDir()
+	renameUpstream(t, upstream, "Remote")
+	h.server.Sync(context.Background())
+	defer h.server.Close()
+	wantStatus(t, h.stage(change{"role": roleSkills, "id": skillA, "entity": raw(skillJSON(skillA, `,"tags":["x"]`+assessed))}), http.StatusOK)
+	wantStatus(t, h.api("/api/apply", payload{}), http.StatusOK)
+	data, err := storage.Read(root, "skills.json", maxDocumentBytes)
+	if err != nil || !bytes.Contains(data, []byte(`"tags"`)) {
+		t.Fatalf("not applied: %v", err)
+	}
+	state := stateOf(t, h)
+	if state.Meta.Source.Mode != sourceCheckout || !strings.Contains(state.Meta.Source.Warning, "working tree") {
+		t.Fatalf("source = %+v", state.Meta.Source)
+	}
+	if name := technologyName(t, state, "vue"); name != "Vue" {
+		t.Fatalf("name = %q", name)
+	}
+	wantStatus(t, h.api("/api/refresh", payload{}), http.StatusOK)
+	if state = stateOf(t, h); state.Meta.Source.Mode != sourceRemote || technologyName(t, state, "vue") != "Remote Vue" {
+		t.Fatalf("refresh should return to the remote: %+v", state.Meta.Source)
+	}
+}
+
+func TestDescribeSource(t *testing.T) {
+	cases := map[string]Source{
+		"Warning: offline":               {Mode: sourceCheckout, Warning: "offline"},
+		"Editing origin/main at abcdef1": {Mode: sourceRemote, Ref: "origin/main", Commit: "abcdef1234"},
+		"Editing the local checkout":     {Mode: sourceCheckout},
+	}
+	for want, source := range cases {
+		if got := describeSource(source); got != want {
+			t.Fatalf("got %q, want %q", got, want)
+		}
+	}
+}

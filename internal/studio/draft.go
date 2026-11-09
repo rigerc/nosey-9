@@ -2,8 +2,6 @@ package studio
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -262,7 +260,7 @@ func replay(ops []Op, docs map[string]*document, automated bool) ([]Conflict, er
 		switch {
 		case op.Base == nil && op.Entity != nil:
 			if exists && !sameJSON(current, op.Entity) {
-				add("created upstream with different content")
+				add("already exists with different content")
 				continue
 			}
 			doc.put(op.ID, op.Entity)
@@ -271,17 +269,17 @@ func replay(ops []Op, docs map[string]*document, automated bool) ([]Conflict, er
 				continue
 			}
 			if !sameJSON(baseCurated, currentCurated) {
-				add("changed upstream since this deletion was staged")
+				add("changed since this deletion was staged")
 				continue
 			}
 			doc.remove(op.ID)
 		default:
 			if !exists {
-				add("deleted upstream")
+				add("deleted since this edit started")
 				continue
 			}
 			if !sameJSON(baseCurated, currentCurated) && !sameJSON(curated(op.Role, automated, op.Entity), currentCurated) {
-				add("changed upstream since this edit started")
+				add("changed since this edit started")
 				continue
 			}
 			entity := op.Entity
@@ -300,8 +298,7 @@ func replay(ops []Op, docs map[string]*document, automated bool) ([]Conflict, er
 
 // draftPath keeps drafts outside the registry so they never dirty its tree.
 func draftPath(data, root string) (string, string) {
-	sum := sha256.Sum256([]byte(root))
-	return filepath.Join(data, "studio"), hex.EncodeToString(sum[:8]) + ".json"
+	return filepath.Join(data, "studio"), rootKey(root) + ".json"
 }
 
 func loadDraft(data, root string) (Draft, error) {

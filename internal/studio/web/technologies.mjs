@@ -74,7 +74,7 @@ function TechnologyEditor({ ctx, original, isNew }) {
   const [form, setForm] = useState(() => clone(original));
   const [confirm, setConfirm] = useState(null);
   const [renaming, setRenaming] = useState('');
-  useEffect(() => setForm(clone(original)), [original]);
+  useEffect(() => setForm(clone(original)), [JSON.stringify(original)]);
   const set = (patch) => setForm({ ...form, ...patch });
   const dirty = !same(form, original) || isNew;
   const detectors = useMemo(() => [...new Set([...ctx.model.technologies.values()].flatMap((t) => t.rules.filter((r) => r.kind === 'detector').map((r) => r.detector)))].sort(), [ctx.model]);

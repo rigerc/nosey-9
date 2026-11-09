@@ -134,6 +134,18 @@ test('healthQueue treats a staged location as located', () => {
   assert.ok(!logic.healthQueue({ diagnostics: [], ops, assessments }, model).sections.some((s) => s.id === 'unlocated'));
 });
 
+test('sourceSummary labels the data and flags hidden local work', () => {
+  const remote = { mode: 'remote', ref: 'origin/main', commit: 'abcdef1234', ahead: 2, behind: 5, dirty: true, warning: '' };
+  const summary = logic.sourceSummary(remote);
+  assert.equal(summary.label, 'origin/main · abcdef1 · checkout 5 behind');
+  assert.equal(summary.notices.length, 2);
+  assert.match(summary.notices[0], /2 commits not on origin\/main/);
+  assert.deepEqual(logic.sourceSummary({ mode: 'remote', ref: 'origin/main', commit: 'a', ahead: 0, behind: 9, dirty: false, warning: '' }).notices, []);
+  const local = logic.sourceSummary({ mode: 'checkout', commit: '', warning: 'Could not fetch' });
+  assert.equal(local.label, 'Local checkout');
+  assert.deepEqual(local.notices, ['Could not fetch']);
+});
+
 test('lineDiff marks additions and removals', () => {
   const types = logic.lineDiff({ a: 1 }, { a: 2 }).map((line) => line.type);
   assert.ok(types.includes('add') && types.includes('del') && types.includes('same'));
