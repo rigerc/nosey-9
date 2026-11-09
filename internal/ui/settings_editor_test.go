@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -25,7 +26,7 @@ func editableSettingsModel(t *testing.T) noseyModel {
 	return m
 }
 func TestSettingsChoicesStayOnPageAndSaveTypedValues(t *testing.T) {
-	for _, tc := range []struct{ id, key string }{{"display", "ui.mode"}, {"method", "installation.method"}, {"mode", "installation.defaultMode"}, {"telemetry", "installation.upstreamTelemetry"}, {"mcp", "detection.enableMcpPackage"}} {
+	for _, tc := range []struct{ id, key string }{{"display", "ui.mode"}, {"method", "installation.method"}, {"mode", "installation.defaultMode"}, {"telemetry", "installation.upstreamTelemetry"}, {"mcp", "detection.enableMcpPackage"}, {"collapse", "ui.collapseRepos"}} {
 		t.Run(tc.id, func(t *testing.T) {
 			m := editableSettingsModel(t)
 			m, _ = m.setting(noseyRow{kind: "setting", id: tc.id})
@@ -33,7 +34,7 @@ func TestSettingsChoicesStayOnPageAndSaveTypedValues(t *testing.T) {
 				t.Fatal("fixed-choice setting is a text field")
 			}
 			screen := ansi.Strip(m.View().Content)
-			if !strings.Contains(screen, "[Settings]") || (!strings.Contains(screen, "Refresh interval:") && !strings.Contains(screen, "Maximum inspected file:") && !strings.Contains(screen, "Default install action:")) {
+			if !strings.Contains(screen, "[Settings]") || (!strings.Contains(screen, "Refresh interval:") && !strings.Contains(screen, "Maximum inspected file:") && !strings.Contains(screen, "Default install action:") && !strings.Contains(screen, "Repository groups:")) {
 				t.Fatal("settings form replaced its parent screen", screen)
 			}
 			m = productUpdate(t, m, keypress(tea.KeyDown))
@@ -53,6 +54,8 @@ func TestSettingsChoicesStayOnPageAndSaveTypedValues(t *testing.T) {
 				got = r.Settings.Installation.Mode
 			case "telemetry":
 				got = r.Settings.Installation.Telemetry
+			case "collapse":
+				got = strconv.FormatBool(r.Settings.UI.CollapseRepos)
 			case "mcp":
 				if r.Settings.Detection.MCP {
 					got = "true"

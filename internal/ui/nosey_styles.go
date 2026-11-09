@@ -29,7 +29,7 @@ func (s noseyStyles) row(row noseyRow, focused bool, width int) string {
 	switch {
 	case row.kind == "group" && strings.HasPrefix(row.id, "repo:"):
 		label = s.repo.Render(label)
-	case row.kind == "group" || row.kind == "heading" || row.kind == "technology" || row.kind == "registry-overview":
+	case row.kind == "group" || row.kind == "heading" || row.kind == "registry-overview":
 		label = s.heading.Render(label)
 	case row.kind == "notice":
 		label = s.muted.Render(label)
@@ -136,44 +136,22 @@ func (s noseyStyles) skillRow(label string, focused bool, width int) string {
 	return mark + lipgloss.NewStyle().Bold(true).Render(head) + " " + badge
 }
 
-func technologyStrip(rows []noseyRow, cursor, width int, styles noseyStyles) []string {
-	title := "Detected technologies"
+// technologyStrip renders detected technologies as a read-only bordered line; it never takes focus.
+func technologyStrip(title string, names []string, width int, styles noseyStyles) []string {
 	chips := []string{}
-	focusedStart, focusedEnd, position := 0, 0, 0
-	for i, row := range rows {
-		if row.kind == "heading" && row.id == "technologies" {
-			title = row.label
-		}
-		if row.kind != "technology" {
-			continue
-		}
-		label := storage.Safe(row.label)
-		if i == cursor {
-			label = "› " + label
-			focusedStart = position
-			focusedEnd = position + ansi.StringWidth(label)
-			label = styles.focus.Render(label)
-		} else {
-			label = styles.accent.Render(label)
-		}
-		chips = append(chips, label)
-		position += ansi.StringWidth(label) + 3
+	for _, name := range names {
+		chips = append(chips, styles.accent.Render(storage.Safe(name)))
 	}
-	line := strings.Join(chips, " · ")
+	line := strings.Join(chips, styles.muted.Render(" · "))
 	if len(chips) == 0 {
 		line = styles.muted.Render("No detected technologies")
 	}
-	available := max(1, width-4)
-	offset := max(0, focusedEnd-available)
-	if focusedStart < offset {
-		offset = focusedStart
-	}
-	line = ansi.Cut(line, offset, offset+available)
+	line = ansi.Truncate(line, max(1, width-4), "…")
 	border := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#94A3B8")).Padding(0, 1).Width(max(1, width-2))
 	if os.Getenv("NO_COLOR") != "" {
 		border = border.UnsetBorderForeground()
 	}
-	return append([]string{styles.heading.Render(title)}, strings.Split(border.Render(line), "\n")...)
+	return append([]string{ansi.Truncate(styles.heading.Render(title), max(1, width), "…")}, strings.Split(border.Render(line), "\n")...)
 }
 
 func (s noseyStyles) footer(summary, bindings string, width int) string {

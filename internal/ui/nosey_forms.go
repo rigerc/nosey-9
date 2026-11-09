@@ -209,6 +209,13 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 			m.err = err
 			return m, nil
 		}
+		if key == "ui.collapseRepos" {
+			m.session.Resolved.Settings.UI.CollapseRepos = values[0] == "true"
+			m.collapsed = map[string]bool{}
+			m.modal = ""
+			m.message = "Repository groups will start " + collapseLabel(values[0] == "true") + "."
+			return m, nil
+		}
 		if key == "ui.mode" {
 			m.session.Resolved.Settings.UI.Mode = values[0]
 			m.modal = ""
@@ -291,6 +298,8 @@ func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
 	switch row.id {
 	case "display":
 		m.openDisplaySelect()
+	case "collapse":
+		m.openForm("setting", []string{"ui.collapseRepos"}, []string{strconv.FormatBool(m.session.Resolved.Settings.UI.CollapseRepos)})
 	case "agents":
 		m.openForm("setting", []string{"installation.agents"}, []string{strings.Join(m.session.Resolved.Settings.Installation.Agents, ",")})
 	case "method":

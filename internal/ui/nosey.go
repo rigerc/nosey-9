@@ -28,6 +28,11 @@ type noseyInventory struct {
 	inventory  installation.Inventory
 	generation int
 }
+type noseyUpdates struct {
+	names      []string
+	err        error
+	generation int
+}
 type noseyOperation struct {
 	message    string
 	err        error
@@ -75,6 +80,9 @@ type noseyModel struct {
 	displayMode                 string
 	settingsAnchor              string
 	refreshOnStart              bool
+	// updates holds the skills the last upstream check reported; nil means no check has run.
+	updates   []string
+	busyLabel string
 }
 
 // RunNosey opens the single-column four-tab product interface.
@@ -97,7 +105,7 @@ func newNoseyModel(ctx context.Context, cwd, config string) noseyModel {
 	input.Prompt = "Search: "
 	input.CharLimit = 200
 	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(14))
-	m := noseyModel{ctx: ctx, cwd: cwd, config: config, width: 80, height: 24, loading: true, generation: 1, selected: map[string]bool{}, collapsed: map[string]bool{}, query: input, viewport: vp}
+	m := noseyModel{ctx: ctx, cwd: cwd, config: config, width: 80, height: 24, loading: true, generation: 1, section: 1, selected: map[string]bool{}, collapsed: map[string]bool{}, query: input, viewport: vp}
 	m.displayMode = "fullscreen"
 	m.styles = newNoseyStyles()
 	m.busy = spinner.New(spinner.WithSpinner(spinner.Dot))
@@ -126,6 +134,18 @@ func (m noseyModel) readInventory() tea.Cmd {
 		ctx, cancel := context.WithTimeout(m.ctx, 8*time.Second)
 		defer cancel()
 		return noseyInventory{inventory: session.Installer.Inventory(ctx, session.Catalog), generation: generation}
+	}
+}
+
+// checkUpdates asks the upstream CLI which installed skills have newer content; it needs network access.
+func (m noseyModel) checkUpdates() tea.Cmd {
+	installer, generation := m.session.Installer, m.generation
+	installer.Settings = m.session.Resolved.Settings
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(m.ctx, 4*time.Minute)
+		defer cancel()
+		names, err := installer.CheckUpdates(ctx)
+		return noseyUpdates{names: names, err: err, generation: generation}
 	}
 }
 func (m noseyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -186,7 +206,10 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			return m, nil
 		}
 		m.inventory = value.inventory
-		m.session.ApplyInventory(value.inventory)
+		if m.updates != nil {
+			m.inventory = m.inventory.MarkOutdated(m.updates)
+		}
+		m.session.ApplyInventory(m.inventory)
 		for i := range m.scan.Skills {
 			status := m.session.Catalog.InstallStatus[m.scan.Skills[i].ID]
 			if status == "" {
@@ -200,6 +223,25 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case noseyUpdates:
+		if value.generation != m.generation {
+			return m, nil
+		}
+		m.loading, m.busyLabel = false, ""
+		if value.err != nil {
+			m.err = value.err
+			return m, nil
+		}
+		m.err = nil
+		m.updates = value.names
+		if m.updates == nil {
+			m.updates = []string{}
+		}
+		m.message = "All installed skills are up to date."
+		if len(value.names) > 0 {
+			m.message = fmt.Sprintf("%s can be updated: %s", countLabel(len(value.names), "skill"), strings.Join(value.names, ", "))
+		}
+		return m, m.readInventory()
 	case installReady:
 		return m.applyInstallReady(value)
 	case installStepDone:
@@ -307,14 +349,6 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			m.cursor[m.tab] = max(0, cursor-1)
 		case "down", "j":
 			m.cursor[m.tab] = min(max(0, len(rows)-1), cursor+1)
-			if m.tab == 0 && len(rows) > 0 && rows[cursor].kind == "technology" {
-				for i := cursor + 1; i < len(rows); i++ {
-					if rows[i].kind != "technology" {
-						m.cursor[0] = i
-						break
-					}
-				}
-			}
 		case "/":
 			if m.tab < 2 {
 				m.search = true
@@ -323,30 +357,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 				return m, textinput.Blink
 			}
 		case "left", "right":
-			if m.tab == 0 && len(rows) > 0 && rows[cursor].kind == "technology" {
-				delta := 1
-				if key == "left" {
-					delta = -1
-				}
-				next := cursor + delta
-				if next >= 0 && next < len(rows) && rows[next].kind == "technology" {
-					m.cursor[0] = next
-				}
-				break
-			}
-			if m.tab == 0 && (len(rows) == 0 || rows[cursor].kind != "group") {
-				if key == "left" {
-					m.section = 0
-				} else {
-					m.section = 1
-				}
-				for i, row := range rows {
-					if m.section == 0 && row.kind == "technology" || m.section == 1 && row.kind == "skill" {
-						m.cursor[m.tab] = i
-						break
-					}
-				}
-			} else if m.tab < 2 && len(rows) > 0 && rows[cursor].kind == "group" {
+			if m.tab < 2 && len(rows) > 0 && rows[cursor].kind == "group" {
 				m.collapsed[rows[cursor].id] = key == "left"
 			}
 		case "space":
@@ -384,6 +395,12 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			if m.tab < 2 {
 				m.filters[m.activeFilter()] = domain.DefaultFilters()
 			}
+		case "u":
+			if m.tab == 2 && m.session.Store.Workspace != "" {
+				m.err, m.message = nil, ""
+				m.loading, m.busyLabel = true, "Checking installed skills for updates…"
+				return m, m.checkUpdates()
+			}
 		case "r":
 			if m.tab == 2 {
 				return m, m.readInventory()
@@ -410,7 +427,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 		case "?":
 			m.modal = "details"
-			m.details = "Tab / Shift+Tab: change section\nArrows: navigate; ←/→: technology strip or group collapse\nSpace: select skill or group; Enter: expand/collapse group\nLeft/right: navigate technologies; Down: recommendations\na: select visible skills\nf: filters; s: sort; /: search; x: clear filters\ni: install all selected skills, including hidden selections\nr: refresh registries (or inventory on the Installed tab); q: quit; Escape: cancel dialog\nSettings: Enter edits; a adds existing; n creates registry"
+			m.details = "Tab / Shift+Tab: change section\nArrows: navigate; ←/→: collapse or expand a group\nSpace: select skill or group; Enter: expand/collapse group\na: select visible skills\nf: filters; s: sort; /: search; x: clear filters\ni: install all selected skills, including hidden selections\nr: refresh registries (or inventory on the Manage tab); u: check installed skills for updates (Manage tab); q: quit; Escape: cancel dialog\nSettings: Enter edits; a adds existing; n creates registry"
 		case "enter":
 			if len(rows) == 0 {
 				break
@@ -418,15 +435,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			row := rows[cursor]
 			switch row.kind {
 			case "group":
-				m.collapsed[row.id] = !m.collapsed[row.id]
-			case "technology":
-				for _, t := range m.scan.Technologies {
-					if t.ID == row.id {
-						data, _ := json.MarshalIndent(t.Evidence, "", "  ")
-						m.details = string(data)
-						m.modal = "details"
-					}
-				}
+				m.collapsed[row.id] = !m.isCollapsed(row.id)
 			case "skill":
 				s := m.session.Catalog.Skills[row.id]
 				m.details = s.Name + "\n" + s.Description + "\nSource: " + s.Source.URI + s.Source.Path + "\nSkill name: " + s.Source.SkillName + "\nRegistry: " + s.RegistryID
@@ -446,17 +455,6 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 				}
 			case "setting", "registry", "pending":
 				return m.setting(row)
-			}
-		}
-	}
-	if m.tab == 0 {
-		rows := m.rows()
-		if m.cursor[0] < len(rows) {
-			row := rows[m.cursor[0]]
-			if row.kind == "skill" || row.kind == "group" || row.kind == "heading" && row.id == "skills" {
-				m.section = 1
-			} else if row.kind == "technology" || row.kind == "heading" && row.id == "technologies" {
-				m.section = 0
 			}
 		}
 	}

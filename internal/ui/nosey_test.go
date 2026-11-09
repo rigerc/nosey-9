@@ -2,7 +2,9 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -95,9 +97,8 @@ func TestNoseyExploreDuplicateRowsShareSelectionAndHiddenSelectionPersists(t *te
 }
 func TestNoseyScanFocusTargetsIndependentFilterState(t *testing.T) {
 	m := productModel()
-	m = productUpdate(t, m, keypress(tea.KeyRight))
 	if m.section != 1 {
-		t.Fatal("right did not focus recommendations")
+		t.Fatal("Scan does not start on recommendations")
 	}
 	m = productUpdate(t, m, keypress('f'))
 	m.form.inputs[0].SetValue("skill-query")
@@ -169,18 +170,6 @@ func TestSharedResultTreeShowsBadgesAndKeepsEvidenceInDetails(t *testing.T) {
 		if len(slots) <= len(rows) {
 			t.Fatal("group spacing missing")
 		}
-	}
-	m.tab = 0
-	m.rowCache = nil
-	for i, row := range m.rows() {
-		if row.kind == "technology" {
-			m.cursor[0] = i
-			break
-		}
-	}
-	m = productUpdate(t, m, keypress(tea.KeyEnter))
-	if m.modal != "details" || !strings.Contains(m.details, "private-evidence/package.json") {
-		t.Fatal("evidence is no longer accessible in details")
 	}
 }
 func TestLargeResultWindowBoundsRenderingAndRetainsFocus(t *testing.T) {
@@ -367,34 +356,39 @@ func TestResultCheckboxStates(t *testing.T) {
 	}
 }
 
-func TestTechnologyStripIsHorizontalBorderedAndKeepsFocusVisible(t *testing.T) {
+func TestTechnologyStripIsHorizontalBorderedAndNotSelectable(t *testing.T) {
 	m := productModel()
-	rows := []noseyRow{{"heading", "technologies", "Detected technologies 3/3"}, {"technology", "a", "Alpha"}, {"technology", "b", "Beta"}, {"technology", "c", "Very long technology name"}}
-	wide := technologyStrip(rows, 2, 80, m.styles)
-	if len(wide) != 4 || !strings.Contains(ansi.Strip(wide[2]), "Alpha · › Beta · Very long technology name") {
+	names := []string{"Alpha", "Beta", "Very long technology name"}
+	wide := technologyStrip("Detected technologies 3/3", names, 80, m.styles)
+	if len(wide) != 4 || !strings.Contains(ansi.Strip(wide[2]), "Alpha · Beta · Very long technology name") {
 		t.Fatal("technology list is not horizontal", wide)
 	}
 	if !strings.Contains(ansi.Strip(wide[1]), "╭") || !strings.Contains(ansi.Strip(wide[3]), "╰") {
 		t.Fatal("strip has no border")
 	}
-	narrow := technologyStrip(rows, 3, 32, m.styles)
-	if !strings.Contains(ansi.Strip(narrow[2]), "› Very long technology") {
-		t.Fatal("focused technology scrolled out of strip", narrow)
-	}
-	for _, line := range narrow {
-		if ansi.StringWidth(line) > 32 {
+	for _, line := range technologyStrip("Detected technologies 3/3", names, 24, m.styles) {
+		if ansi.StringWidth(line) > 24 {
 			t.Fatal("strip exceeds terminal width", line)
 		}
 	}
-	m.scan.Technologies = append(m.scan.Technologies, domain.Detection{ID: "b"})
-	m.cursor[0] = 1
-	m = productUpdate(t, m, keypress(tea.KeyRight))
-	if m.rows()[m.cursor[0]].id != "b" || m.section != 0 {
-		t.Fatal("right arrow left the technology strip")
+	for _, tab := range []int{0, 1} {
+		m.tab = tab
+		for _, row := range m.rows() {
+			if row.kind == "technology" || row.id == "technologies" {
+				t.Fatal("technologies are selectable rows", row)
+			}
+		}
 	}
-	m = productUpdate(t, m, keypress(tea.KeyDown))
-	if m.section != 1 {
-		t.Fatal("down arrow did not enter recommendations")
+	m.tab = 0
+	m.cursor[0] = 0
+	for _, key := range []rune{tea.KeyRight, tea.KeyLeft, tea.KeyEnter} {
+		m = productUpdate(t, m, keypress(key))
+		if m.modal != "" || m.section != 1 {
+			t.Fatal("technology strip took focus", key)
+		}
+	}
+	if !strings.Contains(screenText(m), "Detected technologies") {
+		t.Fatal("strip no longer rendered")
 	}
 }
 
@@ -455,5 +449,83 @@ func TestStaleOperationResultsDoNotReplaceCurrentState(t *testing.T) {
 	next, ok = updated.(noseyModel)
 	if !ok || next.modal != "sort" || !next.loading {
 		t.Fatal("stale installer result disturbed the newer load or modal")
+	}
+}
+
+func TestCollapseReposSettingCollapsesRepositoriesButHonorsToggles(t *testing.T) {
+	repoRows := func(m noseyModel) (repos, skills int) {
+		for _, row := range m.rows() {
+			if row.kind == "skill" {
+				skills++
+			}
+			if row.kind == "group" && strings.HasPrefix(row.id, "repo:") {
+				repos++
+			}
+		}
+		return repos, skills
+	}
+	m := productModel()
+	if repos, skills := repoRows(m); repos != 1 || skills != 1 {
+		t.Fatal("repositories are not expanded by default", repos, skills)
+	}
+	m.session.Resolved.Settings.UI.CollapseRepos = true
+	repos, skills := repoRows(m)
+	if repos != 1 || skills != 0 {
+		t.Fatal("repository group was not collapsed by default", repos, skills)
+	}
+	for i, row := range m.rows() {
+		if row.kind == "group" && strings.HasPrefix(row.id, "repo:") {
+			m.cursor[0] = i
+		}
+	}
+	m = productUpdate(t, m, keypress(tea.KeyEnter))
+	if _, skills = repoRows(m); skills != 1 {
+		t.Fatal("Enter did not expand a default-collapsed repository", skills)
+	}
+	if groups := len(m.rows()); groups < 3 {
+		t.Fatal("technology group must stay expanded", groups)
+	}
+}
+
+func TestCollapseReposSettingIsSavedAndResetsToggles(t *testing.T) {
+	m := editableSettingsModel(t)
+	m.collapsed["repo:a:repo"] = false
+	m, _ = m.setting(noseyRow{kind: "setting", id: "collapse"})
+	m.form.inputs[0].SetValue("true")
+	m = productUpdate(t, m, keypress(tea.KeyEnter))
+	resolved, err := m.session.Store.Resolve()
+	if err != nil || !resolved.Settings.UI.CollapseRepos || !m.session.Resolved.Settings.UI.CollapseRepos || len(m.collapsed) != 0 {
+		t.Fatal("setting not saved", err, m.collapsed)
+	}
+}
+
+func TestUpdateCheckMarksInstalledSkillsAndSurvivesInventoryRefresh(t *testing.T) {
+	m := productModel()
+	m.tab = 2
+	m.session.Store = settings.Store{Workspace: t.TempDir()}
+	m = productUpdate(t, m, keypress('u'))
+	if !m.loading || m.busyLabel == "" || !strings.Contains(screenText(m), "Checking installed skills for updates") {
+		t.Fatal("update check did not show progress", m.busyLabel)
+	}
+	generation := m.generation
+	m, cmd := updateModel(t, m, noseyUpdates{generation: generation, names: []string{"alpha"}})
+	if m.loading || cmd == nil || !strings.Contains(m.message, "alpha") || !slices.Equal(m.updates, []string{"alpha"}) {
+		t.Fatal("update result not applied", m.message)
+	}
+	id := "s"
+	skill := m.session.Catalog.Skills[id]
+	skill.Source.SkillName = "alpha"
+	m.session.Catalog.Skills[id] = skill
+	inv := installation.Inventory{Complete: true, Skills: []installation.InventoryItem{{SkillID: &id, Name: "alpha", Status: "installed"}, {Name: "beta", Status: "installed"}}}
+	m, _ = updateModel(t, m, noseyInventory{generation: generation, inventory: inv})
+	if m.inventory.Skills[0].Status != "outdated" || m.inventory.Skills[1].Status != "installed" || m.session.Catalog.InstallStatus["s"] != "outdated" {
+		t.Fatal("outdated status not applied", m.inventory.Skills)
+	}
+	if !strings.Contains(m.rows()[0].label, "update available") {
+		t.Fatal(m.rows()[0])
+	}
+	m, _ = updateModel(t, m, noseyUpdates{generation: generation, err: errors.New("offline")})
+	if m.err == nil || m.loading {
+		t.Fatal("failed check not reported")
 	}
 }
