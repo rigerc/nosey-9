@@ -539,11 +539,11 @@ func TestUpdateCheckIgnoresRepeatKeyWhileLoading(t *testing.T) {
 	m.tab = 2
 	m.session.Store = settings.Store{Workspace: t.TempDir()}
 	m = productUpdate(t, m, keypress('u'))
-	updated, cmd := m.Update(keypress('u'))
+	next, cmd := updateModel(t, m, keypress('u'))
 	if cmd != nil {
 		t.Fatal("second key started another check")
 	}
-	if next := updated.(noseyModel); !next.loading || next.busyLabel == "" {
+	if !next.loading || next.busyLabel == "" {
 		t.Fatal("second key disturbed the running check")
 	}
 }
