@@ -55,12 +55,12 @@ func (c *copier) warn(code, rel, msg string) {
 
 // copySkill fills dstRel (workspace-relative, already unique) with src's contents.
 func (d *destRoot) copySkill(ctx context.Context, src, dstRel string) ([]Warning, error) {
-	real, err := filepath.EvalSymlinks(src)
+	resolved, err := filepath.EvalSymlinks(src)
 	if err != nil {
 		return nil, err
 	}
-	c := &copier{ctx: ctx, dest: d, root: real}
-	err = c.copyDir(real, ".", dstRel, map[string]bool{})
+	c := &copier{ctx: ctx, dest: d, root: resolved}
+	err = c.copyDir(resolved, ".", dstRel, map[string]bool{})
 	return c.warnings, err
 }
 
@@ -140,6 +140,7 @@ func (c *copier) copyDir(realSrc, rel, dstRel string, ancestors map[string]bool)
 }
 
 func (c *copier) copyFile(src, dstRel string, perm fs.FileMode) (err error) {
+	// #nosec G304 -- src is a checked path inside the skill being copied.
 	in, err := os.Open(src)
 	if err != nil {
 		return err

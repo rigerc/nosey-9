@@ -47,7 +47,7 @@ func (f dirFetcher) Fetch(_ context.Context, src skillkit.Source) (*skillkit.Che
 func writeFixtureSkill(t *testing.T, root, name string) {
 	t.Helper()
 	dir := filepath.Join(root, "skills", name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	body := "---\nname: " + name + "\ndescription: Fixture.\n---\n"
@@ -284,7 +284,9 @@ func TestInstallFailureStopsReleasesTheLockAndSurvivesTheReload(t *testing.T) {
 	m.session.Installer.Fetcher = dirFetcher{} // every fetch fails
 	m = openedInstall(t, m)
 	m, cmd := m.updateInstallPage("enter")
+	// Pressing enter first returns the command that prepares the operation.
 	m, cmd = updateModel(t, m, cmd().(installReady))
+	// A ready operation continues with the first source step.
 	done := cmd().(installStepDone)
 	if done.err == nil || done.result.Skills[0].Status != skillkit.StatusNotStarted {
 		t.Fatalf("%+v", done)
@@ -310,8 +312,10 @@ func TestInstallSurfacesSkippedAgentsAndKeepsPartialResults(t *testing.T) {
 	m, _ := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Agents = []string{"codex", "windsurf"} })
 	m = openedInstall(t, m)
 	m, cmd := m.updateInstallPage("enter")
+	// Pressing enter first returns the command that prepares the operation.
 	m, cmd = updateModel(t, m, cmd().(installReady))
 	for cmd != nil && m.install.running {
+		// While the install runs, every command is the next source step.
 		m, cmd = updateModel(t, m, cmd().(installStepDone))
 	}
 	if m.err != nil || !strings.Contains(m.warning, "skipped windsurf for alpha") || !strings.Contains(m.message, "Installed 3 skills") {

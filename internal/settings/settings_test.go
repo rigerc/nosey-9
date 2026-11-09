@@ -246,17 +246,24 @@ func writeUser(t *testing.T, s Store, doc string) {
 	}
 }
 
-func savedVersion(t *testing.T, path string) (int, map[string]any) {
+// savedSettings is the part of a written settings file the migration tests inspect.
+type savedSettings struct {
+	Version      int                        `json:"schemaVersion"`
+	Installation map[string]json.RawMessage `json:"installation"`
+}
+
+func savedVersion(t *testing.T, path string) savedSettings {
 	t.Helper()
+	// #nosec G304 -- test helper reading the settings file in its temporary store.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var doc map[string]any
+	var doc savedSettings
 	if err = json.Unmarshal(data, &doc); err != nil {
 		t.Fatal(err)
 	}
-	return int(doc["schemaVersion"].(float64)), doc
+	return doc
 }
 
 func TestV1AndV2MigrateToV3OnLoadAndPersistOnSet(t *testing.T) {
@@ -274,14 +281,13 @@ func TestV1AndV2MigrateToV3OnLoadAndPersistOnSet(t *testing.T) {
 		if err = s.Set("updates.ttlHours", []byte(`12`), false); err != nil {
 			t.Fatal(version, err)
 		}
-		got, saved := savedVersion(t, s.UserPath)
-		installation := saved["installation"].(map[string]any)
+		saved := savedVersion(t, s.UserPath)
 		for _, key := range []string{"defaultMode", "cliVersion", "upstreamTelemetry"} {
-			if _, ok := installation[key]; ok {
+			if _, ok := saved.Installation[key]; ok {
 				t.Fatalf("v%d: retired key %s survived the write", version, key)
 			}
 		}
-		if got != 3 || installation["method"] != "copy" {
+		if saved.Version != 3 || string(saved.Installation["method"]) != `"copy"` {
 			t.Fatal(version, saved)
 		}
 	}
@@ -297,7 +303,7 @@ func TestRetiredKeysAreRejectedByV3Writes(t *testing.T) {
 	if err := s.Set("installation.verbose", []byte(`true`), false); err != nil {
 		t.Fatal(err)
 	}
-	if v, _ := savedVersion(t, s.UserPath); v != 3 {
+	if v := savedVersion(t, s.UserPath).Version; v != 3 {
 		t.Fatal("new file is not v3", v)
 	}
 }

@@ -61,19 +61,19 @@ func ListInstalled(target Target) (Inventory, error) {
 	if err := target.validate(); err != nil {
 		return Inventory{}, err
 	}
-	real, err := filepath.EvalSymlinks(target.Workspace)
+	resolved, err := filepath.EvalSymlinks(target.Workspace)
 	if err != nil {
 		return Inventory{}, err
 	}
-	root, err := os.OpenRoot(real)
+	root, err := os.OpenRoot(resolved)
 	if err != nil {
 		return Inventory{}, err
 	}
 	defer func() { _ = root.Close() }()
-	d := &destRoot{root: root, real: real}
+	d := &destRoot{root: root, real: resolved}
 
 	detected := map[string]bool{}
-	for _, id := range target.Agents.Detected(real) {
+	for _, id := range target.Agents.Detected(resolved) {
 		detected[id] = true
 	}
 	// Attribution by directory.

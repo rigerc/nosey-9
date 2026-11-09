@@ -182,6 +182,7 @@ func TestCheckUpdatesCountsLegacyEntries(t *testing.T) {
 	if !strings.Contains(got.Summary(), "No installed skills can be compared") || !strings.Contains(got.Warning(), "2 skills cannot be checked") {
 		t.Fatal(got.Summary(), got.Warning())
 	}
+	// newService always installs a *fakeFetcher.
 	if fetched := s.Fetcher.(*fakeFetcher).fetches(); len(fetched) != 0 {
 		t.Fatal("legacy entries have nothing to fetch:", fetched)
 	}

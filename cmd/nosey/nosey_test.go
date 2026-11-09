@@ -216,7 +216,7 @@ func TestInstallFailureExitsFiveAndKeepsCompletedWork(t *testing.T) {
 type lockSaboteur struct{ workspace string }
 
 func (l lockSaboteur) Fetch(ctx context.Context, src skillkit.Source) (*skillkit.Checkout, error) {
-	if err := os.Mkdir(filepath.Join(l.workspace, "skills-lock.json"), 0o755); err != nil {
+	if err := os.Mkdir(filepath.Join(l.workspace, "skills-lock.json"), 0o750); err != nil {
 		return nil, err
 	}
 	return skillkit.Fetcher{}.Fetch(ctx, src)

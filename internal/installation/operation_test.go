@@ -187,7 +187,7 @@ func TestFailedLockWriteIsAnIncompleteOperation(t *testing.T) {
 	s, _, _ := twoSkillSource(t)
 	op := begin(t, s)
 	// The lock became unusable after the final preflight: a directory sits where the file belongs.
-	if err := os.Mkdir(filepath.Join(s.Store.Workspace, "skills-lock.json"), 0o755); err != nil {
+	if err := os.Mkdir(filepath.Join(s.Store.Workspace, "skills-lock.json"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	res, err := op.RunSource(context.Background(), plan("o/one", shaA, "copy", []string{"codex"}, "alpha"))
@@ -313,7 +313,7 @@ func TestEveryAgentSkippedIsNotASuccess(t *testing.T) {
 func TestInternalSkillsAreInstalledWhenNamed(t *testing.T) {
 	src := t.TempDir()
 	body := "---\nname: hidden\ndescription: Internal fixture.\nmetadata:\n  internal: true\n---\n\nHidden.\n"
-	if err := os.MkdirAll(filepath.Join(src, "skills", "hidden"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(src, "skills", "hidden"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(src, "skills", "hidden", "SKILL.md"), []byte(body), 0o600); err != nil {
@@ -332,7 +332,7 @@ func TestDiscoveryProblemsOnlyFailRequestedSkills(t *testing.T) {
 	t.Run("unparsable skill elsewhere is a warning", func(t *testing.T) {
 		src := t.TempDir()
 		writeSkill(t, src, "skills/good", "good")
-		if err := os.MkdirAll(filepath.Join(src, "skills", "bad"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(src, "skills", "bad"), 0o750); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(src, "skills", "bad", "SKILL.md"), []byte("no frontmatter"), 0o600); err != nil {
@@ -347,7 +347,7 @@ func TestDiscoveryProblemsOnlyFailRequestedSkills(t *testing.T) {
 	t.Run("a requested skill that cannot be parsed names the problem", func(t *testing.T) {
 		src := t.TempDir()
 		writeSkill(t, src, "skills/good", "good")
-		if err := os.MkdirAll(filepath.Join(src, "skills", "bad"), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(src, "skills", "bad"), 0o750); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(src, "skills", "bad", "SKILL.md"), []byte("no frontmatter"), 0o600); err != nil {
@@ -420,7 +420,8 @@ func TestExistingSkills176LockIsPreserved(t *testing.T) {
 	}
 	withFuture := strings.Replace(string(fixture), `"version": 1,`, `"version": 1,`+"\n"+`  "x-future": {"keep": true},`, 1)
 	withFuture = strings.Replace(withFuture, `"sourceType": "git",`, `"sourceType": "git",`+"\n"+`      "x-entry": "kept",`, 1)
-	if err = os.WriteFile(filepath.Join(s.Store.Workspace, "skills-lock.json"), []byte(withFuture), 0o644); err != nil {
+	// #nosec G703 -- writes the lock fixture inside the temporary workspace.
+	if err = os.WriteFile(filepath.Join(s.Store.Workspace, "skills-lock.json"), []byte(withFuture), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	before := readLock(t, s)
@@ -523,6 +524,7 @@ func TestHelperHoldOperation(t *testing.T) {
 func TestOperationLockIsReleasedWhenTheHolderIsKilled(t *testing.T) {
 	s := newService(t, nil)
 	s.LockTimeout = 150 * time.Millisecond
+	// #nosec G204 G702 -- re-executes this test binary with a fixed test filter.
 	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperHoldOperation$")
 	cmd.Env = append(os.Environ(), "NOSEY_TEST_HOLD_WORKSPACE="+s.Store.Workspace, "NOSEY_TEST_HOLD_DATA="+s.Store.Data)
 	out, err := cmd.StdoutPipe()

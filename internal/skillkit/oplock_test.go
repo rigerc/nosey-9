@@ -102,15 +102,16 @@ func TestOperationLockHelperProcess(t *testing.T) {
 		t.Skip("helper process only")
 	}
 	if _, err := AcquireOperationLock(context.Background(), data, ws, LockOptions{}); err != nil {
-		os.Stdout.WriteString("error: " + err.Error() + "\n")
+		_, _ = os.Stdout.WriteString("error: " + err.Error() + "\n")
 		os.Exit(3)
 	}
-	os.Stdout.WriteString("locked\n")
+	_, _ = os.Stdout.WriteString("locked\n")
 	time.Sleep(time.Minute) // hold until killed
 }
 
 func TestOperationLockReleasedWhenHolderIsKilled(t *testing.T) {
 	data, ws := t.TempDir(), t.TempDir()
+	// #nosec G204 G702 -- re-executes this test binary with a fixed test filter.
 	cmd := exec.Command(os.Args[0], "-test.run=^TestOperationLockHelperProcess$")
 	cmd.Env = append(os.Environ(), "SKILLKIT_LOCK_DATA="+data, "SKILLKIT_LOCK_WS="+ws)
 	out, err := cmd.StdoutPipe()

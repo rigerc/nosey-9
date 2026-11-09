@@ -19,26 +19,32 @@ func listTarget(t *testing.T, custom ...CustomAgent) (Target, string, string) {
 	return Target{Workspace: ws, Mode: ModeSymlink, Agents: table}, ws, home
 }
 
+// listedSkill is the part of an inventory entry these tests compare.
+type listedSkill struct {
+	Name   string
+	Agents []string
+	Path   string
+}
+
 // TestListCodexOnlyInstallListsCodex is the regression for skills-go listing no
 // agents for a Codex-only install, which turned every status into "unknown".
 func TestListCodexOnlyInstallListsCodex(t *testing.T) {
 	tg, _, home := listTarget(t)
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".codex"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".codex"), 0o750))
 	_, err := Install(context.Background(), skillIn(t, "demo"), []string{"codex"}, tg)
 	require.NoError(t, err)
 	inv, err := ListInstalled(tg)
 	require.NoError(t, err)
 	require.Len(t, inv.Skills, 1)
-	require.Equal(t, "demo", inv.Skills[0].Name)
-	require.Equal(t, []string{"codex"}, inv.Skills[0].Agents)
-	require.Equal(t, ".agents/skills/demo", inv.Skills[0].Path)
+	got := inv.Skills[0]
+	require.Equal(t, listedSkill{"demo", []string{"codex"}, ".agents/skills/demo"}, listedSkill{got.Name, got.Agents, got.Path})
 	require.Empty(t, inv.Warnings)
 }
 
 func TestListAttributesSharedDirectoryOnlyToDetectedUniversalAgents(t *testing.T) {
 	tg, _, home := listTarget(t, CustomAgent{ID: "shared-custom", Name: "S", SkillsDir: ".agents/skills"})
 	for _, d := range []string{".codex", ".cursor"} { // detected; gemini-cli and others are not
-		require.NoError(t, os.MkdirAll(filepath.Join(home, d), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Join(home, d), 0o750))
 	}
 	_, err := Install(context.Background(), skillIn(t, "demo"), []string{"codex"}, tg)
 	require.NoError(t, err)
@@ -77,7 +83,7 @@ func TestListSharedNonUniversalDirectoryPrefersDetectedAgents(t *testing.T) {
 	inv, err := ListInstalled(tg)
 	require.NoError(t, err)
 	require.Equal(t, []string{"qoder"}, inv.Skills[0].Agents, "undetected: first agent by ID")
-	require.NoError(t, os.MkdirAll(filepath.Join(home, ".qoder-cn"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".qoder-cn"), 0o750))
 	inv, err = ListInstalled(tg)
 	require.NoError(t, err)
 	require.Equal(t, []string{"qoder-cn"}, inv.Skills[0].Agents)
@@ -87,9 +93,9 @@ func TestListSurfacesParseErrorsAndSkipsOutsideDirectories(t *testing.T) {
 	tg, ws, _ := listTarget(t)
 	writeSkill(t, filepath.Join(ws, ".agents/skills/good"), "good", nil)
 	bad := filepath.Join(ws, ".agents/skills/bad")
-	require.NoError(t, os.MkdirAll(bad, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(bad, "SKILL.md"), []byte("garbage"), 0o644))
-	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".agents/skills/.nosey-tmp-leftover"), 0o755))
+	require.NoError(t, os.MkdirAll(bad, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(bad, "SKILL.md"), []byte("garbage"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".agents/skills/.nosey-tmp-leftover"), 0o750))
 	outside := t.TempDir()
 	writeSkill(t, filepath.Join(outside, "skills/stolen"), "stolen", nil)
 	require.NoError(t, os.Symlink(outside, filepath.Join(ws, ".claude")))

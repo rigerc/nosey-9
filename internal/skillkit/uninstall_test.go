@@ -54,8 +54,8 @@ func TestUninstallSharedCanonicalDirectoryOnlyOnce(t *testing.T) {
 func TestUninstallRejectsUnsafeNamesFromTheLock(t *testing.T) {
 	tg, ws := installed(t, ModeSymlink, "claude-code")
 	victim := filepath.Join(ws, "victim")
-	require.NoError(t, os.MkdirAll(victim, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(victim, "keep"), []byte("x"), 0o644))
+	require.NoError(t, os.MkdirAll(victim, 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(victim, "keep"), []byte("x"), 0o600))
 	for _, name := range []string{"", ".", "..", "../victim", "../../etc", "a/b", `a\b`, "/etc/passwd", "bad\x00name", "new\nline"} {
 		_, err := Uninstall(context.Background(), name, tg)
 		var in *InvalidNameError
@@ -68,9 +68,9 @@ func TestUninstallRejectsUnsafeNamesFromTheLock(t *testing.T) {
 func TestUninstallNeverFollowsSymlinks(t *testing.T) {
 	tg, ws := installed(t, ModeCopy, "codex")
 	outside := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(outside, "precious"), []byte("keep"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "precious"), []byte("keep"), 0o600))
 	// An agent directory entry that is a symlink to an outside directory is unlinked, not followed.
-	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".claude/skills"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".claude/skills"), 0o750))
 	require.NoError(t, os.Symlink(outside, filepath.Join(ws, ".claude/skills/demo")))
 	// A symlink inside the canonical directory is removed with it, not followed.
 	require.NoError(t, os.Symlink(outside, filepath.Join(ws, ".agents/skills/demo/outside-link")))
@@ -93,8 +93,8 @@ func TestUninstallRefusesAncestorsThatLeaveTheWorkspace(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tg, ws := installed(t, ModeCopy, "codex")
 			outside := t.TempDir()
-			require.NoError(t, os.MkdirAll(filepath.Join(outside, "skills/demo"), 0o755))
-			require.NoError(t, os.WriteFile(filepath.Join(outside, "skills/demo/keep"), []byte("x"), 0o644))
+			require.NoError(t, os.MkdirAll(filepath.Join(outside, "skills/demo"), 0o750))
+			require.NoError(t, os.WriteFile(filepath.Join(outside, "skills/demo/keep"), []byte("x"), 0o600))
 			require.NoError(t, os.Symlink(outside, filepath.Join(ws, custom)))
 			res, err := Uninstall(context.Background(), "demo", tg)
 			var pe *PolicyError
@@ -112,7 +112,9 @@ func TestUninstallReturnsEveryError(t *testing.T) {
 	}
 	tg, ws := installed(t, ModeCopy, "claude-code", "windsurf", "codex")
 	for _, d := range []string{".claude/skills", ".windsurf/skills"} {
+		// #nosec G302 -- the test removes write access to force a removal failure.
 		require.NoError(t, os.Chmod(filepath.Join(ws, d), 0o500))
+		// #nosec G302 -- restores the directory so test cleanup can delete it.
 		t.Cleanup(func() { _ = os.Chmod(filepath.Join(ws, d), 0o755) })
 	}
 	res, err := Uninstall(context.Background(), "demo", tg)

@@ -27,12 +27,12 @@ func writeFixture(t *testing.T, root string, files []fixtureFile) {
 	t.Helper()
 	for _, f := range files {
 		p := filepath.Join(root, filepath.FromSlash(f.Path))
-		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o750))
 		if f.Symlink != "" {
 			require.NoError(t, os.Symlink(f.Symlink, p))
 			continue
 		}
-		require.NoError(t, os.WriteFile(p, []byte(f.Content), 0o644))
+		require.NoError(t, os.WriteFile(p, []byte(f.Content), 0o600))
 	}
 }
 

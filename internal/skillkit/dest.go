@@ -31,18 +31,18 @@ type destRoot struct {
 }
 
 func openDest(workspace string) (*destRoot, error) {
-	real, err := filepath.EvalSymlinks(workspace)
+	resolved, err := filepath.EvalSymlinks(workspace)
 	if err != nil {
 		return nil, err
 	}
-	if real, err = filepath.Abs(real); err != nil {
+	if resolved, err = filepath.Abs(resolved); err != nil {
 		return nil, err
 	}
-	r, err := os.OpenRoot(real)
+	r, err := os.OpenRoot(resolved)
 	if err != nil {
 		return nil, err
 	}
-	return &destRoot{root: r, real: real}, nil
+	return &destRoot{root: r, real: resolved}, nil
 }
 
 func (d *destRoot) Close() { _ = d.root.Close() }

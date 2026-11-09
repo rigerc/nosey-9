@@ -261,7 +261,7 @@ func (l ProjectLock) Marshal(workspace string) ([]byte, error) {
 	for k, v := range l.Extra {
 		top[k] = v
 	}
-	out, err := writeObject(top, l.order, []string{"version", "skills"}, "", false)
+	out, err := writeObject(top, l.order, []string{"version", "skills"}, false)
 	if err != nil {
 		return nil, err
 	}
@@ -285,13 +285,13 @@ func marshalEntry(e LockEntry) ([]byte, error) {
 			vals[k] = s
 		}
 	}
-	return writeObject(vals, e.order, knownEntryFields, "  ", true)
+	return writeObject(vals, e.order, knownEntryFields, true)
 }
 
 // writeObject emits an object with members in `order` (those present), then the
 // remaining canonical members, then the rest sorted. When compact it writes one line;
 // callers re-indent. Unindented raw members are re-indented by json.Indent.
-func writeObject(vals map[string]json.RawMessage, order, canonical []string, indent string, compact bool) ([]byte, error) {
+func writeObject(vals map[string]json.RawMessage, order, canonical []string, compact bool) ([]byte, error) {
 	var keys []string
 	seen := map[string]bool{}
 	for _, k := range append(slices.Clone(order), canonical...) {

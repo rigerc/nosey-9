@@ -11,7 +11,8 @@ import (
 
 func writeLock(t *testing.T, ws, content string) {
 	t.Helper()
-	require.NoError(t, os.WriteFile(filepath.Join(ws, LockFile), []byte(content), 0o644))
+	// #nosec G703 -- writes the lock fixture inside the temporary workspace.
+	require.NoError(t, os.WriteFile(filepath.Join(ws, LockFile), []byte(content), 0o600))
 }
 
 // TestLockRoundTripsSkills176Output reads a lock produced by the real CLI
@@ -20,7 +21,7 @@ func TestLockRoundTripsSkills176Output(t *testing.T) {
 	golden, err := os.ReadFile("testdata/lock/skills@1.7.6.json")
 	require.NoError(t, err)
 	ws := filepath.Join(t.TempDir(), "proj")
-	require.NoError(t, os.MkdirAll(ws, 0o755))
+	require.NoError(t, os.MkdirAll(ws, 0o750))
 	writeLock(t, ws, string(golden))
 	lock, err := ReadLock(ws)
 	require.NoError(t, err)
@@ -156,7 +157,7 @@ func TestLockStrictValidation(t *testing.T) {
 func TestLockNeverReadsOrWritesThroughASymlink(t *testing.T) {
 	ws := t.TempDir()
 	outside := filepath.Join(t.TempDir(), "elsewhere.json")
-	require.NoError(t, os.WriteFile(outside, []byte(`{"version":1,"skills":{"x":{"source":"s","sourceType":"git"}}}`), 0o644))
+	require.NoError(t, os.WriteFile(outside, []byte(`{"version":1,"skills":{"x":{"source":"s","sourceType":"git"}}}`), 0o600))
 	require.NoError(t, os.Symlink(outside, filepath.Join(ws, LockFile)))
 	_, err := ReadLock(ws)
 	var le LockError
@@ -175,7 +176,7 @@ func TestLockNeverReadsOrWritesThroughASymlink(t *testing.T) {
 func TestLockLocalSourceIsRelative(t *testing.T) {
 	root := t.TempDir()
 	ws := filepath.Join(root, "proj")
-	require.NoError(t, os.MkdirAll(ws, 0o755))
+	require.NoError(t, os.MkdirAll(ws, 0o750))
 	lock := NewProjectLock()
 	for name, src := range map[string]string{
 		"sibling": filepath.Join(root, "sibling"),

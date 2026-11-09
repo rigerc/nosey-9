@@ -11,13 +11,13 @@ import (
 // writeSkill creates dir/SKILL.md for a skill named name and returns dir.
 func writeSkill(t *testing.T, dir, name string, extra map[string]string) string {
 	t.Helper()
-	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.MkdirAll(dir, 0o750))
 	body := "---\nname: " + name + "\ndescription: Test skill " + name + "\n---\n# " + name + "\n"
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o600))
 	for rel, content := range extra {
 		p := filepath.Join(dir, filepath.FromSlash(rel))
-		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
-		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o750))
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o600))
 	}
 	return dir
 }
@@ -73,6 +73,7 @@ func modeString(m os.FileMode) string {
 
 func readFile(t *testing.T, p string) string {
 	t.Helper()
+	// #nosec G304 -- test helper reading a file the test created.
 	b, err := os.ReadFile(p)
 	require.NoError(t, err)
 	return string(b)

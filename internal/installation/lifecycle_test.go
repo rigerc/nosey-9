@@ -26,6 +26,7 @@ func catalogOf(skills ...domain.Skill) domain.Catalog {
 
 func read(t *testing.T, path string) string {
 	t.Helper()
+	// #nosec G304 -- test helper reading a file inside its temporary workspace.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -193,7 +194,7 @@ func TestUpdatePreservesMixedModesAndUndetectedUniversalLocation(t *testing.T) {
 	f := &fakeFetcher{dirs: map[string]string{"o/one#" + shaA: srcA, "o/one#" + shaB: srcB}}
 	s := newService(t, f)
 	s.Settings.Installation.CustomAgents = []settings.CustomAgent{{ID: "mine", Name: "Mine", SkillsDir: ".mine/skills"}}
-	if err := os.MkdirAll(s.at(".claude"), 0o755); err != nil {
+	if err := os.MkdirAll(s.at(".claude"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	// symlink install for claude-code, then a separate copy install for a custom agent.
@@ -252,7 +253,7 @@ func TestUpdateInstallsNewRequirementAtTheUnionOfRequirerLocations(t *testing.T)
 	f := &fakeFetcher{dirs: map[string]string{"o/one#" + shaA: srcOne, "o/one#" + shaB: srcOneNew, "o/two#" + shaA: srcTwo}}
 	s := newService(t, f)
 	s.Settings.Installation.CustomAgents = []settings.CustomAgent{{ID: "mine", Name: "Mine", SkillsDir: ".mine/skills"}}
-	if err := os.MkdirAll(s.at(".claude"), 0o755); err != nil {
+	if err := os.MkdirAll(s.at(".claude"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	mustInstall(t, s, plan("o/one", shaA, "symlink", []string{"claude-code"}, "top"))
@@ -368,9 +369,11 @@ func TestUpdateRecordsWhatSucceededWhenOneLocationFails(t *testing.T) {
 	mustInstall(t, s, plan("o/one", shaA, "copy", []string{"codex", "mine"}, "alpha"))
 	got := mustPlanUpdate(t, s, catalogOf(gitSkill("a", "alpha", "o/one", shaB)), UpdateOptions{})
 	// A read-only skills directory makes only the .mine copy fail to swap in.
+	// #nosec G302 -- the test removes write access to force a removal failure.
 	if err := os.Chmod(s.at(".mine/skills"), 0o500); err != nil {
 		t.Fatal(err)
 	}
+	// #nosec G302 -- restores the directory so test cleanup can delete it.
 	t.Cleanup(func() { _ = os.Chmod(s.at(".mine/skills"), 0o755) })
 	results, err := s.Update(context.Background(), got, nil)
 	if err == nil || results[0].Skills[0].Status != skillkit.StatusInstalled || !results[0].LockWritten {

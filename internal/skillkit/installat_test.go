@@ -17,7 +17,7 @@ func sourceSkill(t *testing.T, name, body string) Skill {
 
 func TestListInstalledReportsLocationsAndModes(t *testing.T) {
 	tg, ws := target(t, ModeSymlink, CustomAgent{ID: "mine", Name: "Mine", SkillsDir: ".mine/skills"})
-	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".claude"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".claude"), 0o750))
 	_, err := Install(context.Background(), skillIn(t, "demo"), []string{"claude-code"}, tg)
 	require.NoError(t, err)
 	tg.Mode = ModeCopy
@@ -42,7 +42,7 @@ func TestListInstalledReportsLocationsAndModes(t *testing.T) {
 
 func TestInstallAtRefreshesEachLocationAndKeepsItsMode(t *testing.T) {
 	tg, ws := target(t, ModeSymlink, CustomAgent{ID: "mine", Name: "Mine", SkillsDir: ".mine/skills"})
-	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".claude"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".claude"), 0o750))
 	_, err := Install(context.Background(), sourceSkill(t, "demo", "v1"), []string{"claude-code"}, tg)
 	require.NoError(t, err)
 	tg.Mode = ModeCopy

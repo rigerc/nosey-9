@@ -25,7 +25,7 @@ func target(t *testing.T, mode Mode, custom ...CustomAgent) (Target, string) {
 
 func TestInstallSymlinkModeSharesCanonicalDirectory(t *testing.T) {
 	tg, ws := target(t, ModeSymlink)
-	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".claude"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".claude"), 0o750))
 	res, err := Install(context.Background(), skillIn(t, "demo"), []string{"codex", "claude-code", "cursor"}, tg)
 	require.NoError(t, err)
 	require.Equal(t, StatusInstalled, res.Status)
@@ -95,7 +95,7 @@ func TestInstallReplacesExistingInstallAtomically(t *testing.T) {
 	_, err := Install(context.Background(), skill, []string{"claude-code"}, tg)
 	require.NoError(t, err)
 	stale := filepath.Join(ws, ".claude/skills/demo/stale.txt")
-	require.NoError(t, os.WriteFile(stale, []byte("old"), 0o644))
+	require.NoError(t, os.WriteFile(stale, []byte("old"), 0o600))
 	_, err = Install(context.Background(), skill, []string{"claude-code"}, tg)
 	require.NoError(t, err)
 	require.NoFileExists(t, stale, "update replaces the whole directory")
@@ -104,7 +104,7 @@ func TestInstallReplacesExistingInstallAtomically(t *testing.T) {
 	require.Len(t, entries, 1, "no temporary or backup directories remain")
 
 	// A failed copy leaves the previous install untouched.
-	require.NoError(t, os.WriteFile(stale, []byte("old"), 0o644))
+	require.NoError(t, os.WriteFile(stale, []byte("old"), 0o600))
 	require.NoError(t, os.Chmod(filepath.Join(skill.Dir, "scripts/run.sh"), 0))
 	if os.Geteuid() != 0 {
 		_, err = Install(context.Background(), skill, []string{"claude-code"}, tg)
@@ -118,8 +118,8 @@ func TestInstallReplacesExistingInstallAtomically(t *testing.T) {
 
 func TestInstallReplacesExistingSymlinkAndDirectory(t *testing.T) {
 	tg, ws := target(t, ModeSymlink)
-	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".claude/skills/demo"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(ws, ".claude/skills/demo/old.txt"), []byte("x"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(ws, ".claude/skills/demo"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(ws, ".claude/skills/demo/old.txt"), []byte("x"), 0o600))
 	res, err := Install(context.Background(), skillIn(t, "demo"), []string{"claude-code"}, tg)
 	require.NoError(t, err)
 	require.Equal(t, StatusInstalled, res.Status)
@@ -212,7 +212,7 @@ func (c *cancelAfter) fire() { c.cancel() }
 func TestInstallReturnsPerAgentFailuresWithTheError(t *testing.T) {
 	tg, ws := target(t, ModeCopy)
 	// A regular file where a directory is needed makes one agent fail while another succeeds.
-	require.NoError(t, os.WriteFile(filepath.Join(ws, ".claude"), []byte("not a dir"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(ws, ".claude"), []byte("not a dir"), 0o600))
 	res, err := Install(context.Background(), skillIn(t, "demo"), []string{"claude-code", "codex"}, tg)
 	require.Error(t, err)
 	require.Equal(t, StatusInstalled, res.Status, "a skill that reached one agent is recorded")
@@ -254,7 +254,7 @@ func TestInstallRefusesSymlinkedAncestorsThatLeaveTheWorkspace(t *testing.T) {
 			t.Run(string(mode)+"/"+name, func(t *testing.T) {
 				tg, ws := target(t, mode, setup.custom...)
 				outside := t.TempDir()
-				require.NoError(t, os.MkdirAll(filepath.Join(ws, filepath.Dir(setup.link)), 0o755))
+				require.NoError(t, os.MkdirAll(filepath.Join(ws, filepath.Dir(setup.link)), 0o750))
 				require.NoError(t, os.Symlink(outside, filepath.Join(ws, setup.link)))
 				res, err := Install(context.Background(), skillIn(t, "demo"), []string{setup.agent}, tg)
 				require.Error(t, err)
@@ -271,7 +271,7 @@ func TestInstallRefusesSymlinkedAncestorsThatLeaveTheWorkspace(t *testing.T) {
 
 func TestInstallAllowsSymlinkedAncestorsInsideTheWorkspace(t *testing.T) {
 	tg, ws := target(t, ModeCopy)
-	require.NoError(t, os.MkdirAll(filepath.Join(ws, "real-claude"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(ws, "real-claude"), 0o750))
 	require.NoError(t, os.Symlink("real-claude", filepath.Join(ws, ".claude")))
 	_, err := Install(context.Background(), skillIn(t, "demo"), []string{"claude-code"}, tg)
 	require.NoError(t, err)

@@ -165,8 +165,7 @@ func (m noseyModel) openUninstall(name string) (noseyModel, tea.Cmd) {
 }
 
 func (m noseyModel) updateInstallPage(key string) (noseyModel, tea.Cmd) {
-	switch key {
-	case "enter":
+	if key == "enter" {
 		m.err = nil
 		m.loading = true
 		m.install.ctx, m.install.cancel = context.WithCancel(m.ctx)

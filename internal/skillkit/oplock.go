@@ -87,10 +87,11 @@ func AcquireOperationLock(ctx context.Context, dataDir, workspace string, opts L
 	if err != nil {
 		return nil, err
 	}
+	// #nosec G703 -- lockPath is derived from the data directory and a hash of the workspace.
 	if err = os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
 		return nil, err
 	}
-	// #nosec G304 -- application-owned path derived from the data directory and a hash.
+	// #nosec G304 G703 -- application-owned path derived from the data directory and a hash.
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, err

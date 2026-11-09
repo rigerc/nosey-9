@@ -29,14 +29,14 @@ func materializeCopyCase(t *testing.T, c copyCase) (root, skillDir string) {
 	t.Helper()
 	root = t.TempDir()
 	repo := filepath.Join(root, "repo")
-	require.NoError(t, os.MkdirAll(repo, 0o755))
+	require.NoError(t, os.MkdirAll(repo, 0o750))
 	for _, f := range c.Files {
 		base := repo
 		if f.Path == "secret.txt" {
 			base = root
 		}
 		p := filepath.Join(base, filepath.FromSlash(f.Path))
-		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o750))
 		if f.Symlink != "" {
 			require.NoError(t, os.Symlink(f.Symlink, p))
 			continue

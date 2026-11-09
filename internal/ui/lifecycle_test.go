@@ -22,6 +22,7 @@ var newSHA = strings.Repeat("b", 40)
 func lifecycleModel(t *testing.T) noseyModel {
 	t.Helper()
 	m, _ := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Method = "copy" })
+	// installModel always configures a dirFetcher.
 	fetcher := m.session.Installer.Fetcher.(dirFetcher)
 	newOne := t.TempDir()
 	writeFixtureSkill(t, newOne, "alpha")
@@ -37,7 +38,7 @@ func lifecycleModel(t *testing.T) noseyModel {
 		t.Fatal(err)
 	}
 	hand := filepath.Join(m.session.Store.Workspace, ".claude", "skills", "hand")
-	if err = os.MkdirAll(hand, 0o755); err != nil {
+	if err = os.MkdirAll(hand, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if err = os.WriteFile(filepath.Join(hand, "SKILL.md"), []byte("---\nname: hand\ndescription: x\n---\n"), 0o600); err != nil {
@@ -245,6 +246,7 @@ func TestLifecycleCancellationAndStaleResultsReleaseTheLock(t *testing.T) {
 		}
 		// A cancelled run reports what completed and not-started work.
 		running, cmd := m.updateInstallPage("enter")
+		// Pressing enter first returns the command that prepares the operation.
 		ready = cmd().(installReady)
 		running, cmd = running.applyInstallReady(ready)
 		if cmd == nil || !running.install.running {
@@ -254,6 +256,7 @@ func TestLifecycleCancellationAndStaleResultsReleaseTheLock(t *testing.T) {
 		if lockFree(t, running) {
 			t.Fatal(key, "the lock must be held until the running step stops")
 		}
+		// The running step's command reports that step's result.
 		msg := cmd().(installStepDone)
 		finished, _ := running.applyInstallStep(msg)
 		if finished.modal != "" || finished.install.running || finished.install.op != nil || !lockFree(t, finished) {

@@ -12,6 +12,12 @@ import (
 // TestAgentTableMatches176 compares every built-in agent with the table extracted
 // from skills@1.7.6 (testdata/agents.1.7.6.tsv). This also covers the rows the
 // skills-go table got wrong: 36 missing agents, kimi-cli, droid, kilo and pi.
+// agentRow is the part of an Agent that the upstream table defines.
+type agentRow struct {
+	Name, SkillsDir           string
+	Hidden, CreateDir, Custom bool
+}
+
 func TestAgentTableMatches176(t *testing.T) {
 	data, err := os.ReadFile("testdata/agents.1.7.6.tsv")
 	require.NoError(t, err)
@@ -24,15 +30,12 @@ func TestAgentTableMatches176(t *testing.T) {
 		require.GreaterOrEqual(t, len(cols), 3, line)
 		a, ok := table.Get(cols[0])
 		require.True(t, ok, "missing agent %s", cols[0])
-		require.Equal(t, cols[1], a.Name, cols[0])
-		require.Equal(t, cols[2], a.SkillsDir, cols[0])
 		flags := ""
 		if len(cols) > 3 {
 			flags = cols[3]
 		}
-		require.Equal(t, strings.Contains(flags, "showInUniversalList=false"), a.hiddenFromUniversal, cols[0])
-		require.Equal(t, strings.Contains(flags, "createProjectSkillsDirByDefault=true"), a.createProjectDir, cols[0])
-		require.False(t, a.Custom)
+		want := agentRow{Name: cols[1], SkillsDir: cols[2], Hidden: strings.Contains(flags, "showInUniversalList=false"), CreateDir: strings.Contains(flags, "createProjectSkillsDirByDefault=true")}
+		require.Equal(t, want, agentRow{Name: a.Name, SkillsDir: a.SkillsDir, Hidden: a.hiddenFromUniversal, CreateDir: a.createProjectDir, Custom: a.Custom}, cols[0])
 	}
 	// Rows skills-go got wrong.
 	for id, dir := range map[string]string{"droid": ".agents/skills", "kilo": ".agents/skills", "pi": ".agents/skills", "kimi-code-cli": ".agents/skills", "codex": ".agents/skills"} {
@@ -96,14 +99,14 @@ func TestDetectedAgents(t *testing.T) {
 	require.Empty(t, table.Detected(ws))
 
 	mk := func(base, rel string) {
-		require.NoError(t, os.MkdirAll(filepath.Join(base, rel), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Join(base, rel), 0o750))
 	}
 	mk(home, ".codex")              // codex via default home
 	mk(home, ".config/opencode")    // XDG default config home
 	mk(ws, ".replit")               // workspace-relative
 	mk(home, ".gemini/antigravity") // nested
 	mk(home, ".openclaw")           // any-of
-	require.NoError(t, os.WriteFile(filepath.Join(ws, "package.json"), []byte(`{"devDependencies":{"eve":"1"}}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(ws, "package.json"), []byte(`{"devDependencies":{"eve":"1"}}`), 0o600))
 	mk(ws, "agent")
 	require.Equal(t, []string{"antigravity", "codex", "eve", "gemini-cli", "openclaw", "opencode", "replit"}, table.Detected(ws))
 

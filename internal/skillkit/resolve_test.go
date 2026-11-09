@@ -44,8 +44,8 @@ func TestResolveDifferingDuplicateIsAnErrorOnlyWhenRequested(t *testing.T) {
 func TestResolveParseErrorsAreWarnings(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, filepath.Join(root, "skills", "good"), "good", nil)
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills", "bad"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "skills", "bad", "SKILL.md"), []byte("nope"), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "skills", "bad"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "skills", "bad", "SKILL.md"), []byte("nope"), 0o600))
 	warns, err := discoverErr(t, root).Resolve(root, []string{"good"})
 	require.NoError(t, err)
 	require.Len(t, warns, 1)
@@ -58,7 +58,7 @@ func TestCopyHashMatchesInstalledTree(t *testing.T) {
 	})
 	require.NoError(t, os.Symlink("docs/guide.md", filepath.Join(src, "link.md")))
 	outside := filepath.Join(t.TempDir(), "secret")
-	require.NoError(t, os.WriteFile(outside, []byte("secret"), 0o644))
+	require.NoError(t, os.WriteFile(outside, []byte("secret"), 0o600))
 	require.NoError(t, os.Symlink(outside, filepath.Join(src, "escape")))
 
 	raw, err := FolderHash(src)

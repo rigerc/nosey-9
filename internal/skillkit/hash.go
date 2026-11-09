@@ -30,6 +30,7 @@ func FolderHash(dir string) (string, error) {
 	h := sha256.New()
 	for _, rel := range rels {
 		_, _ = io.WriteString(h, rel)
+		// #nosec G304 -- rel comes from walking dir, the tree being hashed.
 		f, err := os.Open(filepath.Join(dir, filepath.FromSlash(rel)))
 		if err != nil {
 			return "", err

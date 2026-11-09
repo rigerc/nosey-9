@@ -29,7 +29,7 @@ func TestCheckParentRefusals(t *testing.T) {
 	d, err := openDest(ws)
 	require.NoError(t, err)
 	defer d.Close()
-	require.NoError(t, os.WriteFile(filepath.Join(ws, "file"), []byte("x"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(ws, "file"), []byte("x"), 0o600))
 	require.NoError(t, os.Symlink(filepath.Join(ws, "missing-target"), filepath.Join(ws, "dangling")))
 	for _, rel := range []string{"../x", "/abs/x", "file/child", "dangling/child"} {
 		var pe *PolicyError

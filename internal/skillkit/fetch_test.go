@@ -28,6 +28,7 @@ func requireGit(t *testing.T) {
 // gitIn runs git in dir with a clean configuration; test setup only.
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
+	// #nosec G204 -- test helper with a fixed binary and test-controlled arguments.
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
@@ -65,7 +66,7 @@ func newSourceRepo(t *testing.T) sourceRepo {
 	gitIn(t, dir, "commit", "-qm", "feature")
 	r.feature = gitIn(t, dir, "rev-parse", "HEAD")
 	gitIn(t, dir, "checkout", "-q", "main")
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "alpha", "scripts", "run.sh"), []byte("echo 2\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "skills", "alpha", "scripts", "run.sh"), []byte("echo 2\n"), 0o600))
 	gitIn(t, dir, "commit", "-qam", "second")
 	r.second = gitIn(t, dir, "rev-parse", "HEAD")
 	return r
@@ -115,9 +116,8 @@ func TestFetchDefaultBranchBranchTagAndPinnedSHA(t *testing.T) {
 			f, tmp := testFetcher(t)
 			co, err := f.Fetch(context.Background(), Source{URI: "acme/skills", Ref: tc.ref})
 			require.NoError(t, err)
-			require.Equal(t, tc.commit, co.Commit, "resolved commit")
-			require.Equal(t, tc.ref, co.Ref, "requested ref is kept as given, separate from the commit")
-			require.Equal(t, "github", co.Parsed.Type)
+			// The requested ref is kept as given, separate from the resolved commit.
+			require.Equal(t, [3]string{tc.commit, tc.ref, "github"}, [3]string{co.Commit, co.Ref, co.Parsed.Type})
 			skills := mustDiscover(t, co.Dir, DiscoverOptions{})
 			var names []string
 			for _, s := range skills {
@@ -255,7 +255,7 @@ func TestFetchLocalSourceDoesNotRunGit(t *testing.T) {
 func TestFetchUserFilterNeverRuns(t *testing.T) {
 	repo := newSourceRepo(t)
 	marker := filepath.Join(t.TempDir(), "filter-ran")
-	require.NoError(t, os.WriteFile(filepath.Join(repo.dir, ".gitattributes"), []byte("* filter=evil\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(repo.dir, ".gitattributes"), []byte("* filter=evil\n"), 0o600))
 	gitIn(t, repo.dir, "add", ".gitattributes")
 	gitIn(t, repo.dir, "commit", "-qm", "attributes")
 	userGitConfig(t, repo.dir, "[filter \"evil\"]\n\tsmudge = touch "+marker+" && cat\n\tclean = cat\n\trequired = true\n")
@@ -263,6 +263,7 @@ func TestFetchUserFilterNeverRuns(t *testing.T) {
 	// Control: with the user's configuration a plain checkout does run the filter,
 	// so the assertion below can fail.
 	control := t.TempDir()
+	// #nosec G204 -- fixed binary with paths from the test's temporary directories.
 	cmd := exec.Command("git", "clone", "-q", repo.dir, filepath.Join(control, "c"))
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
@@ -331,7 +332,6 @@ type recorder struct {
 	mu    sync.Mutex
 	calls []call
 	inner process.Executor
-	fail  string
 }
 
 func (r *recorder) Run(ctx context.Context, dir string, env []string, name string, args ...string) (process.Output, error) {
