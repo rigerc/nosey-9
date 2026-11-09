@@ -48,7 +48,7 @@ func (m noseyModel) rows() []noseyRow {
 		}
 	case 2:
 		for _, s := range m.inventory.Skills {
-			status := s.Status
+			status := statusLabel(s.Status)
 			if s.Unmanaged {
 				status += " · unmanaged"
 			}
@@ -59,11 +59,14 @@ func (m noseyModel) rows() []noseyRow {
 		}
 	case 3:
 		rows = append(rows, noseyRow{"setting", "display", "Display mode: " + m.session.Resolved.Settings.UI.Mode + " (next launch)"})
-		rows = append(rows, noseyRow{"setting", "agents", "Target agents: " + strings.Join(m.session.Resolved.Settings.Installation.Agents, ", ")}, noseyRow{"setting", "method", "Install method: " + m.session.Resolved.Settings.Installation.Method}, noseyRow{"setting", "ttl", fmt.Sprintf("Refresh interval: %d hours", m.session.Resolved.Settings.Updates.TTL)}, noseyRow{"setting", "mcp", fmt.Sprintf("MCP inspection: %t", m.session.Resolved.Settings.Detection.MCP)})
+		agents := strings.Join(m.session.Resolved.Settings.Installation.Agents, ", ")
+		if agents == "" {
+			agents = "ask at install"
+		}
+		rows = append(rows, noseyRow{"setting", "agents", "Target agents: " + agents}, noseyRow{"setting", "method", "Install method: " + m.session.Resolved.Settings.Installation.Method}, noseyRow{"setting", "ttl", fmt.Sprintf("Refresh interval: %d hours", m.session.Resolved.Settings.Updates.TTL)}, noseyRow{"setting", "mcp", fmt.Sprintf("MCP inspection: %t", m.session.Resolved.Settings.Detection.MCP)})
 		rows = append(rows,
 			noseyRow{"setting", "mode", "Default install action: " + m.session.Resolved.Settings.Installation.Mode},
 			noseyRow{"setting", "telemetry", "Upstream telemetry: " + m.session.Resolved.Settings.Installation.Telemetry},
-			noseyRow{"setting", "verbose", fmt.Sprintf("Verbose installation: %t", m.session.Resolved.Settings.Installation.Verbose)},
 			noseyRow{"setting", "bytes", fmt.Sprintf("Maximum inspected file: %d bytes", m.session.Resolved.Settings.Detection.MaxBytes)},
 			noseyRow{"setting", "exclude", "Excluded paths: " + strings.Join(m.session.Resolved.Settings.Detection.Exclude, ", ")})
 		for _, r := range m.session.Resolved.Settings.Registries {
@@ -76,12 +79,18 @@ func (m noseyModel) rows() []noseyRow {
 	}
 	return rows
 }
+func statusLabel(status string) string {
+	if status == "outdated" {
+		return "update available"
+	}
+	return status
+}
 func skillLabel(s domain.SkillView, selected bool) string {
 	box := "[ ]"
 	if selected {
 		box = "[x]"
 	}
-	label := box + " " + s.Name + "  ·  " + s.Status
+	label := box + " " + s.Name + "  ·  " + statusLabel(s.Status)
 	if s.Score != nil {
 		label += fmt.Sprintf("  [score %.0f/100]", *s.Score)
 	}

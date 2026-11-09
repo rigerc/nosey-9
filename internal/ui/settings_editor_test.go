@@ -25,7 +25,7 @@ func editableSettingsModel(t *testing.T) noseyModel {
 	return m
 }
 func TestSettingsChoicesStayOnPageAndSaveTypedValues(t *testing.T) {
-	for _, tc := range []struct{ id, key string }{{"display", "ui.mode"}, {"method", "installation.method"}, {"mode", "installation.defaultMode"}, {"telemetry", "installation.upstreamTelemetry"}, {"mcp", "detection.enableMcpPackage"}, {"verbose", "installation.verbose"}} {
+	for _, tc := range []struct{ id, key string }{{"display", "ui.mode"}, {"method", "installation.method"}, {"mode", "installation.defaultMode"}, {"telemetry", "installation.upstreamTelemetry"}, {"mcp", "detection.enableMcpPackage"}} {
 		t.Run(tc.id, func(t *testing.T) {
 			m := editableSettingsModel(t)
 			m, _ = m.setting(noseyRow{kind: "setting", id: tc.id})
@@ -55,12 +55,6 @@ func TestSettingsChoicesStayOnPageAndSaveTypedValues(t *testing.T) {
 				got = r.Settings.Installation.Telemetry
 			case "mcp":
 				if r.Settings.Detection.MCP {
-					got = "true"
-				} else {
-					got = "false"
-				}
-			case "verbose":
-				if r.Settings.Installation.Verbose {
 					got = "true"
 				} else {
 					got = "false"

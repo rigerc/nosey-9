@@ -2,43 +2,24 @@ package installation
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
-	"github.com/rigerc/nosey-9/internal/contracts"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/storage"
-	"golang.org/x/text/collate"
-	"golang.org/x/text/language"
-	"gopkg.in/yaml.v3"
 )
 
-// lockEntry mirrors the project-scoped skills-lock.json entry (LocalSkillLockEntry in skills@1.7.6
-// src/local-lock.ts). The global ~/.agents/.skill-lock.json (skill-lock.ts) is never read: Nosey is project-only.
+// lockEntry mirrors the fields Nosey reads from a project-scoped skills-lock.json entry.
 type lockEntry struct {
-	Source      string `json:"source"`
-	SourceURL   string `json:"sourceUrl"`
-	Type        string `json:"sourceType"`
-	Ref         string `json:"ref"`
-	SkillPath   string `json:"skillPath"`
-	Hash        string `json:"computedHash"`
-	InstallMode string `json:"installMode"`
-}
-
-// method reports the install method the lock recorded; upstream omits installMode for symlink installs.
-func (e lockEntry) method() string {
-	if e.InstallMode == "copy" {
-		return "copy"
-	}
-	return "symlink"
+	Source    string `json:"source"`
+	SourceURL string `json:"sourceUrl"`
+	Type      string `json:"sourceType"`
+	Ref       string `json:"ref"`
 }
 
 type projectLock struct {
@@ -51,11 +32,13 @@ type LockError struct{ Reason string }
 
 func (e LockError) Error() string { return "skills-lock.json " + e.Reason }
 
+var errLockMissing = LockError{"is missing"}
+
 func (s Service) readLock() (projectLock, error) {
 	var lock projectLock
 	data, err := storage.Read(s.Store.Workspace, "skills-lock.json", 16<<20)
 	if errors.Is(err, os.ErrNotExist) {
-		return lock, LockError{"is missing"}
+		return lock, errLockMissing
 	}
 	if err != nil {
 		return lock, LockError{"cannot be read: " + err.Error()}
@@ -76,23 +59,6 @@ func (s Service) readLock() (projectLock, error) {
 	return lock, nil
 }
 
-// validSkillPath accepts the upstream-recorded SKILL.md location: empty (local paths) or a relative path to SKILL.md.
-func validSkillPath(path string) bool {
-	return path == "" || filepath.IsLocal(path) && !strings.Contains(path, "\\") && filepath.Base(path) == "SKILL.md"
-}
-func (s Service) readReceipts() []receipt {
-	data, err := storage.Read(s.Store.Workspace, ".nosey/install-origins.json", 4<<20)
-	if err != nil || contracts.Validate("install-origins.schema.json", data) != nil {
-		return nil
-	}
-	var doc struct {
-		Origins []receipt `json:"origins"`
-	}
-	if json.Unmarshal(data, &doc) != nil {
-		return nil
-	}
-	return doc.Origins
-}
 func normalizeSource(value, workspace string) string {
 	if filepath.IsAbs(value) {
 		return filepath.Clean(value)
@@ -110,99 +76,8 @@ func sourceMatches(workspace, wanted, source, sourceURL string) bool {
 	want := normalizeSource(wanted, workspace)
 	return normalizeSource(source, workspace) == want || sourceURL != "" && normalizeSource(sourceURL, workspace) == want
 }
-func skillName(data []byte) (string, error) {
-	text := strings.ReplaceAll(string(data), "\r\n", "\n")
-	if !strings.HasPrefix(text, "---\n") {
-		return "", fmt.Errorf("SKILL.md requires frontmatter")
-	}
-	header, _, ok := strings.Cut(text[4:], "\n---")
-	if !ok {
-		return "", fmt.Errorf("SKILL.md frontmatter is not terminated")
-	}
-	var meta struct {
-		Name string `yaml:"name"`
-	}
-	if err := yaml.Unmarshal([]byte(header), &meta); err != nil {
-		return "", err
-	}
-	if meta.Name == "" {
-		return "", fmt.Errorf("SKILL.md has no installation name")
-	}
-	return meta.Name, nil
-}
-func (s Service) verifiedRecord(item upstreamItem, lock projectLock) bool {
-	entry, ok := lock.Skills[item.Name]
-	itemURL := ""
-	if item.SourceURL != nil {
-		itemURL = *item.SourceURL
-	}
-	if !ok || entry.Hash == "" || !validSkillPath(entry.SkillPath) || item.Scope != "project" || !sourceMatches(s.Store.Workspace, item.Source, entry.Source, entry.SourceURL) && !sourceMatches(s.Store.Workspace, entry.Source, item.Source, itemURL) {
-		return false
-	}
-	rel, err := filepath.Rel(s.Store.Workspace, item.Path)
-	if err != nil || !filepath.IsLocal(rel) {
-		return false
-	}
-	data, err := storage.Read(s.Store.Workspace, filepath.Join(rel, "SKILL.md"), 1<<20)
-	if err != nil {
-		return false
-	}
-	name, err := skillName(data)
-	if err != nil || name != item.Name {
-		return false
-	}
-	hash, err := upstreamHash(s.Store.Workspace, rel)
-	return err == nil && hash == entry.Hash
-}
 
-// upstreamHash reproduces skills@1.7.6 computeSkillFolderHash, corroborating the project lock.
-func upstreamHash(workspace, relative string) (string, error) {
-	root := filepath.Join(workspace, relative)
-	files := []string{}
-	var total int64
-	err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if e.IsDir() {
-			if e.Name() == ".git" || e.Name() == "node_modules" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if e.Type()&fs.ModeSymlink != 0 {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		files = append(files, filepath.ToSlash(rel))
-		if len(files) > 20000 {
-			return fmt.Errorf("inventory file limit exceeded")
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	order := collate.New(language.English)
-	slices.SortFunc(files, order.CompareString)
-	h := sha256.New()
-	for _, name := range files {
-		data, err := storage.Read(workspace, filepath.Join(relative, name), 16<<20)
-		if err != nil {
-			return "", err
-		}
-		total += int64(len(data))
-		if total > 64<<20 {
-			return "", fmt.Errorf("inventory byte limit exceeded")
-		}
-		_, _ = h.Write([]byte(name))
-		_, _ = h.Write(data)
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
+// catalogIdentity maps an installed skill to its catalog entry using the name and source recorded in the lock.
 func (s Service) catalogIdentity(item upstreamItem, lock lockEntry, c domain.Catalog) (*string, *string, *string) {
 	matches := []string{}
 	logicalByID := map[string]string{}
@@ -212,33 +87,14 @@ func (s Service) catalogIdentity(item upstreamItem, lock lockEntry, c domain.Cat
 		}
 		logical := skill.Source.URI
 		if skill.Source.Kind == "git" {
-			if normalizeSource(logical, s.Store.Workspace) != normalizeSource(item.Source, s.Store.Workspace) {
+			if !sourceMatches(s.Store.Workspace, logical, item.Source, lock.SourceURL) {
 				continue
-			}
-			if skill.Source.Ref != "" && skill.Source.Ref != lock.Ref {
-				matched := false
-				for _, receipt := range s.readReceipts() {
-					if receipt.Name == item.Name && normalizeSource(receipt.LogicalSource, s.Store.Workspace) == normalizeSource(logical, s.Store.Workspace) && receipt.Ref != nil && *receipt.Ref == skill.Source.Ref && receipt.Revision != nil && *receipt.Revision == lock.Ref {
-						matched = true
-						break
-					}
-				}
-				if !matched {
-					continue
-				}
 			}
 		} else {
-			logical = skill.RegistryID + ":" + filepath.ToSlash(skill.Source.Path)
-			matched := false
-			for _, r := range s.readReceipts() {
-				if r.Name == item.Name && r.LogicalSource == logical && normalizeSource(r.Upstream, s.Store.Workspace) == normalizeSource(item.Source, s.Store.Workspace) {
-					matched = true
-					break
-				}
-			}
-			if !matched {
+			if !s.localSourceMatches(skill, lock, c) {
 				continue
 			}
+			logical = skill.RegistryID + ":" + filepath.ToSlash(skill.Source.Path)
 		}
 		matches = append(matches, id)
 		logicalByID[id] = logical
@@ -256,82 +112,52 @@ func (s Service) catalogIdentity(item upstreamItem, lock lockEntry, c domain.Cat
 	return &id, &logical, ref
 }
 
-// alreadyInstalled reports whether a verified install with the same source, revision, agents and method exists.
-func (s Service) alreadyInstalled(item Item, records []upstreamItem, locked projectLock) bool {
-	for _, record := range records {
-		entry := locked.Skills[record.Name]
-		if record.Name != item.SkillName || !agentEvidence(record.Agents, item.Agents) || entry.method() != item.Method || !s.sourceMatchesItem(record, item.Source) {
-			continue
-		}
-		if item.Revision != nil && !filepath.IsAbs(item.Source) && entry.Ref != *item.Revision {
-			continue
-		}
-		if s.verifiedRecord(record, locked) {
-			return true
-		}
+// localSourceMatches accepts the registry path itself or a copy from the install-source store older versions used.
+func (s Service) localSourceMatches(skill domain.Skill, lock lockEntry, c domain.Catalog) bool {
+	if lock.Type != "local" {
+		return false
 	}
-	return false
+	source := lock.Source
+	if !filepath.IsAbs(source) {
+		source = filepath.Join(s.Store.Workspace, source)
+	}
+	if filepath.Dir(source) == filepath.Join(s.Store.Data, "install-sources") {
+		return true
+	}
+	root, ok := c.Roots[skill.RegistryID]
+	return ok && filepath.Clean(source) == filepath.Join(root, skill.Source.Path)
 }
 
-// sourceMatchesItem compares an upstream record's source or sourceUrl with a planned execution source.
-func (s Service) sourceMatchesItem(record upstreamItem, source string) bool {
-	url := ""
-	if record.SourceURL != nil {
-		url = *record.SourceURL
+// installedStatus classifies a listed skill from its lock entry and catalog pin.
+func installedStatus(item upstreamItem, entry lockEntry, tracked bool, linkedAgents int, skill *domain.Skill) string {
+	switch {
+	case item.Path == "":
+		return "missing"
+	case !tracked || linkedAgents == 0:
+		return "unknown"
+	case skill != nil && skill.Source.Kind == "git" && fullSHARef.MatchString(skill.Source.Ref) && !strings.EqualFold(skill.Source.Ref, entry.Ref):
+		return "outdated"
 	}
-	return sourceMatches(s.Store.Workspace, source, record.Source, url)
-}
-
-// diskInstalled corroborates known conflicts without invoking upstream during a preview.
-func (s Service) diskInstalled(c domain.Catalog) map[string]bool {
-	result := map[string]bool{}
-	lock, err := s.readLock()
-	if err != nil {
-		return result
-	}
-	for name, entry := range lock.Skills {
-		if !safeSkillName.MatchString(name) {
-			continue
-		}
-		record := upstreamItem{Name: name, Source: entry.Source, Scope: "project", Path: filepath.Join(s.Store.Workspace, ".agents", "skills", name)}
-		if !s.verifiedRecord(record, lock) {
-			continue
-		}
-		if id, _, _ := s.catalogIdentity(record, entry, c); id != nil {
-			result[*id] = true
-		}
-	}
-	return result
+	return "installed"
 }
 
 type upstreamItem struct {
-	Name      string   `json:"name"`
-	Status    string   `json:"status"`
-	Path      string   `json:"path"`
-	Scope     string   `json:"scope"`
-	Agents    []string `json:"agents"`
-	Source    string   `json:"source"`
-	SourceURL *string  `json:"sourceUrl"`
-	Ref       *string  `json:"ref"`
+	Name   string   `json:"name"`
+	Path   string   `json:"path"`
+	Scope  string   `json:"scope"`
+	Agents []string `json:"agents"`
+	Source string   `json:"source"`
 }
 
-func (s Service) read(ctx context.Context) ([]upstreamItem, error) {
-	out, err := s.run(ctx, s.Store.Workspace, s.env(), "npx", "--yes", "skills@"+Version, "list", "--json")
+func (s Service) read(ctx context.Context, cli CLI) ([]upstreamItem, error) {
+	name, args := cli.argv("list", "--json")
+	out, err := s.run(ctx, s.Store.Workspace, s.env(), name, args...)
 	if err != nil {
 		return nil, err
 	}
 	var items []upstreamItem
 	err = json.Unmarshal(out.Stdout, &items)
 	return items, err
-}
-
-func agentEvidence(observed, wanted []string) bool {
-	for _, id := range wanted {
-		if !slices.Contains(observed, agents[id]) {
-			return false
-		}
-	}
-	return true
 }
 
 // InventoryItem is a conservative project-scoped inventory wire record.
@@ -356,10 +182,14 @@ type Inventory struct {
 	Skills      []InventoryItem     `json:"skills"`
 }
 
-// Inventory is the versioned installed-state envelope.
+// Inventory reads installed project skills from the upstream list and lock file.
 func (s Service) Inventory(ctx context.Context, c domain.Catalog) Inventory {
 	result := Inventory{Version: 1, Diagnostics: []domain.Diagnostic{}, Workspace: s.Store.Workspace, Skills: []InventoryItem{}}
-	items, err := s.read(ctx)
+	var items []upstreamItem
+	cli, err := s.resolveCLI(ctx)
+	if err == nil {
+		items, err = s.read(ctx, cli)
+	}
 	if err != nil {
 		result.Diagnostics = append(result.Diagnostics, domain.Diagnostic{Code: "W_INVENTORY_UNKNOWN", Severity: "warning", Message: "Pinned upstream project inventory unavailable"})
 		return result
@@ -373,7 +203,10 @@ func (s Service) Inventory(ctx context.Context, c domain.Catalog) Inventory {
 		if item.Scope != "project" {
 			continue
 		}
-		record := InventoryItem{Name: item.Name, Agents: []string{}, Scope: "project", Status: "unknown", Unmanaged: true, Path: &item.Path}
+		record := InventoryItem{Name: item.Name, Agents: []string{}, Scope: "project", Status: "unknown", Unmanaged: true}
+		if item.Path != "" {
+			record.Path = &item.Path
+		}
 		for id, name := range agents {
 			if slices.Contains(item.Agents, name) {
 				record.Agents = append(record.Agents, id)
@@ -381,11 +214,15 @@ func (s Service) Inventory(ctx context.Context, c domain.Catalog) Inventory {
 		}
 		slices.Sort(record.Agents)
 		if lockErr == nil {
-			record.SkillID, record.LogicalSource, record.Ref = s.catalogIdentity(item, locked.Skills[item.Name], c)
+			entry, tracked := locked.Skills[item.Name]
+			record.SkillID, record.LogicalSource, record.Ref = s.catalogIdentity(item, entry, c)
 			record.Unmanaged = record.SkillID == nil
-			if len(record.Agents) > 0 && s.verifiedRecord(item, locked) {
-				record.Status = "installed"
+			var skill *domain.Skill
+			if record.SkillID != nil {
+				match := c.Skills[*record.SkillID]
+				skill = &match
 			}
+			record.Status = installedStatus(item, entry, tracked, len(record.Agents), skill)
 		}
 		result.Skills = append(result.Skills, record)
 	}

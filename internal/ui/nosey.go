@@ -28,11 +28,6 @@ type noseyInventory struct {
 	inventory  installation.Inventory
 	generation int
 }
-type noseyPlan struct {
-	plan       installation.Plan
-	err        error
-	generation int
-}
 type noseyOperation struct {
 	message    string
 	err        error
@@ -69,16 +64,13 @@ type noseyModel struct {
 	viewport                    viewport.Model
 	modal                       string
 	form                        noseyForm
-	details, message            string
-	plan                        installation.Plan
-	extraApproved               bool
-	action                      string
+	details, message, warning   string
+	install                     installRun
 	busy                        spinner.Model
 	rowCache                    []noseyRow
 	modalOffset                 int
 	sortChoice                  int
 	sortTarget                  int
-	copyReady                   bool
 	styles                      noseyStyles
 	displayMode                 string
 	settingsAnchor              string
@@ -91,7 +83,9 @@ func RunNosey(ctx context.Context, cwd, config, mode string, refresh bool) error
 	if mode != "inline" && mode != "fullscreen" {
 		return fmt.Errorf("invalid UI display mode")
 	}
-	ctx, cancel := context.WithCancel(ctx)
+	// Bubble Tea handles signals itself and ignores them while a child owns the terminal,
+	// so Ctrl+C during an install must not cancel the program through the caller's signal context.
+	ctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
 	model := newNoseyModel(ctx, cwd, config)
 	model.displayMode = mode
@@ -200,23 +194,21 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 				status = "unknown"
 			}
 			m.scan.Skills[i].Status = status
-			if status == "installed" {
-				delete(m.selected, m.scan.Skills[i].ID)
+		}
+		for id := range m.selected {
+			if m.session.Catalog.InstallStatus[id] == "installed" {
+				delete(m.selected, id)
 			}
 		}
 		return m, nil
-	case noseyPlan:
-		if value.generation != m.generation {
-			// A refresh or settings change superseded the state this plan was built from.
-			return m, nil
-		}
-		m.loading = false
+	case installReady:
+		return m.applyInstallReady(value)
+	case installStepDone:
+		return m.applyInstallStep(value)
+	case installCopied:
 		m.err = value.err
 		if value.err == nil {
-			m.plan = value.plan
-			m.copyReady = value.plan.CommandsReady() == nil
-			m.modal = "plan"
-			m.extraApproved = false
+			m.message = "Commands copied"
 		}
 		return m, nil
 	case noseyOperation:
@@ -404,7 +396,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 		case "i":
 			if m.tab < 2 && len(m.selected) > 0 {
-				return m.installFromSettings()
+				return m.openInstall()
 			}
 		case "n":
 			if m.tab == 3 {
@@ -412,7 +404,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 		case "?":
 			m.modal = "details"
-			m.details = "Tab / Shift+Tab: change section\nArrows: navigate; ←/→: technology strip or group collapse\nSpace: select skill or group; Enter: expand/collapse group\nLeft/right: navigate technologies; Down: recommendations\na: select visible skills\nf: filters; s: sort; /: search; x: clear filters\ni: review all selected skills, including hidden selections\nr: refresh registries (or inventory on the Installed tab); q: quit; Escape: cancel dialog\nSettings: Enter edits; a adds existing; n creates registry"
+			m.details = "Tab / Shift+Tab: change section\nArrows: navigate; ←/→: technology strip or group collapse\nSpace: select skill or group; Enter: expand/collapse group\nLeft/right: navigate technologies; Down: recommendations\na: select visible skills\nf: filters; s: sort; /: search; x: clear filters\ni: install all selected skills, including hidden selections\nr: refresh registries (or inventory on the Installed tab); q: quit; Escape: cancel dialog\nSettings: Enter edits; a adds existing; n creates registry"
 		case "enter":
 			if len(rows) == 0 {
 				break

@@ -76,13 +76,13 @@ selection -> dependency closure -> source/agent resolution -> preflight
 
 ### 12.11 Versioned local API and machine-output contracts
 
-There is **no public HTTP API** in MVP. The application exposes a **local command API**. The corresponding JSON outputs are the public integration contracts; readers must use the exact shipped schemas, with explicit versions and diagnostics on all seven advertised shapes, per [D4](17-approved-decisions.md#d4--complete-cli-machine-contracts).
+There is **no public HTTP API** in MVP. The application exposes a **local command API**. The corresponding JSON outputs are the public integration contracts; readers must use the exact shipped schemas, with explicit versions and diagnostics on all six advertised JSON shapes, per [D4](17-approved-decisions.md#d4--complete-cli-machine-contracts).
 
 | Command/result | Schema | Minimum semantic contract |
 |---|---|---|
 | `nosey scan --json` | `schemas/scan-output.schema.json` | `complete`, required coverage equation, detected/confirmed/unevaluated distinction, full normalized filters/sorts and visible/total counts |
 | `nosey search --json` | `schemas/search-output.schema.json` | Stable technology/repository/skill grouping, explicit nullable scores, `totalUniqueSkills` deduplication |
-| `nosey install ... --dry-run --json` | `../schemas/install-plan-output.v3.schema.json` | v3 approval digest/source fingerprints, `blocked`, source/agent/method, aligned command `skillIds[]` and `skillNames[]`, actual vs logical source, conflicts and overrides |
+| `nosey install ...` | None ([D8](17-approved-decisions.md#d8--thin-installer-delegation)) | Terminal handoff; `--print` emits shell-escaped commands |
 | `nosey registry init ... --json` | `schemas/registry-init-output.schema.json` | Template/source IDs, `sourceRevision`, `createdBy`, created files, final validity and diagnostics |
 
 The approved D4 decision adds [list v1](../schemas/list-output.schema.json), [registry-list v1](../schemas/registry-list-output.schema.json) and [doctor v1](../schemas/doctor-output.schema.json). These are required contracts, not optional unversioned JSON. Original install-plan v2 remains historical; scan/search/init keep v2. Reserve stdout for valid JSON in JSON mode, use stderr for human diagnostics, and map deterministic exit statuses 0/2/3/4/5/6 to original §5.1. Apply limits to untrusted subprocess output and avoid embedding raw ANSI/control sequences in JSON strings. Any JSON schema change is a contract review event with both positive and negative golden fixtures.

@@ -6,7 +6,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/rigerc/nosey-9/internal/installation"
 	"github.com/rigerc/nosey-9/internal/storage"
 )
 
@@ -32,11 +31,17 @@ func (m noseyModel) View() tea.View {
 	}
 	header := brand + "  " + menu + "\n" + m.styles.muted.Render(storage.Safe(m.cwd))
 	lines := []string{}
-	if m.loading {
+	switch {
+	case m.loading && m.modal == "install":
+		lines = append(lines, m.busy.View()+" Preparing installer…")
+	case m.loading:
 		lines = append(lines, m.busy.View()+" Loading workspace…  ·  q Quit")
 	}
-	if m.err != nil && m.modal == "" {
-		lines = append(lines, m.styles.warn.Render("Error: "+storage.Safe(m.err.Error())))
+	if m.err != nil && (m.modal == "" || m.modal == "install") {
+		lines = append(lines, ansi.Hardwrap(m.styles.warn.Render("Error: "+storage.Safe(m.err.Error())), max(10, m.width-2), true))
+	}
+	if m.warning != "" && m.modal == "" {
+		lines = append(lines, ansi.Hardwrap(m.styles.warn.Render(storage.Safe(m.warning)), max(10, m.width-2), true))
 	}
 	if m.tab == 1 {
 		query := m.query
@@ -80,25 +85,8 @@ func (m noseyModel) View() tea.View {
 			lines = append(lines, "Enter Apply  ·  Tab Next field  ·  Esc Cancel")
 		case "details":
 			lines = append(lines, m.details)
-		case "plan":
-			lines = append(lines, fmt.Sprintf("Review all %d selected skills (includes selections hidden by filters)", len(m.selected)))
-			for _, cmd := range m.plan.Commands {
-				lines = append(lines, installation.CommandText(cmd.Argv))
-			}
-			if m.plan.Approval.Digest != nil {
-				lines = append(lines, "Digest: "+*m.plan.Approval.Digest)
-			}
-			if m.plan.Approval.Required {
-				lines = append(lines, fmt.Sprintf("Additional source approval: %t — press a to approve", m.extraApproved))
-			}
-			switch {
-			case m.action == "print":
-				lines = append(lines, "Print mode: review commands above · c Copy prepared commands · Esc Close")
-			case m.copyReady:
-				lines = append(lines, "Enter Execute  ·  c Copy commands  ·  Esc Cancel")
-			default:
-				lines = append(lines, "Enter Execute  ·  Esc Cancel  ·  Copy unavailable until local sources are prepared")
-			}
+		case "install":
+			lines = append(lines, m.installPageLines()...)
 		default:
 			rows := m.rows()
 			cursor := m.cursor[m.tab]
@@ -114,7 +102,7 @@ func (m noseyModel) View() tea.View {
 			lines = append(lines, resultWindow(rows, cursor, 0, max(1, m.viewport.Height()-len(lines)), m.width-2, m.styles)...)
 		}
 	}
-	if m.err != nil && m.modal != "" && !settingsEditing {
+	if m.err != nil && m.modal != "" && m.modal != "install" && !settingsEditing {
 		lines = append(lines, m.styles.warn.Render("Error: "+storage.Safe(m.err.Error())))
 	}
 	if m.message != "" {
@@ -130,7 +118,7 @@ func (m noseyModel) View() tea.View {
 		vp.SetYOffset(max(0, m.sortChoice+3-vp.Height()))
 	case m.modal == "form":
 		vp.SetYOffset(max(0, m.form.index*2+2-vp.Height()+3))
-	case m.modal == "details":
+	case m.modal == "details" || m.modal == "install":
 		vp.SetYOffset(m.modalOffset)
 	default:
 		vp.SetYOffset(0)
@@ -153,13 +141,10 @@ func (m noseyModel) View() tea.View {
 		if m.modal == "sort" {
 			footer = "↑↓ Choose · Enter Apply · Esc Cancel"
 		}
-		if m.modal == "plan" {
-			footer = "c Copy prepared commands · Esc Close"
-			if m.action != "print" {
-				footer = "Enter Execute · c Copy commands · Esc Cancel"
-				if m.plan.Approval.Required {
-					footer = "a Approve source · Enter Execute · c Copy commands · Esc Cancel"
-				}
+		if m.modal == "install" {
+			footer = "Enter Start · c Copy commands · ↑↓ Scroll · Esc Cancel"
+			if m.install.printOnly {
+				footer = "c Copy commands · ↑↓ Scroll · Esc Close"
 			}
 		}
 	}

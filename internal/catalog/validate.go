@@ -18,7 +18,7 @@ func ValidateFilters(c domain.Catalog, f domain.Filters) error {
 	for _, group := range []struct {
 		values, allowed []string
 		name            string
-	}{{f.Statuses, []string{"any", "installed", "missing", "unknown"}, "status"}, {f.Qualities, []string{"excellent", "good", "fair", "poor", "unassessed"}, "quality"}, {f.Priorities, []string{"core", "recommended", "optional"}, "priority"}, {f.RuleKinds, []string{"file", "dependency", "content", "extension", "dotenv", "detector", "mcp_package"}, "rule kind"}} {
+	}{{f.Statuses, []string{"any", "installed", "missing", "outdated", "unknown"}, "status"}, {f.Qualities, []string{"excellent", "good", "fair", "poor", "unassessed"}, "quality"}, {f.Priorities, []string{"core", "recommended", "optional"}, "priority"}, {f.RuleKinds, []string{"file", "dependency", "content", "extension", "dotenv", "detector", "mcp_package"}, "rule kind"}} {
 		for _, value := range group.values {
 			if !slices.Contains(group.allowed, value) {
 				return fmt.Errorf("invalid %s %s", group.name, value)

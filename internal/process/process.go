@@ -50,6 +50,24 @@ func (r Runner) Run(ctx context.Context, dir string, env []string, name string, 
 func (r Runner) RunInput(ctx context.Context, dir string, env []string, input []byte, name string, args ...string) (Output, error) {
 	return r.run(ctx, dir, env, input, name, args...)
 }
+
+// Command builds an interactive command. Cancellation interrupts it so it can clean up.
+func Command(ctx context.Context, dir string, env []string, name string, args ...string) *exec.Cmd {
+	// #nosec G204 -- callers validate untrusted tokens; execution never invokes a shell.
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	cmd.WaitDelay = 5 * time.Second
+	return cmd
+}
+
+// RunAttached runs an interactive command on the caller's terminal.
+func RunAttached(ctx context.Context, dir string, env []string, name string, args ...string) error {
+	cmd := Command(ctx, dir, env, name, args...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return cmd.Run()
+}
 func (r Runner) run(ctx context.Context, dir string, env []string, input []byte, name string, args ...string) (Output, error) {
 	timeout := r.Timeout
 	if timeout == 0 {

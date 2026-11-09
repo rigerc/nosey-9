@@ -6,7 +6,7 @@ Nosey provides Scan, Explore, Manage and Settings tabs, plus scriptable CLI comm
 
 ## Build and run
 
-Use the Go version declared in [go.mod](go.mod). Git is required for remote registries. Installation uses **Node >=22.20.0**, npm/npx and the pinned **Skills CLI 1.7.6**.
+Use the Go version declared in [go.mod](go.mod). Git is required for remote registries. Installation uses **Node >=22.20.0** and the pinned **Skills CLI 1.7.6**, from an installed `skills` when its version matches and otherwise through `npx`. Nosey stops with a clear error when neither is available.
 
 ```sh
 git clone --recurse-submodules https://github.com/rigerc/nosey-9.git
@@ -26,19 +26,26 @@ nosey --cwd /path/to/project search nextjs --json
 nosey --cwd /path/to/project doctor --json
 ```
 
-Use a skill ID returned by search to review a project install:
+Install skills by the ID returned from search:
 
 ```sh
-nosey install SKILL_ID --agent codex --dry-run --json
-nosey install SKILL_ID --agent codex --yes --approve-plan REVIEWED_SHA256
+nosey install SKILL_ID
+nosey install SKILL_ID --agent codex --agent claude-code
+nosey install SKILL_ID --agent codex --yes
+nosey install SKILL_ID --print
 nosey list --json
 ```
 
-Review the plan before supplying its `approval.digest`. Additional source approval requires both `--approve-plan` and `--yes`; changed content, revisions, agents or method invalidates the digest. `--copy` selects installation by copy. Agents must be selected explicitly or configured; every TUI skill starts unchecked.
+Nosey resolves required skills and blocks catalog conflicts and selections that would install under the same name (`--ignore-conflicts` opts out of conflicts only). It then runs one `skills add` per source, and the Skills CLI does the rest: it asks for scope, install method and agents when they are not set, warns about skills it would overwrite, and asks for confirmation. Git sources use the ref declared by the registry; official catalog sources use pinned commits.
 
-Previews never invoke the installer or prepare persistent local installation sources. For local skills, raw `--print` and TUI command copying remain unavailable until a confirmed execution prepares the immutable source. These sources live in Nosey's application data independently of refresh caches and have no automatic garbage collection. Installation receipts help identify origins; inventory also verifies upstream records, lock hashes and readable payloads.
+- `--yes` needs target agents, installs into the project without prompts and replaces existing skills with the same name.
+- `--print` shows the commands without running anything; `--copy` installs by copy.
+- Cancelling a prompt skips that source. Nosey stops at the first source that fails. Upstream can enable noninteractive mode automatically inside AI agents.
+- Installed state comes from `skills list --json` and `skills-lock.json`. Skills behind the catalog's pin show as outdated; install them again to update. `skills update` does not move a pinned skill.
 
-In the TUI, use Tab to change tabs, arrows to navigate, Space to select, `/` to search, `f`/`s` for filters/sorting and `i` to review all selections, including hidden selections. Escape cancels a dialog; `q` quits.
+To install from a source that is not in a registry, run `npx skills add` directly.
+
+In the TUI, use Tab to change tabs, arrows to navigate, Space to select, `/` to search, `f`/`s` for filters/sorting and `i` to install all selections, including hidden selections. Escape cancels a dialog; `q` quits.
 
 ## Settings and registries
 
@@ -55,19 +62,19 @@ nosey registry init /absolute/path/to/new-registry --ci github --yes
 
 `registry init` creates an empty, regenerable registry from the template provider's `empty` template; `--ci github` adds a validation/regeneration workflow, and `--github OWNER/NAME [--public]` commits it and creates and pushes a GitHub repository with the `gh` CLI (private by default; needs a git identity and `gh auth login`). Run `nosey registry generate PATH` after editing its JSON files (`--check` verifies without writing; `nosey registry refresh PATH` updates files that declare an upstream).
 
-Project-proposed registries require user-owned trust approval. `nosey trust` displays the workspace, proposals and fingerprint for interactive review; `nosey trust --yes` explicitly approves the current proposals noninteractively. Use `nosey trust --revoke` to revoke approval. Changes revoke that approval. Registry trust and installation-plan approval are separate decisions. MCP inspection is opt-in; dotenv evidence includes key names only.
+Project-proposed registries require user-owned trust approval. `nosey trust` displays the workspace, proposals and fingerprint for interactive review; `nosey trust --yes` explicitly approves the current proposals noninteractively. Use `nosey trust --revoke` to revoke approval. Changes revoke that approval. MCP inspection is opt-in; dotenv evidence includes key names only.
 
-Use each command's `--help` for options. Scan/search/init output remains v2; install plans use v3; list/registry-list/doctor use v1. Contracts and approved decisions are in [docs/prd](docs/prd/).
+Use each command's `--help` for options. Scan/search/init output remains v2; list/registry-list/doctor use v1. Contracts and approved decisions are in [docs/prd](docs/prd/).
 
 ## Development
 
 ```sh
 go test ./...
 make check
-NOSEY_UPSTREAM_INTEGRATION=1 go test ./internal/installation -run TestPinnedUpstreamLocalInstallAndCacheRotation -v
+NOSEY_UPSTREAM_INTEGRATION=1 go test ./internal/installation -run '^TestUpstream' -v
 ```
 
-`make check` runs formatting, vet/custom lint, race tests, coverage and build. The integration test invokes the real pinned upstream CLI in a disposable project and needs Node/npm and package access. Ordinary tests use local fixtures and fake installers.
+`make check` runs formatting, vet/custom lint, race tests, coverage and build. The integration tests invoke the real pinned upstream CLI in disposable projects and need Node/npm plus network access. Ordinary tests use local fixtures and fake installers.
 
 Official registry data lives in `registries/default/`. Edit the root JSON documents, then run `nosey registry generate registries/default` to canonicalize them and refresh `nosey.registry.json` and `nosey.registry.lock.json`. `make registry-check` verifies the committed output.
 

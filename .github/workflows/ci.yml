@@ -142,6 +142,39 @@ jobs:
       - name: Check generated output and validate the registry
         run: make registry-check
 
+  upstream:
+    name: Real skills CLI (${{ matrix.backend }})
+    # Exercises the launcher and the real pinned CLI in disposable projects.
+    needs: changes
+    if: ${{ always() && github.event_name != 'schedule' && (github.event_name != 'pull_request' || needs.changes.outputs.go == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [npx, installed]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install the pinned CLI
+        if: matrix.backend == 'installed'
+        run: npm install --global --ignore-scripts "skills@$(jq -r '.devDependencies.skills' tools/skills/package.json)"
+      - name: Run integration tests
+        env:
+          NOSEY_UPSTREAM_INTEGRATION: '1'
+          NOSEY_UPSTREAM_BACKEND: ${{ matrix.backend }}
+        run: go test ./internal/installation -run '^TestUpstream' -count=1 -v
+
   build:
     name: Build, smoke test and reproducibility
     if: github.event_name != 'schedule'
@@ -238,7 +271,7 @@ jobs:
   ci_result:
     name: CI result
     if: always()
-    needs: [lint, changes, test, registry, build, dependency_review, vulnerability, workflow_security]
+    needs: [lint, changes, test, upstream, registry, build, dependency_review, vulnerability, workflow_security]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
