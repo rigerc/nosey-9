@@ -49,8 +49,8 @@ func (m noseyModel) View() tea.View {
 	}
 	if m.tab == 1 {
 		query := m.query
-		if query.Value() != m.filters[2].Query {
-			query.SetValue(m.filters[2].Query)
+		if query.Value() != m.filters[1].Query {
+			query.SetValue(m.filters[1].Query)
 		}
 		lines = append(lines, ansi.Truncate(query.View(), m.width-2, "…"), "")
 	} else if m.search {
@@ -95,7 +95,8 @@ func (m noseyModel) View() tea.View {
 			rows := m.rows()
 			cursor := m.cursor[m.tab]
 			if m.tab == 0 {
-				title, names := m.technologyChips()
+				names := m.technologyNames()
+				title := fmt.Sprintf("Detected technologies  %d", len(names))
 				lines = append(lines, technologyStrip(title, names, m.width-2, m.styles)...)
 			}
 			lines = append(lines, resultWindow(rows, cursor, 0, max(1, m.viewport.Height()-len(lines)), m.width-2, m.styles)...)

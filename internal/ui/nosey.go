@@ -29,7 +29,7 @@ type noseyInventory struct {
 	generation int
 }
 type noseyUpdates struct {
-	names      []string
+	check      installation.UpdateCheck
 	err        error
 	generation int
 }
@@ -49,37 +49,37 @@ type noseyForm struct {
 	multiple    map[int]bool
 }
 type noseyModel struct {
-	ctx                         context.Context
-	cwd, config                 string
-	session                     app.Session
-	scan                        domain.ScanResult
-	recs                        catalog.Recommendations
-	inventory                   installation.Inventory
-	generation                  int
-	loading                     bool
-	err                         error
-	tab, section, width, height int
-	cursor                      [4]int
-	filters                     [3]domain.Filters
-	sort                        [3]string
-	selected                    map[string]bool
-	collapsed                   map[string]bool
-	query                       textinput.Model
-	search                      bool
-	viewport                    viewport.Model
-	modal                       string
-	form                        noseyForm
-	details, message, warning   string
-	install                     installRun
-	busy                        spinner.Model
-	rowCache                    []noseyRow
-	modalOffset                 int
-	sortChoice                  int
-	sortTarget                  int
-	styles                      noseyStyles
-	displayMode                 string
-	settingsAnchor              string
-	refreshOnStart              bool
+	ctx                       context.Context
+	cwd, config               string
+	session                   app.Session
+	scan                      domain.ScanResult
+	recs                      catalog.Recommendations
+	inventory                 installation.Inventory
+	generation                int
+	loading                   bool
+	err                       error
+	tab, width, height        int
+	cursor                    [4]int
+	filters                   [2]domain.Filters
+	sort                      [2]string
+	selected                  map[string]bool
+	collapsed                 map[string]bool
+	query                     textinput.Model
+	search                    bool
+	viewport                  viewport.Model
+	modal                     string
+	form                      noseyForm
+	details, message, warning string
+	install                   installRun
+	busy                      spinner.Model
+	rowCache                  []noseyRow
+	modalOffset               int
+	sortChoice                int
+	sortTarget                int
+	styles                    noseyStyles
+	displayMode               string
+	settingsAnchor            string
+	refreshOnStart            bool
 	// updates holds the skills the last upstream check reported; nil means no check has run.
 	updates   []string
 	busyLabel string
@@ -105,14 +105,14 @@ func newNoseyModel(ctx context.Context, cwd, config string) noseyModel {
 	input.Prompt = "Search: "
 	input.CharLimit = 200
 	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(14))
-	m := noseyModel{ctx: ctx, cwd: cwd, config: config, width: 80, height: 24, loading: true, generation: 1, section: 1, selected: map[string]bool{}, collapsed: map[string]bool{}, query: input, viewport: vp}
+	m := noseyModel{ctx: ctx, cwd: cwd, config: config, width: 80, height: 24, loading: true, generation: 1, selected: map[string]bool{}, collapsed: map[string]bool{}, query: input, viewport: vp}
 	m.displayMode = "fullscreen"
 	m.styles = newNoseyStyles()
 	m.busy = spinner.New(spinner.WithSpinner(spinner.Dot))
 	for i := range m.filters {
 		m.filters[i] = domain.DefaultFilters()
 	}
-	m.sort = [3]string{"name-asc", "priority-desc", "relevance"}
+	m.sort = [2]string{"priority-desc", "relevance"}
 	return m
 }
 func (m noseyModel) load() tea.Cmd { return m.loadWith(false) }
@@ -144,8 +144,8 @@ func (m noseyModel) checkUpdates() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(m.ctx, 4*time.Minute)
 		defer cancel()
-		names, err := installer.CheckUpdates(ctx)
-		return noseyUpdates{names: names, err: err, generation: generation}
+		check, err := installer.CheckUpdates(ctx)
+		return noseyUpdates{check: check, err: err, generation: generation}
 	}
 }
 func (m noseyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -159,6 +159,10 @@ func (m noseyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.rowCache = nil
 	next, cmd := m.update(msg)
+	// A busy label describes one load, so it ends with that load or when a newer generation replaces it.
+	if !next.loading || next.generation != m.generation {
+		next.busyLabel = ""
+	}
 	if next.modal != m.modal {
 		next.modalOffset = 0
 	}
@@ -227,20 +231,14 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 		if value.generation != m.generation {
 			return m, nil
 		}
-		m.loading, m.busyLabel = false, ""
+		m.loading = false
 		if value.err != nil {
 			m.err = value.err
 			return m, nil
 		}
 		m.err = nil
-		m.updates = value.names
-		if m.updates == nil {
-			m.updates = []string{}
-		}
-		m.message = "All installed skills are up to date."
-		if len(value.names) > 0 {
-			m.message = fmt.Sprintf("%s can be updated: %s", countLabel(len(value.names), "skill"), strings.Join(value.names, ", "))
-		}
+		m.updates = value.check.Names
+		m.message, m.warning = value.check.Summary(), value.check.Warning()
 		return m, m.readInventory()
 	case installReady:
 		return m.applyInstallReady(value)
@@ -287,7 +285,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 		if key == "q" && !m.search && m.modal == "" {
 			return m, tea.Quit
 		}
-		if m.loading && (m.modal != "" || !m.search && (key == "i" || key == "r" || key == "enter" || key == "a" || key == "n")) {
+		if m.loading && (m.modal != "" || !m.search && (key == "i" || key == "r" || key == "u" || key == "t" || key == "enter" || key == "a" || key == "n")) {
 			return m, nil
 		}
 		if m.session.Store.UserPath == "" && m.err != nil && key != "q" && key != "r" {
@@ -305,7 +303,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 			m.tab = (m.tab + delta) % 4
 			if m.tab == 1 {
-				m.query.SetValue(m.filters[2].Query)
+				m.query.SetValue(m.filters[1].Query)
 				m.search = true
 				return m, m.query.Focus()
 			}
@@ -397,7 +395,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 		case "u":
 			if m.tab == 2 && m.session.Store.Workspace != "" {
-				m.err, m.message = nil, ""
+				m.err, m.message, m.warning = nil, "", ""
 				m.loading, m.busyLabel = true, "Checking installed skills for updates…"
 				return m, m.checkUpdates()
 			}
@@ -411,11 +409,20 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 		case "f":
 			if m.tab < 2 {
 				f := m.filters[m.activeFilter()]
-				m.openForm("filters", []string{"Query", "Technology IDs", "Registry IDs", "Repository IDs", "Status", "Quality", "Minimum score", "Minimum repository average", "Priority", "Score state"}, []string{f.Query, strings.Join(f.Technologies, ","), strings.Join(f.Registries, ","), strings.Join(f.Repositories, ","), strings.Join(f.Statuses, ","), strings.Join(f.Qualities, ","), number(f.MinScore), number(f.MinRepositoryAverage), strings.Join(f.Priorities, ","), f.ScoreState})
+				technologies := f.Technologies
+				if m.tab == 0 {
+					technologies = f.RecommendationTechnologies
+				}
+				m.openForm("filters", []string{"Query", "Technology IDs", "Registry IDs", "Repository IDs", "Status", "Quality", "Minimum score", "Minimum repository average", "Priority", "Score state"}, []string{f.Query, strings.Join(technologies, ","), strings.Join(f.Registries, ","), strings.Join(f.Repositories, ","), strings.Join(f.Statuses, ","), strings.Join(f.Qualities, ","), number(f.MinScore), number(f.MinRepositoryAverage), strings.Join(f.Priorities, ","), f.ScoreState})
 			}
 		case "s":
 			if m.tab < 2 {
 				m.openSort()
+			}
+		case "t":
+			if m.tab == 0 && len(m.scan.Technologies) > 0 {
+				m.details = "Detected technologies\n\n" + strings.Join(m.technologyNames(), "\n")
+				m.modal = "details"
 			}
 		case "i":
 			if m.tab < 2 && len(m.selected) > 0 {
@@ -427,7 +434,7 @@ func (m noseyModel) update(msg tea.Msg) (noseyModel, tea.Cmd) {
 			}
 		case "?":
 			m.modal = "details"
-			m.details = "Tab / Shift+Tab: change section\nArrows: navigate; ←/→: collapse or expand a group\nSpace: select skill or group; Enter: expand/collapse group\na: select visible skills\nf: filters; s: sort; /: search; x: clear filters\ni: install all selected skills, including hidden selections\nr: refresh registries (or inventory on the Manage tab); u: check installed skills for updates (Manage tab); q: quit; Escape: cancel dialog\nSettings: Enter edits; a adds existing; n creates registry"
+			m.details = "Tab / Shift+Tab: change section\nArrows: navigate; ←/→: collapse or expand a group\nSpace: select skill or group; Enter: expand/collapse group\na: select visible skills\nf: filters; s: sort; /: search; x: clear filters\nt: list all detected technologies (Scan tab)\ni: install all selected skills, including hidden selections\nr: refresh registries (or inventory on the Manage tab); u: check installed skills for updates (Manage tab); q: quit; Escape: cancel dialog\nSettings: Enter edits; a adds existing; n creates registry"
 		case "enter":
 			if len(rows) == 0 {
 				break

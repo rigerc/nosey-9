@@ -161,7 +161,7 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 	case "filters":
 		f := m.filters[m.activeFilter()]
 		f.Query = values[0]
-		if m.tab == 0 && m.section == 1 {
+		if m.tab == 0 {
 			f.RecommendationTechnologies = csv(values[1])
 		} else {
 			f.Technologies = csv(values[1])

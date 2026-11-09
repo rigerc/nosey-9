@@ -13,7 +13,7 @@ nosey scan [--json] [--strict] [--enable-mcp] [--refresh] [--cwd PATH] [--query 
 nosey search QUERY [--registry ID] [--technology ID] [--repository ID] [--status any|installed|outdated|missing|unknown] [--quality excellent|good|fair|poor|unassessed] [--score-state any|scored|unscored] [--min-score 0..100] [--min-repo-average 0..100] [--sort relevance|score-desc|quality-desc|repository-average-desc|name-asc] [--json]
 nosey search --upstream QUERY   # Delegate to upstream skills find (optional, passthrough)
 nosey install SKILL_ID... [--agent ID] [--print] [--copy] [--ignore-conflicts] [--yes]   # See D8
-nosey list [--json]            # Project installed inventory
+nosey list [--json] [--check-updates]  # Project installed inventory; --check-updates marks upstream updates and warns on stderr about skills it could not check
 nosey registry list [--json]
 nosey registry add GIT_URL [--id ID] [--priority N]
 nosey registry add PATH [--id ID] [--priority N]

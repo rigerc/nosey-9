@@ -48,9 +48,9 @@
 
 **AC-22:** Explore and CLI search share exact case-insensitive query matching and a relevance score ordered by ID/name exact, prefix, substring, tags, description, technology and repository, with deterministic tie-breakers, null-last rating sorts and grouping.
 
-**AC-23:** Scan provides keyboard-accessible `f` filtering and `s` sorting for **both** the detected-technology section and recommended-skills section. The active section is explicit; `Esc` cancels edits, and `Enter` applies them. Scan displays visible/total counts; `Clear filters` restores all rows.
+**AC-23:** Scan provides keyboard-accessible `f` filtering and `s` sorting for the recommended-skills section; detected technologies are filtered and sorted through `nosey scan` flags. `Esc` cancels edits, and `Enter` applies them. Scan displays visible/total counts; `Clear filters` restores all rows.
 
-**AC-24:** Technology sorting supports alphabetical ascending/descending, evidence count, and matched rule count. Recommendation sorting supports priority, score, quality, repository average, and name. Filter combinations and all sorting modes have stable tie-breakers, preserve detection/recommendation data, and produce reproducible results without rescanning.
+**AC-24:** Technology sorting, available through `nosey scan`, supports alphabetical ascending/descending, evidence count, and matched rule count. Recommendation sorting supports priority, score, quality, repository average, and name. Filter combinations and all sorting modes have stable tie-breakers, preserve detection/recommendation data, and produce reproducible results without rescanning.
 
 **AC-25:** Selections persist through filters/sorts; `a` toggles only visible eligible skills (including unknown state), and hidden selections appear in the plan. `scan --rec-technology ID`, `--query-target`, and `--status unknown` reproduce the TUI semantics without altering detected data.
 
@@ -102,7 +102,7 @@
 
 **AC-49:** Both `nosey scan --rec-technology` and `--query-target` faithfully reproduce Scan filtering scopes and preserve original detected recommendations.
 
-**AC-50:** Footer never exceeds six bindings; Scan technology pane has a documented reverse-focus action and Tab exits text search to switch top-level section.
+**AC-50:** Footer never exceeds six bindings; the Scan technology strip never takes focus, and Tab exits text search to switch top-level section.
 
 **AC-51:** `registry validate` default merges official underneath; `--standalone` treats unknown official references as errors.
 

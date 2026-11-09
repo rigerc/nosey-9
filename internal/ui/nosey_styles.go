@@ -146,7 +146,8 @@ func technologyStrip(title string, names []string, width int, styles noseyStyles
 	if len(chips) == 0 {
 		line = styles.muted.Render("No detected technologies")
 	}
-	line = ansi.Truncate(line, max(1, width-4), "…")
+	// The box spends four columns on its border and two on padding; a longer line would wrap.
+	line = ansi.Truncate(line, max(1, width-6), "…")
 	border := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#94A3B8")).Padding(0, 1).Width(max(1, width-2))
 	if os.Getenv("NO_COLOR") != "" {
 		border = border.UnsetBorderForeground()
