@@ -6,7 +6,7 @@ require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.1.0
 	charm.land/lipgloss/v2 v2.0.6
-	github.com/bmatcuk/doublestar/v4 v4.8.1
+	github.com/bmatcuk/doublestar/v4 v4.10.3
 	github.com/bradleyjkemp/cupaloy v2.3.0+incompatible
 	github.com/bueti/skillgen v0.5.0
 	github.com/charmbracelet/x/ansi v0.11.9
