@@ -110,7 +110,7 @@ func (m noseyModel) openInstallForAgents(agents []string) (noseyModel, tea.Cmd) 
 		ids = append(ids, id)
 	}
 	opts := installation.Options{IDs: ids, Agents: slices.Clone(agents), Method: cfg.Installation.Method, Yes: len(agents) > 0}
-	plans, err := m.installer().Build(m.session.Catalog, m.recs, opts)
+	plans, err := m.installer().Build(context.Background(), m.session.Catalog, m.recs, opts)
 	m.warning = ""
 	m.err = err
 	if err != nil {

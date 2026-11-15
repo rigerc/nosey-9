@@ -30,7 +30,7 @@ func lifecycleModel(t *testing.T) noseyModel {
 		t.Fatal(err)
 	}
 	fetcher["https://github.com/owner/one#"+newSHA] = newOne
-	plans, err := m.installer().Build(m.session.Catalog, catalog.Recommendations{}, installation.Options{IDs: []string{"a", "b", "c"}, Agents: []string{"claude-code"}, Yes: true})
+	plans, err := m.installer().Build(context.Background(), m.session.Catalog, catalog.Recommendations{}, installation.Options{IDs: []string{"a", "b", "c"}, Agents: []string{"claude-code"}, Yes: true})
 	if err != nil {
 		t.Fatal(err)
 	}

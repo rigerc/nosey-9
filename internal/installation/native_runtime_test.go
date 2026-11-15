@@ -87,7 +87,7 @@ func TestNativeGitInstallAndUpdateWithoutExecutables(t *testing.T) {
 	}
 
 	t.Setenv("PATH", "")
-	plans, err := s.Build(catalogFor(first), catalog.Recommendations{}, Options{IDs: []string{"s"}, Agents: []string{"claude-code"}, Method: "copy", Yes: true})
+	plans, err := s.Build(context.Background(), catalogFor(first), catalog.Recommendations{}, Options{IDs: []string{"s"}, Agents: []string{"claude-code"}, Method: "copy", Yes: true})
 	if err != nil {
 		t.Fatal(err)
 	}

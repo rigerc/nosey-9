@@ -174,7 +174,7 @@ func TestSourceNormalizationAndMatching(t *testing.T) {
 func TestQuarantinedAndBlockedSkillsAreNeverBuilt(t *testing.T) {
 	c := domain.Catalog{Quarantined: map[string]domain.Skill{"gone": {ID: "gone"}}, Blocked: map[string]string{"blocked": "policy"}}
 	for _, id := range []string{"gone", "blocked"} {
-		_, err := buildService().Build(c, catalog.Recommendations{}, Options{IDs: []string{id}, Agents: []string{"codex"}})
+		_, err := buildService().Build(context.Background(), c, catalog.Recommendations{}, Options{IDs: []string{id}, Agents: []string{"codex"}})
 		var policy PolicyError
 		if !errors.As(err, &policy) {
 			t.Fatal(id, err)

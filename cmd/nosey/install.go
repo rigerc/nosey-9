@@ -18,26 +18,31 @@ func installCommand(o *cliOptions) *cobra.Command {
 	opts := installation.Options{}
 	copyMode, yes := false, false
 	cmd := &cobra.Command{
-		Use:   "install SKILL_ID...",
-		Short: "Install catalog skills into this project",
-		Long: `Review the whole selection and confirm once in Nosey. All sources then install
-without further prompts into this project, replacing existing skills with the
-same names, and are recorded in skills-lock.json. Sources run in dependency
-order and stop at the first failure; skills already installed are kept and
-recorded. In symlink mode, agents whose project directory does not exist are
-skipped and reported; --copy installs into every selected agent. --yes skips
-the Nosey confirmation. Set installation.directory to a project-relative path
-for direct copies into that directory only, without agent selection or links.
-An explicit --agent cannot be combined with installation.directory.`,
+		Use:   "install SKILL_OR_SOURCE...",
+		Short: "Install catalog skills or source skills into this project",
+		Long: `Review the whole selection and confirm once in Nosey. Arguments can be catalog
+skill IDs or skill sources (a local directory, owner/repo, or a Git URL). All
+sources then install without further prompts into this project, replacing
+existing skills with the same names, and are recorded in skills-lock.json.
+Sources run in dependency order and stop at the first failure; skills already
+installed are kept and recorded. In symlink mode, agents whose project
+directory does not exist are skipped and reported; --copy installs into every
+selected agent. --yes skips the Nosey confirmation. Set installation.directory
+to a project-relative path for direct copies into that directory only, without
+agent selection or links. An explicit --agent cannot be combined with
+installation.directory.`,
 		Example: `  nosey install vercel-labs:agent-skills:react-best-practices
-  nosey install vercel-labs:agent-skills:react-best-practices --agent codex --agent claude-code
-  nosey install vercel-labs:agent-skills:react-best-practices --agent codex --yes`,
+  nosey install owner/repo
+  nosey install https://github.com/owner/repo --skill my-skill
+  nosey install ./path/to/skills --agent codex --yes`,
 		Args: cobra.MinimumNArgs(1),
 	}
 	cmd.Flags().StringSliceVar(&opts.Agents, "agent", nil, "target agent IDs (Nosey asks once when none are set)")
 	cmd.Flags().BoolVar(&yes, "yes", false, "install without prompts; requires target agents or installation.directory; replaces existing skills")
 	cmd.Flags().BoolVar(&copyMode, "copy", false, "install by copy rather than symlink")
 	cmd.Flags().BoolVar(&opts.IgnoreConflicts, "ignore-conflicts", false, "install despite catalog conflicts")
+	cmd.Flags().StringSliceVar(&opts.Skills, "skill", nil, "skill names to install from a source (default: all discovered skills)")
+	cmd.Flags().StringVar(&opts.Ref, "ref", "", "Git ref for source installs")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		s, err := o.session(cmd.Context(), false)
 		if err != nil {
@@ -48,7 +53,13 @@ An explicit --agent cannot be combined with installation.directory.`,
 			return err
 		}
 		s.Inventory(cmd.Context())
-		opts.IDs = args
+		for _, arg := range args {
+			if _, ok := s.Catalog.Skills[arg]; ok {
+				opts.IDs = append(opts.IDs, arg)
+			} else {
+				opts.Sources = append(opts.Sources, arg)
+			}
+		}
 		if copyMode {
 			opts.Method = "copy"
 		}
@@ -65,7 +76,7 @@ An explicit --agent cannot be combined with installation.directory.`,
 			}
 		}
 		opts.Yes = yes
-		plans, err := s.Installer.Build(s.Catalog, recs, opts)
+		plans, err := s.Installer.Build(cmd.Context(), s.Catalog, recs, opts)
 		if err != nil {
 			return err
 		}
