@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "skills": {
+    "charmed-bubbles": {
+      "source": "tpscloud/charmedimsure",
+      "ref": "fb054b67470c585ed8724e3f49376cc6b6f1b783",
+      "sourceType": "github",
+      "skillPath": "skills/charmed-bubbles/SKILL.md",
+      "computedHash": "fa5c4a3b30c00d788b0b909a7d74c0209b46d7d770ba556679e478ebac02d0f8"
+    },
+    "dependabot": {
+      "source": "github/awesome-copilot",
+      "ref": "98b45a78d3ed316e78f005b60594d5c4a50588e3",
+      "sourceType": "github",
+      "skillPath": "skills/dependabot/SKILL.md",
+      "computedHash": "a7f64786f061e1ec9a513757a54f96e3c05b1f88d9d7e380222defbcd87a56e4"
+    },
+    "github-actions-efficiency": {
+      "source": "github/awesome-copilot",
+      "ref": "98b45a78d3ed316e78f005b60594d5c4a50588e3",
+      "sourceType": "github",
+      "skillPath": "skills/github-actions-efficiency/SKILL.md",
+      "computedHash": "92628da7f3eb2ae5625168f31587712a3cd77ac9ba5a23ffc24e86fd12c4408c"
+    },
+    "golang-pro": {
+      "source": "Jeffallan/claude-skills",
+      "ref": "078a25cc5bfd8011459be7b91d004e900c1d02d3",
+      "sourceType": "github",
+      "skillPath": "skills/golang-pro/SKILL.md",
+      "computedHash": "4ef8dbe3504446156993f6f3ee218fe25d4338adaf1741422db43bd981ea93c3"
+    }
+  }
+}
