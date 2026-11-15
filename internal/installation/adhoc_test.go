@@ -113,3 +113,52 @@ func TestAdHocLocalSourceUpdateAndUninstallBySource(t *testing.T) {
 		t.Fatalf("only the named source is removed: %+v", lock.Skills)
 	}
 }
+
+func TestAdHocSourceInCustomDirectorySurvivesUpdateAndUninstall(t *testing.T) {
+	ctx := context.Background()
+	s := newService(t, nil)
+	s.Settings.Installation.Directory = "tools/skills"
+	src := t.TempDir()
+	writeSkill(t, src, "alpha", "alpha", "data.txt", "v1")
+	writeSkill(t, src, "beta", "beta", "data.txt", "v1")
+	c := domain.Catalog{Skills: map[string]domain.Skill{}}
+	plans, err := s.Build(ctx, c, catalog.Recommendations{}, Options{Sources: []string{src}, Yes: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Install(ctx, plans, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Changing the setting must not lose the recorded location.
+	s.Settings.Installation.Directory = "other/skills"
+	writeSkill(t, src, "alpha", "alpha", "data.txt", "v2")
+	update, err := s.PlanUpdate(ctx, c, catalog.Recommendations{}, UpdateOptions{IDs: []string{src}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if update.Count() != 1 || !slices.Equal(update.Plans[0].Skills[0].Targets, []string{"tools/skills/alpha (copy)"}) {
+		t.Fatalf("%+v", update.Plans)
+	}
+	if results, err := s.Update(ctx, update, nil); err != nil {
+		t.Fatal(err, results)
+	}
+	if got := read(t, s.at("tools/skills/alpha/data.txt")); got != "v2" {
+		t.Fatal(got)
+	}
+	if exists(s.at("other/skills/alpha")) || exists(s.at(".agents/skills/alpha")) {
+		t.Fatal("update wrote outside the recorded location")
+	}
+	if again, err := s.PlanUpdate(ctx, c, catalog.Recommendations{}, UpdateOptions{}); err != nil || !again.Empty() {
+		t.Fatalf("%+v %v", again, err)
+	}
+	remove, err := s.PlanUninstall(ctx, c, catalog.Recommendations{}, UninstallOptions{Targets: []string{src}})
+	if err != nil || len(remove.Skills) != 2 {
+		t.Fatal(remove, err)
+	}
+	if _, err = s.Uninstall(ctx, remove, nil); err != nil {
+		t.Fatal(err)
+	}
+	if exists(s.at("tools/skills/alpha")) || exists(s.at("tools/skills/beta")) || len(readLock(t, s).Skills) != 0 {
+		t.Fatal("custom-directory skills were not removed")
+	}
+}
