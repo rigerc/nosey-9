@@ -15,20 +15,24 @@ func updateCommand(o *cliOptions) *cobra.Command {
 	opts := installation.UpdateOptions{}
 	yes := false
 	cmd := &cobra.Command{
-		Use:   "update [SKILL_ID...]",
-		Short: "Update outdated catalog skills in this project",
-		Long: `Refresh installed skills that follow the catalog. A skill is outdated when
-the catalog pin differs from the ref recorded in skills-lock.json or when its
-upstream content differs from what is installed; the reason is shown for each
-skill. With no SKILL_ID, every outdated catalog-managed skill is updated;
-otherwise only the named catalog IDs or tracked skill names (skills that are
-already current are reported and left alone).
+		Use:   "update [SKILL_OR_SOURCE...]",
+		Short: "Update outdated tracked skills in this project",
+		Long: `Refresh installed skills tracked in skills-lock.json. A catalog skill is
+outdated when the catalog pin differs from the ref recorded in skills-lock.json
+or when its upstream content differs from what is installed. A skill installed
+from a custom source (a local directory, owner/repo or a Git URL) is outdated
+when the content at the source and ref recorded in skills-lock.json differs
+from what is installed, and is refreshed from that source. The reason is shown
+for each skill. With no arguments, every outdated tracked skill is updated;
+otherwise only the named catalog IDs, tracked skill names, or every tracked
+skill installed from a named source (skills that are already current are
+reported and left alone).
 
 Each skill is refreshed at every location where it is installed in this
 project, keeping each location's symlink or copy mode, so no agent directory
 is lost. Requirements that the catalog added are installed where the skills
-requiring them live. Skills that are not in the catalog are reported as
-skipped and never updated. The update needs network access: a failed update
+requiring them live. Untracked skills are reported as skipped and never
+updated. The update needs network access for Git sources: a failed update
 check stops the command and nothing is changed.
 
 Review the whole selection and confirm once in Nosey. Sources then update in
@@ -38,7 +42,8 @@ skills-lock.json. --yes skips the confirmation and is required without a
 terminal.`,
 		Example: `  nosey update
   nosey update vercel-labs:agent-skills:react-best-practices
-  nosey update --yes
+  nosey update owner/repo
+  nosey update ./path/to/skills --yes
   nosey update --ignore-conflicts --yes`,
 		Args: cobra.ArbitraryArgs,
 	}

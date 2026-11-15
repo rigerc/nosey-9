@@ -22,7 +22,9 @@ const (
 
 // UpdateOptions selects what Service.PlanUpdate updates.
 type UpdateOptions struct {
-	// IDs are catalog IDs or tracked skill names. Empty selects every outdated catalog-managed skill.
+	// IDs are catalog IDs, tracked skill names or sources recorded in skills-lock.json (a local
+	// directory, owner/repo or a Git URL, optionally with @ref). Empty selects every outdated
+	// tracked skill.
 	IDs             []string
 	IgnoreConflicts bool
 	// Check is a finished update check to reuse; nil runs CheckUpdates, which needs network access.
@@ -154,14 +156,16 @@ func requirements(c domain.Catalog, recs catalog.Recommendations, id string) []s
 	return unique(append(slices.Clone(c.Skills[id].Requires), recs.Requires[id]...))
 }
 
-// PlanUpdate selects the catalog-managed skills to update and builds one SourcePlan per source
-// from the current catalog. Outdated means the catalog pin differs from the locked ref or the
-// native update check found different content; each planned skill keeps those reasons. A failed
-// check is an error. Requirements missing from the project are added and installed where the
-// skills requiring them live. It does not take the operation lock.
+// PlanUpdate selects the tracked skills to update and builds one SourcePlan per source. Catalog
+// skills follow the current catalog: outdated means the catalog pin differs from the locked ref
+// or the native update check found different content, and requirements missing from the project
+// are added and installed where the skills requiring them live. Tracked skills outside the
+// catalog, such as skills installed from a custom source, are refreshed from the source and ref
+// recorded in skills-lock.json when the check found different content. Each planned skill keeps
+// its reasons. A failed check is an error. It does not take the operation lock.
 func (s Service) PlanUpdate(ctx context.Context, c domain.Catalog, recs catalog.Recommendations, opts UpdateOptions) (UpdatePlan, error) {
 	var plan UpdatePlan
-	_, items, notes, err := s.snapshot(c)
+	lock, items, notes, err := s.snapshot(c)
 	if err != nil {
 		return plan, err
 	}
@@ -179,44 +183,54 @@ func (s Service) PlanUpdate(ctx context.Context, c domain.Catalog, recs catalog.
 	if explicit {
 		seen := map[string]bool{}
 		for _, arg := range opts.IDs {
-			var it *installedSkill
+			var matched []*installedSkill
 			switch {
 			case byID[arg] != nil:
-				it = byID[arg]
+				matched = []*installedSkill{byID[arg]}
 			case byName[arg] != nil:
-				it = byName[arg]
+				matched = []*installedSkill{byName[arg]}
 			default:
+				for _, name := range s.trackedFromSource(lock, arg) {
+					if byName[name] != nil {
+						matched = append(matched, byName[name])
+					}
+				}
+			}
+			if len(matched) == 0 {
 				if _, ok := c.Skills[arg]; ok {
 					return plan, PolicyError{Reason: arg + " is not installed; use nosey install"}
 				}
 				if err = unavailableSkill(c, arg); err != nil {
 					return plan, err
 				}
-				return plan, PolicyError{Reason: "unknown skill " + arg}
+				return plan, PolicyError{Reason: "unknown skill or source " + arg}
 			}
-			if seen[it.Name] {
-				continue
+			for _, it := range matched {
+				if !seen[it.Name] {
+					seen[it.Name] = true
+					candidates = append(candidates, it)
+				}
 			}
-			seen[it.Name] = true
-			candidates = append(candidates, it)
 		}
 	} else {
 		for i := range items {
 			candidates = append(candidates, &items[i])
 		}
 	}
-	var managed []*installedSkill
+	var managed, custom []*installedSkill
 	for _, it := range candidates {
 		switch {
 		case it.ID != "":
 			managed = append(managed, it)
 		case !it.Tracked:
 			plan.Skipped = append(plan.Skipped, SkippedSkill{it.Name, "not tracked in skills-lock.json"})
+		case it.Entry.SkillPath == "":
+			plan.Skipped = append(plan.Skipped, SkippedSkill{it.Name, "its source cannot be checked automatically; reinstall to enable updates"})
 		default:
-			plan.Skipped = append(plan.Skipped, SkippedSkill{it.Name, "not in the current catalog"})
+			custom = append(custom, it)
 		}
 	}
-	if len(managed) == 0 {
+	if len(managed) == 0 && len(custom) == 0 {
 		slices.SortFunc(plan.Skipped, func(a, b SkippedSkill) int { return strings.Compare(a.Name, b.Name) })
 		return plan, nil
 	}
@@ -257,14 +271,46 @@ func (s Service) PlanUpdate(ctx context.Context, c domain.Catalog, recs catalog.
 		reasons[it.ID] = why
 		selected = append(selected, it.ID)
 	}
+	var refresh []*installedSkill
+	for _, it := range custom {
+		if content[storage.Safe(it.Name)] {
+			refresh = append(refresh, it)
+		} else if explicit {
+			plan.Skipped = append(plan.Skipped, SkippedSkill{it.Name, "already up to date"})
+		}
+	}
 	slices.Sort(selected)
 	slices.SortFunc(plan.Skipped, func(a, b SkippedSkill) int { return strings.Compare(a.Name, b.Name) })
-	if len(selected) == 0 {
-		return plan, nil
+	bySource := map[string]int{}
+	if len(selected) > 0 {
+		if err = s.planCatalogUpdates(c, recs, selected, reasons, byID, items, opts.IgnoreConflicts, bySource, &plan); err != nil {
+			return plan, err
+		}
 	}
+	for _, it := range refresh {
+		source, ref := lockSource(it.Entry)
+		add := AddSkill{Name: it.Name, Reasons: []string{ReasonContentChanged}}
+		for _, l := range it.Locations {
+			add.Targets = append(add.Targets, locationText(l))
+		}
+		key := source + "#" + ref
+		at, ok := bySource[key]
+		if !ok {
+			at = len(plan.Plans)
+			bySource[key] = at
+			plan.Plans = append(plan.Plans, SourcePlan{Source: source, Ref: ref})
+		}
+		plan.Plans[at].Skills = append(plan.Plans[at].Skills, add)
+	}
+	return plan, nil
+}
+
+// planCatalogUpdates adds the selected catalog skills and their missing requirements to plan,
+// in dependency order, one SourcePlan per source.
+func (s Service) planCatalogUpdates(c domain.Catalog, recs catalog.Recommendations, selected []string, reasons map[string][]string, byID map[string]*installedSkill, items []installedSkill, ignoreConflicts bool, bySource map[string]int, plan *UpdatePlan) error {
 	ordered, err := dependencyOrder(c, recs, selected)
 	if err != nil {
-		return plan, err
+		return err
 	}
 	fresh := map[string]bool{}
 	for _, id := range ordered {
@@ -272,8 +318,8 @@ func (s Service) PlanUpdate(ctx context.Context, c domain.Catalog, recs catalog.
 			fresh[id] = true
 		}
 	}
-	if err = checkUpdateSelection(c, recs, ordered, fresh, byID, items, opts.IgnoreConflicts); err != nil {
-		return plan, err
+	if err = checkUpdateSelection(c, recs, ordered, fresh, byID, items, ignoreConflicts); err != nil {
+		return err
 	}
 	dependents := map[string][]string{}
 	for _, id := range append(slices.Clone(ordered), keys(byID)...) {
@@ -285,7 +331,6 @@ func (s Service) PlanUpdate(ctx context.Context, c domain.Catalog, recs catalog.
 	for _, it := range items {
 		inv[it.Name] = it.InstalledSkill
 	}
-	bySource := map[string]int{}
 	for _, id := range ordered {
 		if byID[id] != nil && reasons[id] == nil {
 			continue // an installed requirement that is not selected stays as it is
@@ -293,7 +338,7 @@ func (s Service) PlanUpdate(ctx context.Context, c domain.Catalog, recs catalog.
 		skill := c.Skills[id]
 		source, ref, err := addSource(c, skill)
 		if err != nil {
-			return plan, err
+			return err
 		}
 		add := AddSkill{ID: id, Name: skill.Source.SkillName, Required: fresh[id], Reasons: reasons[id]}
 		var locs []skillkit.Location
@@ -316,7 +361,7 @@ func (s Service) PlanUpdate(ctx context.Context, c domain.Catalog, recs catalog.
 		}
 		plan.Plans[at].Skills = append(plan.Plans[at].Skills, add)
 	}
-	return plan, nil
+	return nil
 }
 
 func keys[V any](m map[string]V) []string {
