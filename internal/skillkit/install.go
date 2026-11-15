@@ -43,6 +43,10 @@ const (
 type Target struct {
 	// Workspace is the project directory; it must exist.
 	Workspace string
+	// Directory selects direct copies only, bypassing all agent destinations.
+	Directory string
+	// AdditionalDirs contains validated directories from recorded installations.
+	AdditionalDirs []string
 	// Mode defaults to ModeSymlink.
 	Mode Mode
 	// Agents is the agent table shared by discovery, install, list and uninstall.
@@ -61,6 +65,13 @@ func (t Target) mode() Mode {
 }
 
 func (t Target) validate() error {
+	for _, dir := range append(slices.Clone(t.AdditionalDirs), t.Directory) {
+		if dir != "" {
+			if err := ValidateSkillsDirectory(dir); err != nil {
+				return err
+			}
+		}
+	}
 	if t.Workspace == "" {
 		return errors.New("workspace is required")
 	}
@@ -125,6 +136,13 @@ func canonicalRel(name string) string { return path.Join(UniversalSkillsDir, nam
 // per-agent outcomes, together with an error if any agent failed or ctx ended;
 // agents not reached after cancellation are reported as not-started.
 func Install(ctx context.Context, skill Skill, agentIDs []string, target Target) (InstallResult, error) {
+	if target.Directory != "" {
+		if len(agentIDs) > 0 {
+			return InstallResult{Skill: skill.Name, Status: StatusFailed}, errors.New("direct installation cannot select agents")
+		}
+		target.Directory = path.Clean(target.Directory)
+		return InstallAt(ctx, skill, []Location{{Dir: target.Directory, Path: path.Join(target.Directory, SanitizeName(skill.Name))}}, target)
+	}
 	res := InstallResult{Skill: skill.Name, Status: StatusNotStarted}
 	ids, err := resolveAgents(agentIDs, target)
 	for _, id := range ids {

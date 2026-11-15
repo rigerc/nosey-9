@@ -103,7 +103,7 @@ func (s Service) CheckUpdates(ctx context.Context) (UpdateCheck, error) {
 	if err != nil {
 		return UpdateCheck{}, err
 	}
-	listed, err := skillkit.ListInstalled(skillkit.Target{Workspace: s.Store.Workspace, Agents: table})
+	listed, err := s.listInstalled(table)
 	if err != nil {
 		return UpdateCheck{}, fmt.Errorf("reading installed skills: %w", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/rigerc/nosey-9/internal/domain"
@@ -138,7 +139,7 @@ func (s Service) Inventory(ctx context.Context, c domain.Catalog) Inventory {
 	table, err := s.agentTable()
 	var listed skillkit.Inventory
 	if err == nil {
-		listed, err = skillkit.ListInstalled(skillkit.Target{Workspace: s.Store.Workspace, Agents: table})
+		listed, err = s.listInstalled(table)
 	}
 	if err != nil {
 		unknown("Project skill inventory unavailable: " + err.Error())
@@ -174,7 +175,14 @@ func (s Service) Inventory(ctx context.Context, c domain.Catalog) Inventory {
 				match := c.Skills[*record.SkillID]
 				skill = &match
 			}
-			record.Status = installedStatus(path, entry, tracked, len(record.Agents), skill)
+			readers := len(record.Agents)
+			locations, _, _ := recordedLocations(entry)
+			for _, location := range item.Locations {
+				if slices.Contains(locations.Directories, location.Dir) {
+					readers++
+				}
+			}
+			record.Status = installedStatus(path, entry, tracked, readers, skill)
 		}
 		result.Skills = append(result.Skills, record)
 	}

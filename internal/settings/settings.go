@@ -54,6 +54,7 @@ type Settings struct {
 		TTL int `json:"ttlHours"`
 	} `json:"updates"`
 	Installation struct {
+		Directory    string        `json:"directory"`
 		Agents       []string      `json:"agents"`
 		Method       string        `json:"method"`
 		Verbose      bool          `json:"verbose"`
@@ -219,6 +220,15 @@ func validateSettings(data []byte) error {
 	case 3:
 		if err := contracts.Validate("settings.v3.schema.json", data); err != nil {
 			return err
+		}
+		var doc Settings
+		if err := json.Unmarshal(data, &doc); err != nil {
+			return err
+		}
+		if doc.Installation.Directory != "" {
+			if err := skillkit.ValidateSkillsDirectory(doc.Installation.Directory); err != nil {
+				return fmt.Errorf("installation.directory: %w", err)
+			}
 		}
 		return validateCustomAgents(data)
 	case 2:

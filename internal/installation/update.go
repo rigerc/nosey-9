@@ -110,7 +110,7 @@ func (s Service) snapshot(c domain.Catalog) (skillkit.ProjectLock, []installedSk
 	if err != nil {
 		return skillkit.ProjectLock{}, nil, nil, err
 	}
-	listed, err := skillkit.ListInstalled(skillkit.Target{Workspace: s.Store.Workspace, Agents: table})
+	listed, err := s.listInstalled(table)
 	if err != nil {
 		return skillkit.ProjectLock{}, nil, nil, fmt.Errorf("reading installed skills: %w", err)
 	}
@@ -501,8 +501,11 @@ func (o *Operation) update(ctx context.Context, plan SourcePlan, res *SourceResu
 	for _, skill := range skills {
 		found[skill.Name] = skill
 	}
-	target := o.target(plan)
-	listed, err := skillkit.ListInstalled(target)
+	target, err := o.target(plan)
+	if err != nil {
+		return err
+	}
+	listed, err := o.s.listInstalled(o.table)
 	if err != nil {
 		return fmt.Errorf("reading installed skills: %w", err)
 	}
@@ -589,6 +592,10 @@ func (o *Operation) persistUpdate(res SourceResult, parsed skillkit.ParsedSource
 	case err != nil:
 		return err
 	}
+	target, err := o.s.installTarget(o.table)
+	if err != nil {
+		return err
+	}
 	for _, r := range res.Skills {
 		if !r.Installed() {
 			continue
@@ -597,7 +604,28 @@ func (o *Operation) persistUpdate(res SourceResult, parsed skillkit.ParsedSource
 		if !ok {
 			return fmt.Errorf("no discovered skill for %s", r.Skill)
 		}
+		previous, existed := lock.Skills[r.Skill]
 		lock.Set(r.Skill, skillkit.NewLockEntry(parsed, skillkit.SkillMDPath(skill), r.Hash))
+		var dirs []string
+		agentDirectories := false
+		if !existed {
+			for _, outcome := range r.Agents {
+				if outcome.Status != skillkit.StatusInstalled {
+					continue
+				}
+				dir := path.Dir(outcome.Path)
+				if slices.Contains(target.AdditionalDirs, dir) {
+					dirs = append(dirs, dir)
+				} else {
+					agentDirectories = true
+				}
+			}
+		}
+		entry, err := withLocations(lock.Skills[r.Skill], previous, existed, dirs, agentDirectories)
+		if err != nil {
+			return err
+		}
+		lock.Skills[r.Skill] = entry
 		if method, isNew := fresh[r.Skill]; isNew {
 			lock.Skills[r.Skill] = withInstallMode(lock.Skills[r.Skill], method)
 		}

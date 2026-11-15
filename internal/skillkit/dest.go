@@ -159,3 +159,25 @@ func (d *destRoot) realPath(rel string) string {
 		cur = next
 	}
 }
+
+// ValidateSkillsDirectory checks a project-relative directory before it is used for installation.
+func ValidateSkillsDirectory(dir string) error {
+	clean := path.Clean(dir)
+	if !filepath.IsLocal(dir) || clean == "." || strings.ContainsAny(dir, "\\") ||
+		strings.ContainsFunc(dir, func(r rune) bool { return r < 32 || r >= 127 && r <= 159 || r == '\u2028' || r == '\u2029' }) {
+		return fmt.Errorf("skills directory must be a relative path inside the project")
+	}
+	if first, _, _ := strings.Cut(clean, "/"); first == ".git" {
+		return fmt.Errorf("skills directory must not be inside .git")
+	}
+	return nil
+}
+
+func (t Target) skillsDirs() []string {
+	dirs := append(t.Agents.SkillsDirs(), UniversalSkillsDir)
+	dirs = append(dirs, t.AdditionalDirs...)
+	if t.Directory != "" {
+		dirs = append(dirs, path.Clean(t.Directory))
+	}
+	return dirs
+}

@@ -110,10 +110,18 @@ func (r SourceResult) Lines() []string {
 			var ids []string
 			for _, a := range s.Agents {
 				if a.Status == skillkit.StatusInstalled {
-					ids = append(ids, a.Agent)
+					if a.Agent == "" {
+						ids = append(ids, a.Path+" ("+string(a.Mode)+")")
+					} else {
+						ids = append(ids, a.Agent)
+					}
 				}
 			}
-			line := fmt.Sprintf("installed %s for %s", name, strings.Join(ids, ", "))
+			preposition := "for"
+			if len(s.Agents) > 0 && s.Agents[0].Agent == "" {
+				preposition = "at"
+			}
+			line := fmt.Sprintf("installed %s %s %s", name, preposition, strings.Join(ids, ", "))
 			for _, a := range s.Agents {
 				if a.Status == skillkit.StatusFailed {
 					line += fmt.Sprintf("; failed for %s: %s", a.Agent, errText(a.Err))
@@ -185,12 +193,14 @@ func (o *Operation) Close() error {
 	return lock.Release()
 }
 
-func (o *Operation) target(plan SourcePlan) skillkit.Target {
+func (o *Operation) target(plan SourcePlan) (skillkit.Target, error) {
 	mode := skillkit.ModeSymlink
 	if plan.Method == "copy" {
 		mode = skillkit.ModeCopy
 	}
-	return skillkit.Target{Workspace: o.s.Store.Workspace, Mode: mode, Agents: o.table}
+	target, err := o.s.installTarget(o.table)
+	target.Mode, target.Directory = mode, plan.Directory
+	return target, err
 }
 
 func notStarted(plan SourcePlan) []skillkit.InstallResult {
@@ -237,7 +247,7 @@ func (o *Operation) RunSource(ctx context.Context, plan SourcePlan) (SourceResul
 }
 
 func (o *Operation) install(ctx context.Context, plan SourcePlan, res *SourceResult, parsed *skillkit.ParsedSource, found map[string]skillkit.Skill) error {
-	if len(plan.Skills) == 0 || len(plan.Agents) == 0 {
+	if len(plan.Skills) == 0 || len(plan.Agents) == 0 && plan.Directory == "" {
 		return PolicyError{Reason: "source plan needs skills and agents"}
 	}
 	if plan.Method != "copy" && plan.Method != "symlink" {
@@ -257,7 +267,10 @@ func (o *Operation) install(ctx context.Context, plan SourcePlan, res *SourceRes
 	for _, skill := range skills {
 		found[skill.Name] = skill
 	}
-	target := o.target(plan)
+	target, err := o.target(plan)
+	if err != nil {
+		return err
+	}
 	report, err := skillkit.InstallSkills(ctx, names, skills, plan.Agents, target)
 	if len(report.Skills) > 0 {
 		res.Skills = mergeResults(plan, report.Skills)
@@ -373,7 +386,17 @@ func (o *Operation) persist(plan SourcePlan, res SourceResult, parsed skillkit.P
 		if !ok {
 			return fmt.Errorf("no discovered skill for %s", r.Skill)
 		}
+		previous, existed := lock.Skills[r.Skill]
 		lock.Set(r.Skill, skillkit.NewLockEntry(parsed, skillkit.SkillMDPath(skill), r.Hash))
+		var dirs []string
+		if plan.Directory != "" {
+			dirs = []string{plan.Directory}
+		}
+		entry, err := withLocations(lock.Skills[r.Skill], previous, existed, dirs, plan.Directory == "")
+		if err != nil {
+			return err
+		}
+		lock.Skills[r.Skill] = entry
 		lock.Skills[r.Skill] = withInstallMode(lock.Skills[r.Skill], plan.Method)
 	}
 	return lock.Write(workspace)

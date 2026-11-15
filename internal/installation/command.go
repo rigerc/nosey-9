@@ -9,7 +9,9 @@ import (
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/domain"
 	"github.com/rigerc/nosey-9/internal/registry"
+	"github.com/rigerc/nosey-9/internal/skillkit"
 	"github.com/rigerc/nosey-9/internal/storage"
+	"path"
 )
 
 // AddSkill is one skill installed by a SourcePlan.
@@ -36,6 +38,8 @@ type SourcePlan struct {
 	Agents []string
 	// Method is "symlink" or "copy".
 	Method string
+	// Directory selects direct copies instead of agent destinations.
+	Directory string
 }
 
 // Local reports whether the source is a directory inside a local registry.
@@ -52,6 +56,17 @@ func (p SourcePlan) names() []string {
 // Build turns a catalog selection into one SourcePlan per source. It performs no I/O.
 func (s Service) Build(c domain.Catalog, recs catalog.Recommendations, opts Options) ([]SourcePlan, error) {
 	chosen, method := s.Agents(opts)
+	directory := s.Settings.Installation.Directory
+	if directory != "" {
+		if err := skillkit.ValidateSkillsDirectory(directory); err != nil {
+			return nil, PolicyError{Reason: err.Error()}
+		}
+		if len(opts.Agents) > 0 {
+			return nil, PolicyError{Reason: "--agent cannot be used with installation.directory; clear the setting to use agent destinations"}
+		}
+		directory = path.Clean(directory)
+		chosen, method = nil, "copy"
+	}
 	table, err := s.agentTable()
 	if err != nil {
 		return nil, err
@@ -61,7 +76,7 @@ func (s Service) Build(c domain.Catalog, recs catalog.Recommendations, opts Opti
 			return nil, PrerequisiteError{Reason: "unsupported agent " + id}
 		}
 	}
-	if len(chosen) == 0 {
+	if len(chosen) == 0 && directory == "" {
 		if opts.Yes {
 			return nil, PolicyError{Reason: "non-interactive install requires --agent or configured installation.agents"}
 		}
@@ -98,7 +113,7 @@ func (s Service) Build(c domain.Catalog, recs catalog.Recommendations, opts Opti
 		if !ok {
 			at = len(plans)
 			bySource[key] = at
-			plans = append(plans, SourcePlan{Source: source, Ref: ref, Agents: slices.Clone(chosen), Method: method})
+			plans = append(plans, SourcePlan{Source: source, Ref: ref, Agents: slices.Clone(chosen), Method: method, Directory: directory})
 		}
 		plans[at].Skills = append(plans[at].Skills, AddSkill{ID: id, Name: skill.Source.SkillName, Required: required})
 	}
@@ -217,6 +232,9 @@ func (p SourcePlan) Summary() string {
 	ref := p.Ref
 	if ref == "" {
 		ref = "default branch"
+	}
+	if p.Directory != "" {
+		return fmt.Sprintf("Source: %s\n  Ref: %s\n  Skills: %s\n  Directory: %s/<skill> (direct copy)", storage.Safe(p.Source), storage.Safe(ref), strings.Join(names, ", "), storage.Safe(p.Directory))
 	}
 	return fmt.Sprintf("Source: %s\n  Ref: %s\n  Skills: %s\n  Agents: %s\n  Method: %s",
 		storage.Safe(p.Source), storage.Safe(ref), strings.Join(names, ", "), storage.Safe(strings.Join(p.Agents, ", ")), p.Method)

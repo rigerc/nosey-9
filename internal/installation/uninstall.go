@@ -241,11 +241,31 @@ func (o *Operation) RunRemove(ctx context.Context, skill RemoveSkill) (RemoveRes
 		res.Err = fmt.Errorf("%s is no longer tracked in %s", skill.Name, skillkit.LockFile)
 		return res, res.Err
 	}
-	removal, err := skillkit.Uninstall(ctx, skill.Name, skillkit.Target{Workspace: workspace, Agents: o.table})
-	res.Removed = removal.Removed()
+	locations, recorded, err := recordedLocations(lock.Skills[skill.Name])
 	if err != nil {
 		res.Err = err
 		return res, err
+	}
+	target, err := o.s.installTarget(o.table)
+	if err != nil {
+		res.Err = err
+		return res, err
+	}
+	if !recorded || locations.AgentDirectories {
+		removal, removeErr := skillkit.Uninstall(ctx, skill.Name, target)
+		res.Removed = removal.Removed()
+		if removeErr != nil {
+			res.Err = removeErr
+			return res, removeErr
+		}
+	}
+	if len(locations.Directories) > 0 {
+		removal, removeErr := skillkit.UninstallAt(ctx, skill.Name, locations.Directories, target)
+		res.Removed = append(res.Removed, removal.Removed()...)
+		if removeErr != nil {
+			res.Err = removeErr
+			return res, removeErr
+		}
 	}
 	lock.Remove(skill.Name)
 	if err = lock.Write(workspace); err != nil {

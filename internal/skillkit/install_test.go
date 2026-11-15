@@ -286,3 +286,43 @@ func TestInstallErrorsAreTyped(t *testing.T) {
 	require.Error(t, err)
 	require.False(t, errors.Is(err, context.Canceled))
 }
+
+func TestDirectInstallOnlyWritesSelectedDirectoryAndKeepsOldContentOnFailure(t *testing.T) {
+	ctx := context.Background()
+	tg, ws := target(t, ModeSymlink)
+	tg.Directory = "tools/skills"
+	original := sourceSkill(t, "demo", "original")
+	res, err := Install(ctx, original, nil, tg)
+	require.NoError(t, err)
+	require.Equal(t, StatusInstalled, res.Status)
+	require.Equal(t, "tools/skills/demo", res.Agents[0].Path)
+	require.Equal(t, ModeCopy, res.Agents[0].Mode)
+	require.NoDirExists(t, filepath.Join(ws, ".agents"))
+	require.NoDirExists(t, filepath.Join(ws, ".claude"))
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	_, err = Install(cancelled, sourceSkill(t, "demo", "replacement"), nil, tg)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, "original", readFile(t, filepath.Join(ws, "tools/skills/demo/data.txt")))
+	// Invalid destinations must not write into the repository's Git metadata.
+	tg.Directory = ".git/hooks"
+	_, err = Install(ctx, original, nil, tg)
+	require.Error(t, err)
+	require.NoDirExists(t, filepath.Join(ws, ".git"))
+}
+
+func TestDirectInstallRejectsEscapingSymlinkAndBlockedParent(t *testing.T) {
+	tg, ws := target(t, ModeCopy)
+	outside := t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(ws, "escape")))
+	tg.Directory = "escape/skills"
+	_, err := Install(context.Background(), sourceSkill(t, "demo", "new"), nil, tg)
+	var policy *PolicyError
+	require.ErrorAs(t, err, &policy)
+	require.NoDirExists(t, filepath.Join(outside, "skills"))
+	require.NoError(t, os.WriteFile(filepath.Join(ws, "blocked"), []byte("keep"), 0o600))
+	tg.Directory = "blocked/skills"
+	_, err = Install(context.Background(), sourceSkill(t, "demo", "new"), nil, tg)
+	require.ErrorAs(t, err, &policy)
+	require.Equal(t, "keep", readFile(t, filepath.Join(ws, "blocked")))
+}

@@ -169,3 +169,32 @@ func TestResetSettingsRowRestoresDefaultsAndKeepsRegistries(t *testing.T) {
 		t.Fatal("registries must survive a reset")
 	}
 }
+
+func TestInstallDirectorySettingSavesAndDisablesAgentPreferences(t *testing.T) {
+	m := editableSettingsModel(t)
+	m, _ = m.setting(noseyRow{kind: "setting", id: "directory"})
+	m.form.inputs[0].SetValue("tools/skills")
+	m = productUpdate(t, m, keypress(tea.KeyEnter))
+	resolved, err := m.session.Store.Resolve()
+	if err != nil || resolved.Settings.Installation.Directory != "tools/skills" {
+		t.Fatal(resolved, err)
+	}
+	m.session.Resolved = resolved
+	m.loading = false
+	m.modal = ""
+	m, _ = m.setting(noseyRow{kind: "setting", id: "agents"})
+	if m.modal != "" || !strings.Contains(m.message, "Clear Install directory") {
+		t.Fatal(m.modal, m.message)
+	}
+	m, _ = m.setting(noseyRow{kind: "setting", id: "method"})
+	if m.modal != "" || !strings.Contains(m.message, "Direct-directory") {
+		t.Fatal(m.modal, m.message)
+	}
+	m, _ = m.setting(noseyRow{kind: "setting", id: "directory"})
+	m.form.inputs[0].SetValue("")
+	m = productUpdate(t, m, keypress(tea.KeyEnter))
+	resolved, err = m.session.Store.Resolve()
+	if err != nil || resolved.Settings.Installation.Directory != "" {
+		t.Fatal(resolved, err)
+	}
+}

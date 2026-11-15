@@ -505,3 +505,20 @@ func TestInstallProgressIsPartOfThePageNotAnOverlay(t *testing.T) {
 		t.Fatal("finished source not marked", screenText(m))
 	}
 }
+
+func TestDirectInstallSkipsAgentsAndReviewsDestination(t *testing.T) {
+	m := installModel(t, func(cfg *settings.Settings) { cfg.Installation.Directory = "tools/skills" })
+	m = productUpdate(t, m, keypress('i'))
+	if m.modal != "install" || m.err != nil {
+		t.Fatal(m.modal, m.err)
+	}
+	for _, p := range m.install.plans {
+		if p.Directory != "tools/skills" || len(p.Agents) > 0 || p.Method != "copy" {
+			t.Fatal(p)
+		}
+	}
+	screen := ansi.Strip(strings.Join(m.installPageLines(), "\n"))
+	if !strings.Contains(screen, "tools/skills/<skill>") || !strings.Contains(screen, "direct copy") || strings.Contains(screen, "choose target agents") {
+		t.Fatal(screen)
+	}
+}

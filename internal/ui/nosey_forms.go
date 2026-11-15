@@ -214,7 +214,7 @@ func (m noseyModel) submitForm() (noseyModel, tea.Cmd) {
 		switch key {
 		case "installation.agents":
 			data, _ = json.Marshal(csv(values[0]))
-		case "installation.method", "ui.mode":
+		case "installation.directory", "installation.method", "ui.mode":
 			data, _ = json.Marshal(values[0])
 		case "detection.exclude":
 			data, _ = json.Marshal(csv(values[0]))
@@ -345,9 +345,20 @@ func (m noseyModel) setting(row noseyRow) (noseyModel, tea.Cmd) {
 		m.openForm("setting", []string{"ui.minRepoScore"}, []string{strconv.Itoa(m.session.Resolved.Settings.UI.MinRepoScore)})
 	case "minquality":
 		m.openForm("setting", []string{"ui.minQuality"}, []string{m.session.Resolved.Settings.UI.MinQuality})
+	case "directory":
+		m.openForm("setting", []string{"installation.directory"}, []string{m.session.Resolved.Settings.Installation.Directory})
+		m.details = "Project-relative path. Installs copies here only. Leave blank to use agent destinations. Existing skills stay in place."
 	case "agents":
+		if m.session.Resolved.Settings.Installation.Directory != "" {
+			m.message = "Clear Install directory to select agent destinations."
+			return m, nil
+		}
 		m.openForm("setting", []string{"installation.agents"}, []string{strings.Join(m.session.Resolved.Settings.Installation.Agents, ",")})
 	case "method":
+		if m.session.Resolved.Settings.Installation.Directory != "" {
+			m.message = "Direct-directory installs always copy. Clear Install directory to change the method."
+			return m, nil
+		}
 		m.openForm("setting", []string{"installation.method"}, []string{m.session.Resolved.Settings.Installation.Method})
 	case "ttl":
 		m.openForm("setting", []string{"updates.ttlHours"}, []string{strconv.Itoa(m.session.Resolved.Settings.Updates.TTL)})

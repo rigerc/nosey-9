@@ -30,7 +30,7 @@ func InstallAt(ctx context.Context, skill Skill, locs []Location, target Target)
 		return res, res.Err
 	}
 	canonical = canonicalRel(name)
-	known := append(target.Agents.SkillsDirs(), UniversalSkillsDir)
+	known := target.skillsDirs()
 	needCanonical := false
 	for _, l := range locs {
 		mode := ModeCopy
@@ -46,7 +46,7 @@ func InstallAt(ctx context.Context, skill Skill, locs []Location, target Target)
 			needCanonical = true
 		}
 		if !slices.Contains(known, l.Dir) || path.Dir(l.Path) != l.Dir || !filepath.IsLocal(filepath.FromSlash(l.Path)) {
-			err := &PolicyError{Path: l.Path, Reason: "not a skills directory of a known agent"}
+			err := &PolicyError{Path: l.Path, Reason: "not a known skills directory"}
 			res.Status, res.Err = StatusFailed, err
 			return res, err
 		}

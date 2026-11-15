@@ -26,14 +26,16 @@ same names, and are recorded in skills-lock.json. Sources run in dependency
 order and stop at the first failure; skills already installed are kept and
 recorded. In symlink mode, agents whose project directory does not exist are
 skipped and reported; --copy installs into every selected agent. --yes skips
-the Nosey confirmation.`,
+the Nosey confirmation. Set installation.directory to a project-relative path
+for direct copies into that directory only, without agent selection or links.
+An explicit --agent cannot be combined with installation.directory.`,
 		Example: `  nosey install vercel-labs:agent-skills:react-best-practices
   nosey install vercel-labs:agent-skills:react-best-practices --agent codex --agent claude-code
   nosey install vercel-labs:agent-skills:react-best-practices --agent codex --yes`,
 		Args: cobra.MinimumNArgs(1),
 	}
 	cmd.Flags().StringSliceVar(&opts.Agents, "agent", nil, "target agent IDs (Nosey asks once when none are set)")
-	cmd.Flags().BoolVar(&yes, "yes", false, "install without prompts; requires target agents and replaces existing skills")
+	cmd.Flags().BoolVar(&yes, "yes", false, "install without prompts; requires target agents or installation.directory; replaces existing skills")
 	cmd.Flags().BoolVar(&copyMode, "copy", false, "install by copy rather than symlink")
 	cmd.Flags().BoolVar(&opts.IgnoreConflicts, "ignore-conflicts", false, "install despite catalog conflicts")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -53,7 +55,7 @@ the Nosey confirmation.`,
 		if !yes && !term.IsTerminal(int(os.Stdin.Fd())) {
 			return fmt.Errorf("noninteractive install requires --yes")
 		}
-		if !yes && len(opts.Agents) == 0 && len(s.Resolved.Settings.Installation.Agents) == 0 {
+		if !yes && s.Resolved.Settings.Installation.Directory == "" && len(opts.Agents) == 0 && len(s.Resolved.Settings.Installation.Agents) == 0 {
 			opts.Agents, err = selectInstallAgents(cmd, s.Installer)
 			if prompts.IsCancel(err) {
 				return nil

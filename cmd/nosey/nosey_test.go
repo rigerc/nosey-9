@@ -335,3 +335,26 @@ func TestDoctorChecksOnlyGit(t *testing.T) {
 		t.Fatal(ids, err)
 	}
 }
+
+func TestInstallYesUsesCustomDirectoryWithoutAgents(t *testing.T) {
+	session := fixtureSession(t)
+	session.Resolved.Settings.Installation.Directory = "tools/skills"
+	session.Installer.Settings.Installation.Directory = "tools/skills"
+	out, err := runInstall(t, session, fixtureSkill, "--yes")
+	if err != nil {
+		t.Fatal(err, out)
+	}
+	if !strings.Contains(out, "tools/skills/") {
+		t.Fatal(out)
+	}
+	if _, err := os.Stat(filepath.Join(session.Store.Workspace, "tools/skills", skillName(session), "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(session.Store.Workspace, ".agents")); !os.IsNotExist(err) {
+		t.Fatal("created agent destination", err)
+	}
+	out, err = runInstall(t, session, fixtureSkill, "--yes", "--agent", "codex")
+	if err == nil || !strings.Contains(err.Error(), "--agent cannot be used") {
+		t.Fatal(err, out)
+	}
+}

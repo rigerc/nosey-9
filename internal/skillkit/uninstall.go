@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -160,4 +161,43 @@ func (d *destRoot) remove(rel string) Removal {
 	}
 	rm.Removed = true
 	return rm
+}
+
+// UninstallAt removes only the named skill from explicitly recorded directories.
+// It validates every location before removing anything and never follows links.
+func UninstallAt(ctx context.Context, name string, dirs []string, target Target) (UninstallResult, error) {
+	res := UninstallResult{Name: name}
+	if err := ValidateName(name); err != nil {
+		return res, err
+	}
+	if err := target.validate(); err != nil {
+		return res, err
+	}
+	known := target.skillsDirs()
+	for _, dir := range dirs {
+		if err := ValidateSkillsDirectory(dir); err != nil {
+			return res, err
+		}
+		if !slices.Contains(known, dir) {
+			return res, &PolicyError{Path: dir, Reason: "not a recorded skills directory"}
+		}
+	}
+	dest, err := openDest(target.Workspace)
+	if err != nil {
+		return res, err
+	}
+	defer dest.Close()
+	var errs []error
+	for _, dir := range dirs {
+		if err := ctx.Err(); err != nil {
+			errs = append(errs, err)
+			break
+		}
+		removal := dest.remove(path.Join(dir, SanitizeName(name)))
+		res.Removals = append(res.Removals, removal)
+		if removal.Err != nil {
+			errs = append(errs, removal.Err)
+		}
+	}
+	return res, errors.Join(errs...)
 }

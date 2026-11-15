@@ -32,6 +32,10 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "directory": {
+          "type": "string",
+          "description": "Project-relative direct install directory. Empty uses agent destinations."
+        },
         "agents": {
           "type": "array",
           "items": {

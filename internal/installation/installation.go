@@ -54,7 +54,7 @@ type Options struct {
 	Agents          []string
 	Method          string
 	IgnoreConflicts bool
-	// Yes marks a non-interactive install; it requires explicit agents.
+	// Yes marks a non-interactive install; it requires agents or a configured directory.
 	Yes bool
 }
 

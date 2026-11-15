@@ -2,6 +2,7 @@ package installation
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -655,5 +656,163 @@ func TestUninstallOfUnmanagedTrackedSkillWorksWithoutACatalogID(t *testing.T) {
 	}
 	if _, err = s.Uninstall(context.Background(), plan, nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDirectDirectoryLifecycleSurvivesSettingsChanges(t *testing.T) {
+	ctx := context.Background()
+	srcA, srcB := t.TempDir(), t.TempDir()
+	skillAt(t, srcA, "alpha", "v1")
+	skillAt(t, srcB, "alpha", "v2")
+	f := &fakeFetcher{dirs: map[string]string{"o/one#" + shaA: srcA, "o/one#" + shaB: srcB}}
+	s := newService(t, f)
+	s.Settings.Installation.Directory = "tools/skills"
+	// Saved agents and the default symlink preference are inactive in direct mode.
+	s.Settings.Installation.Agents = []string{"claude-code"}
+	c := catalogOf(gitSkill("a", "alpha", "o/one", shaA))
+	plans, err := s.Build(c, catalog.Recommendations{}, Options{IDs: []string{"a"}, Yes: true})
+	if err != nil || len(plans) != 1 {
+		t.Fatal(plans, err)
+	}
+	if plans[0].Directory != "tools/skills" || len(plans[0].Agents) != 0 || plans[0].Method != "copy" || !strings.Contains(plans[0].Summary(), "tools/skills") {
+		t.Fatal(plans)
+	}
+	if _, err := s.Build(c, catalog.Recommendations{}, Options{IDs: []string{"a"}, Agents: []string{"codex"}}); err == nil {
+		t.Fatal("explicit agents accepted")
+	}
+	mustInstall(t, s, plans[0])
+	if got := read(t, s.at("tools/skills/alpha/data.txt")); got != "v1" {
+		t.Fatal(got)
+	}
+	for _, dir := range []string{".agents", ".claude"} {
+		if _, err := os.Stat(s.at(dir)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("unexpected agent destination %s: %v", dir, err)
+		}
+	}
+	// Changing the directory does not forget the old installation.
+	s.Settings.Installation.Directory = "other/skills"
+	inv := s.Inventory(ctx, c)
+	if !inv.Complete || len(inv.Skills) != 1 || inv.Skills[0].Status != "installed" || !strings.HasSuffix(*inv.Skills[0].Path, "tools/skills/alpha") {
+		t.Fatalf("%+v", inv)
+	}
+	mustInstall(t, s, SourcePlan{Source: "o/one", Ref: shaA, Method: "copy", Directory: "other/skills", Skills: []AddSkill{{ID: "a", Name: "alpha"}}})
+	s.Settings.Installation.Directory = ""
+	// A separate same-name agent installation must not be adopted or removed.
+	skillAt(t, s.Store.Workspace, ".claude/skills/alpha", "unrelated")
+	c = catalogOf(gitSkill("a", "alpha", "o/one", shaB))
+	update := mustPlanUpdate(t, s, c, UpdateOptions{IDs: []string{"a"}})
+	if _, err := s.Update(ctx, update, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"tools/skills", "other/skills"} {
+		if got := read(t, s.at(dir+"/alpha/data.txt")); got != "v2" {
+			t.Fatalf("%s: %s", dir, got)
+		}
+	}
+	remove, err := s.PlanUninstall(ctx, c, catalog.Recommendations{}, UninstallOptions{Targets: []string{"a"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Uninstall(ctx, remove, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"tools/skills", "other/skills"} {
+		if _, err := os.Stat(s.at(dir + "/alpha")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(dir, err)
+		}
+	}
+	if got := read(t, s.at(".claude/skills/alpha/data.txt")); got != "unrelated" {
+		t.Fatal(got)
+	}
+	if len(readLock(t, s).Skills) != 0 {
+		t.Fatal("lock entry survived removal")
+	}
+}
+
+func TestDirectUpdateInstallsNewRequirementsAtRecordedLocation(t *testing.T) {
+	ctx := context.Background()
+	srcA, srcB := t.TempDir(), t.TempDir()
+	skillAt(t, srcA, "alpha", "v1")
+	skillAt(t, srcB, "alpha", "v2")
+	skillAt(t, srcB, "dep", "dependency")
+	f := &fakeFetcher{dirs: map[string]string{"o/one#" + shaA: srcA, "o/one#" + shaB: srcB}}
+	s := newService(t, f)
+	s.Settings.Installation.Directory = "tools/skills"
+	mustInstall(t, s, SourcePlan{Source: "o/one", Ref: shaA, Method: "copy", Directory: "tools/skills", Skills: []AddSkill{{ID: "a", Name: "alpha"}}})
+	// A fresh session has no dependency on the current directory setting.
+	s.Settings.Installation.Directory = ""
+	a, dep := gitSkill("a", "alpha", "o/one", shaB), gitSkill("d", "dep", "o/one", shaB)
+	a.Requires = []string{"d"}
+	c := catalogOf(a, dep)
+	update := mustPlanUpdate(t, s, c, UpdateOptions{IDs: []string{"a"}})
+	if _, err := s.Update(ctx, update, nil); err != nil {
+		t.Fatal(err)
+	}
+	if read(t, s.at("tools/skills/dep/data.txt")) != "dependency" {
+		t.Fatal("missing dependency")
+	}
+	inv := s.Inventory(ctx, c)
+	if len(inv.Skills) != 2 {
+		t.Fatal(inv)
+	}
+	for _, item := range inv.Skills {
+		if item.Status != "installed" {
+			t.Fatal(item)
+		}
+	}
+	remove, err := s.PlanUninstall(ctx, c, catalog.Recommendations{}, UninstallOptions{Targets: []string{"a", "d"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Uninstall(ctx, remove, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(readLock(t, s).Skills) != 0 {
+		t.Fatal("dependency metadata not persisted")
+	}
+	for _, name := range []string{"alpha", "dep"} {
+		if _, err := os.Stat(s.at("tools/skills/" + name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(name, err)
+		}
+	}
+}
+
+func TestDirectInstallKeepsLegacyAgentLocationManageable(t *testing.T) {
+	s, _, _, _ := updateLab(t)
+	// alpha is already installed for Codex with no Nosey location metadata.
+	mustInstall(t, s, SourcePlan{Source: "o/one", Ref: shaA, Method: "copy", Directory: "tools/skills", Skills: []AddSkill{{Name: "alpha"}}})
+	ctx := context.Background()
+	remove, err := s.PlanUninstall(ctx, domain.Catalog{}, catalog.Recommendations{}, UninstallOptions{Targets: []string{"alpha"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Uninstall(ctx, remove, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{".agents/skills", "tools/skills"} {
+		if _, err := os.Stat(s.at(dir + "/alpha")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatal(dir, err)
+		}
+	}
+}
+
+func TestInvalidRecordedDirectoryBlocksRemovalAndKeepsFiles(t *testing.T) {
+	s, _, _, _ := updateLab(t)
+	lock := readLock(t, s)
+	entry := lock.Skills["alpha"]
+	entry.Extra = map[string]json.RawMessage{installationKey: json.RawMessage(`{"directories":["../outside"],"agentDirectories":true}`)}
+	lock.Skills["alpha"] = entry
+	if err := lock.Write(s.Store.Workspace); err != nil {
+		t.Fatal(err)
+	}
+	op := begin(t, s)
+	if _, err := op.RunRemove(context.Background(), RemoveSkill{Name: "alpha"}); err == nil {
+		t.Fatal("invalid recorded path accepted")
+	}
+	if read(t, s.at(".agents/skills/alpha/data.txt")) != "v1 alpha" {
+		t.Fatal("files changed before validation")
+	}
+	if !hasLockEntry(readLock(t, s), "alpha") {
+		t.Fatal("lock entry lost")
 	}
 }

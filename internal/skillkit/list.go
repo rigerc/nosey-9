@@ -108,11 +108,16 @@ func ListInstalled(target Target) (Inventory, error) {
 	var inv Inventory
 	byName := map[string]*InstalledSkill{}
 	var order []string
-	dirs := target.Agents.SkillsDirs()
+	dirs := target.skillsDirs()
 	// Canonical directory first so it provides Path.
 	dirs = slices.DeleteFunc(dirs, func(s string) bool { return s == UniversalSkillsDir })
 	dirs = append([]string{UniversalSkillsDir}, dirs...)
+	seenDirs := map[string]bool{}
 	for _, dir := range dirs {
+		if seenDirs[dir] {
+			continue
+		}
+		seenDirs[dir] = true
 		if err = d.checkParent(path.Join(dir, "x")); err != nil {
 			var pe *PolicyError
 			if errors.As(err, &pe) {

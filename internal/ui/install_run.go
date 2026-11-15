@@ -97,7 +97,10 @@ func (m noseyModel) openInstall() (noseyModel, tea.Cmd) {
 
 func (m noseyModel) openInstallForAgents(agents []string) (noseyModel, tea.Cmd) {
 	cfg := m.session.Resolved.Settings
-	if len(agents) == 0 {
+	if cfg.Installation.Directory != "" {
+		agents = nil
+	}
+	if len(agents) == 0 && cfg.Installation.Directory == "" {
 		m.openForm("install-agents", []string{"installation.agents"}, []string{""})
 		m.details = "Choose target agents for this install. Settings will not change."
 		return m, nil
@@ -447,6 +450,9 @@ func (m noseyModel) installPageLines() []string {
 	}
 	detail := func(key, value string) string { return m.styles.heading.Render(key+":") + " " + value }
 	summary := strings.Join([]string{detail("Scope", "project"), detail("Agents", storage.Safe(agents)), detail("Method", m.session.Resolved.Settings.Installation.Method)}, "\n")
+	if len(m.install.plans) > 0 && m.install.plans[0].Directory != "" {
+		summary = strings.Join([]string{detail("Scope", "project"), detail("Directory", storage.Safe(m.install.plans[0].Directory)+"/<skill>"), detail("Method", "direct copy")}, "\n")
+	}
 	lines = append(lines, "", m.installBox(summary, width))
 	return strings.Split(ansi.Hardwrap(strings.Join(lines, "\n"), width, true), "\n")
 }

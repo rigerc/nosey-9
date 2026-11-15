@@ -41,9 +41,9 @@ const noMatch = "\x00"
 
 var qualityOrder = []string{"fair", "good", "excellent"}
 
-// qualitiesFrom lists the quality labels at or above min; unassessed and poor never qualify.
-func qualitiesFrom(min string) []string {
-	if at := slices.Index(qualityOrder, min); at >= 0 {
+// qualitiesFrom lists the quality labels at or above minimum; unassessed and poor never qualify.
+func qualitiesFrom(minimum string) []string {
+	if at := slices.Index(qualityOrder, minimum); at >= 0 {
 		return qualityOrder[at:]
 	}
 	return nil
@@ -52,11 +52,11 @@ func qualitiesFrom(min string) []string {
 // effectiveFilters applies the minimum score, repository score and quality settings on top of one tab's filters.
 func (m noseyModel) effectiveFilters(tab int) domain.Filters {
 	f, ui := m.filters[tab], m.session.Resolved.Settings.UI
-	if min := float64(ui.MinScore); min > 0 && (f.MinScore == nil || *f.MinScore < min) {
-		f.MinScore = &min
+	if minimum := float64(ui.MinScore); minimum > 0 && (f.MinScore == nil || *f.MinScore < minimum) {
+		f.MinScore = &minimum
 	}
-	if min := float64(ui.MinRepoScore); min > 0 && (f.MinRepositoryAverage == nil || *f.MinRepositoryAverage < min) {
-		f.MinRepositoryAverage = &min
+	if minimum := float64(ui.MinRepoScore); minimum > 0 && (f.MinRepositoryAverage == nil || *f.MinRepositoryAverage < minimum) {
+		f.MinRepositoryAverage = &minimum
 	}
 	if allowed := qualitiesFrom(ui.MinQuality); allowed != nil {
 		if len(f.Qualities) > 0 {
@@ -172,7 +172,17 @@ func (m noseyModel) rows() []noseyRow {
 		if agents == "" {
 			agents = "ask at install"
 		}
-		rows = append(rows, noseyRow{"setting", "agents", "Target agents: " + agents}, noseyRow{"setting", "method", "Install method: " + m.session.Resolved.Settings.Installation.Method}, noseyRow{"setting", "ttl", fmt.Sprintf("Refresh interval: %d hours", m.session.Resolved.Settings.Updates.TTL)}, noseyRow{"setting", "mcp", fmt.Sprintf("MCP inspection: %t", m.session.Resolved.Settings.Detection.MCP)})
+		directory := m.session.Resolved.Settings.Installation.Directory
+		if directory == "" {
+			directory = "Agent defaults"
+		}
+		rows = append(rows, noseyRow{"setting", "directory", "Install directory: " + directory})
+		method := m.session.Resolved.Settings.Installation.Method
+		if m.session.Resolved.Settings.Installation.Directory != "" {
+			agents += " (inactive: direct directory)"
+			method += " (inactive: direct copy)"
+		}
+		rows = append(rows, noseyRow{"setting", "agents", "Target agents: " + agents}, noseyRow{"setting", "method", "Install method: " + method}, noseyRow{"setting", "ttl", fmt.Sprintf("Refresh interval: %d hours", m.session.Resolved.Settings.Updates.TTL)}, noseyRow{"setting", "mcp", fmt.Sprintf("MCP inspection: %t", m.session.Resolved.Settings.Detection.MCP)})
 		rows = append(rows,
 			noseyRow{"setting", "bytes", fmt.Sprintf("Maximum inspected file: %d bytes", m.session.Resolved.Settings.Detection.MaxBytes)},
 			noseyRow{"setting", "exclude", "Excluded paths: " + strings.Join(m.session.Resolved.Settings.Detection.Exclude, ", ")})
@@ -186,17 +196,17 @@ func (m noseyModel) rows() []noseyRow {
 	}
 	return rows
 }
-func minQualityLabel(min string) string {
-	if qualitiesFrom(min) == nil {
+func minQualityLabel(minimum string) string {
+	if qualitiesFrom(minimum) == nil {
 		return "any (show all)"
 	}
-	return min + " or better (hide lower and unassessed)"
+	return minimum + " or better (hide lower and unassessed)"
 }
-func minScoreLabel(min int) string {
-	if min <= 0 {
+func minScoreLabel(minimum int) string {
+	if minimum <= 0 {
 		return "off (show all)"
 	}
-	return fmt.Sprintf("%d/100 (hide lower and unscored)", min)
+	return fmt.Sprintf("%d/100 (hide lower and unscored)", minimum)
 }
 func collapseLabel(on bool) string {
 	if on {

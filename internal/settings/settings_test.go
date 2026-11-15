@@ -393,3 +393,34 @@ func TestResetKeepsRegistriesAgentsAndAdapters(t *testing.T) {
 		t.Fatal("custom agents must be kept", got.Installation.CustomAgents)
 	}
 }
+
+func TestInstallationDirectorySettings(t *testing.T) {
+	store := testStore(t)
+	resolved, err := store.Resolve()
+	if err != nil || resolved.Settings.Installation.Directory != "" {
+		t.Fatal(resolved, err)
+	}
+	for _, dir := range []string{"/tmp/skills", "../outside", ".", ".git/hooks", "a\\b", "bad\x1bpath"} {
+		raw, _ := json.Marshal(dir)
+		if err := store.Set("installation.directory", raw, false); err == nil {
+			t.Fatalf("accepted %q", dir)
+		}
+	}
+	if err := store.Set("installation.directory", []byte(`"user/skills"`), false); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("installation.directory", []byte(`"tools/skills"`), true); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err = store.Resolve()
+	if err != nil || resolved.Settings.Installation.Directory != "tools/skills" {
+		t.Fatal(resolved, err)
+	}
+	if err := store.Set("installation.directory", []byte(`""`), true); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err = store.Resolve()
+	if err != nil || resolved.Settings.Installation.Directory != "" {
+		t.Fatal(resolved, err)
+	}
+}
