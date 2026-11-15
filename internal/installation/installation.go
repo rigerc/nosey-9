@@ -48,7 +48,7 @@ type Service struct {
 	Home string
 }
 
-// Options selects catalog skills to install.
+// Options selects catalog skills and ad-hoc sources to install.
 type Options struct {
 	IDs             []string
 	Agents          []string
@@ -56,6 +56,12 @@ type Options struct {
 	IgnoreConflicts bool
 	// Yes marks a non-interactive install; it requires agents or a configured directory.
 	Yes bool
+	// Sources are skill sources not present in the catalog (local paths, git URLs, owner/repo).
+	Sources []string
+	// Skills limits ad-hoc sources to skills with these names; empty installs every discovered skill.
+	Skills []string
+	// Ref is the git ref for ad-hoc sources; empty means the default branch or a ref embedded in the source.
+	Ref string
 }
 
 func unique(v []string) []string { v = slices.Clone(v); slices.Sort(v); return slices.Compact(v) }

@@ -670,14 +670,14 @@ func TestDirectDirectoryLifecycleSurvivesSettingsChanges(t *testing.T) {
 	// Saved agents and the default symlink preference are inactive in direct mode.
 	s.Settings.Installation.Agents = []string{"claude-code"}
 	c := catalogOf(gitSkill("a", "alpha", "o/one", shaA))
-	plans, err := s.Build(c, catalog.Recommendations{}, Options{IDs: []string{"a"}, Yes: true})
+	plans, err := s.Build(context.Background(), c, catalog.Recommendations{}, Options{IDs: []string{"a"}, Yes: true})
 	if err != nil || len(plans) != 1 {
 		t.Fatal(plans, err)
 	}
 	if plans[0].Directory != "tools/skills" || len(plans[0].Agents) != 0 || plans[0].Method != "copy" || !strings.Contains(plans[0].Summary(), "tools/skills") {
 		t.Fatal(plans)
 	}
-	if _, err := s.Build(c, catalog.Recommendations{}, Options{IDs: []string{"a"}, Agents: []string{"codex"}}); err == nil {
+	if _, err := s.Build(context.Background(), c, catalog.Recommendations{}, Options{IDs: []string{"a"}, Agents: []string{"codex"}}); err == nil {
 		t.Fatal("explicit agents accepted")
 	}
 	mustInstall(t, s, plans[0])

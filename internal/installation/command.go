@@ -1,17 +1,21 @@
 package installation
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/rigerc/nosey-9/internal/catalog"
 	"github.com/rigerc/nosey-9/internal/domain"
+	"github.com/rigerc/nosey-9/internal/gitpolicy"
 	"github.com/rigerc/nosey-9/internal/registry"
 	"github.com/rigerc/nosey-9/internal/skillkit"
 	"github.com/rigerc/nosey-9/internal/storage"
-	"path"
 )
 
 // AddSkill is one skill installed by a SourcePlan.
@@ -53,8 +57,9 @@ func (p SourcePlan) names() []string {
 	return names
 }
 
-// Build turns a catalog selection into one SourcePlan per source. It performs no I/O.
-func (s Service) Build(c domain.Catalog, recs catalog.Recommendations, opts Options) ([]SourcePlan, error) {
+// Build turns catalog selections and ad-hoc source specs into one SourcePlan per source.
+// For ad-hoc sources it fetches and discovers skills to determine installable names.
+func (s Service) Build(ctx context.Context, c domain.Catalog, recs catalog.Recommendations, opts Options) ([]SourcePlan, error) {
 	chosen, method := s.Agents(opts)
 	directory := s.Settings.Installation.Directory
 	if directory != "" {
@@ -85,39 +90,200 @@ func (s Service) Build(c domain.Catalog, recs catalog.Recommendations, opts Opti
 	if method != "copy" && method != "symlink" {
 		return nil, PolicyError{Reason: "invalid installation method"}
 	}
-	selected := unique(opts.IDs)
-	ordered, err := dependencyOrder(c, recs, selected)
-	if err != nil {
-		return nil, err
-	}
-	if len(ordered) == 0 {
-		return nil, fmt.Errorf("select at least one skill")
-	}
-	if err = checkSelection(c, recs, ordered, opts.IgnoreConflicts); err != nil {
-		return nil, err
-	}
+
 	plans := []SourcePlan{}
 	bySource := map[string]int{}
-	for _, id := range ordered {
-		required := !slices.Contains(selected, id)
-		if required && c.InstallStatus[id] == "installed" {
-			continue
-		}
-		skill := c.Skills[id]
-		source, ref, err := addSource(c, skill)
+	installNames := map[string]string{}
+
+	if len(opts.IDs) > 0 || len(opts.Sources) == 0 {
+		selected := unique(opts.IDs)
+		ordered, err := dependencyOrder(c, recs, selected)
 		if err != nil {
 			return nil, err
 		}
-		key := source + "#" + ref
-		at, ok := bySource[key]
-		if !ok {
-			at = len(plans)
-			bySource[key] = at
-			plans = append(plans, SourcePlan{Source: source, Ref: ref, Agents: slices.Clone(chosen), Method: method, Directory: directory})
+		if len(ordered) == 0 && len(opts.Sources) == 0 {
+			return nil, fmt.Errorf("select at least one skill")
 		}
-		plans[at].Skills = append(plans[at].Skills, AddSkill{ID: id, Name: skill.Source.SkillName, Required: required})
+		if len(ordered) > 0 {
+			if err = checkSelection(c, recs, ordered, opts.IgnoreConflicts); err != nil {
+				return nil, err
+			}
+		}
+		for _, id := range ordered {
+			required := !slices.Contains(selected, id)
+			if required && c.InstallStatus[id] == "installed" {
+				continue
+			}
+			skill := c.Skills[id]
+			source, ref, err := addSource(c, skill)
+			if err != nil {
+				return nil, err
+			}
+			key := source + "#" + ref
+			at, ok := bySource[key]
+			if !ok {
+				at = len(plans)
+				bySource[key] = at
+				plans = append(plans, SourcePlan{Source: source, Ref: ref, Agents: slices.Clone(chosen), Method: method, Directory: directory})
+			}
+			plans[at].Skills = append(plans[at].Skills, AddSkill{ID: id, Name: skill.Source.SkillName, Required: required})
+			if other, ok := installNames[strings.ToLower(skill.Source.SkillName)]; ok && other != id {
+				return nil, PolicyError{Reason: fmt.Sprintf("%s and %s both install as %q; select only one", other, id, skill.Source.SkillName)}
+			}
+			installNames[strings.ToLower(skill.Source.SkillName)] = id
+		}
+	}
+
+	for _, spec := range opts.Sources {
+		adhoc, err := s.resolveAdHocSource(ctx, spec, opts, chosen, method, directory, table, installNames)
+		if err != nil {
+			return nil, err
+		}
+		if len(adhoc.Skills) == 0 {
+			continue
+		}
+		key := adhoc.Source + "#" + adhoc.Ref
+		if at, ok := bySource[key]; ok {
+			for _, skill := range adhoc.Skills {
+				if !hasPlannedSkill(plans[at], skill.Name) {
+					plans[at].Skills = append(plans[at].Skills, skill)
+				}
+			}
+			continue
+		}
+		bySource[key] = len(plans)
+		plans = append(plans, adhoc)
+	}
+	if len(plans) == 0 {
+		return nil, fmt.Errorf("select at least one skill")
 	}
 	return plans, nil
+}
+
+func hasPlannedSkill(plan SourcePlan, name string) bool {
+	for _, s := range plan.Skills {
+		if strings.EqualFold(s.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s Service) resolveAdHocSource(ctx context.Context, spec string, opts Options, agents []string, method, directory string, table skillkit.AgentTable, installNames map[string]string) (SourcePlan, error) {
+	source, ref, local, err := parseAdHocSpec(spec, opts.Ref, s.Store.Workspace)
+	if err != nil {
+		return SourcePlan{}, err
+	}
+	src := skillkit.Source{URI: source, Ref: ref}
+	if local {
+		src = skillkit.Source{LocalPath: source}
+	}
+	checkout, err := s.fetcher().Fetch(ctx, src)
+	if err != nil {
+		return SourcePlan{}, fmt.Errorf("fetching %s: %w", storage.Safe(spec), err)
+	}
+	defer func() { _ = checkout.Close() }()
+	skills, err := skillkit.Discover(checkout.Dir, skillkit.DiscoverOptions{IncludeInternal: false, FullDepth: true, Agents: table})
+	var problems *skillkit.DiscoverError
+	if err != nil {
+		if !errors.As(err, &problems) {
+			return SourcePlan{}, fmt.Errorf("discovering skills in %s: %w", storage.Safe(spec), err)
+		}
+		names := opts.Skills
+		if len(names) == 0 {
+			names = nil
+		}
+		if _, rerr := problems.Resolve(checkout.Dir, names); rerr != nil {
+			return SourcePlan{}, fmt.Errorf("discovering skills in %s: %w", storage.Safe(spec), rerr)
+		}
+	}
+	selected := opts.Skills
+	if len(selected) == 0 {
+		selected = make([]string, 0, len(skills))
+		for _, sk := range skills {
+			selected = append(selected, sk.Name)
+		}
+	}
+	byName := map[string]skillkit.Skill{}
+	for _, sk := range skills {
+		byName[strings.ToLower(sk.Name)] = sk
+	}
+	plan := SourcePlan{Source: source, Ref: ref, Agents: slices.Clone(agents), Method: method, Directory: directory}
+	for _, name := range selected {
+		sk, ok := byName[strings.ToLower(name)]
+		if !ok {
+			return SourcePlan{}, fmt.Errorf("skill %q not found in %s", name, storage.Safe(spec))
+		}
+		if !safeSkillName.MatchString(sk.Name) {
+			return SourcePlan{}, fmt.Errorf("unsafe upstream skill name %q", sk.Name)
+		}
+		if other, exists := installNames[strings.ToLower(sk.Name)]; exists {
+			return SourcePlan{}, PolicyError{Reason: fmt.Sprintf("%s and %s both install as %q; select only one", other, spec, sk.Name)}
+		}
+		installNames[strings.ToLower(sk.Name)] = spec
+		plan.Skills = append(plan.Skills, AddSkill{Name: sk.Name})
+	}
+	if len(plan.Skills) == 0 {
+		return SourcePlan{}, fmt.Errorf("no skills found in %s", storage.Safe(spec))
+	}
+	return plan, nil
+}
+
+func parseAdHocSpec(spec, defaultRef, workspace string) (source, ref string, local bool, err error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return "", "", false, fmt.Errorf("empty skill source")
+	}
+	// Local paths: absolute, relative (./, ../) or existing directories in the workspace.
+	if filepath.IsAbs(spec) || strings.HasPrefix(spec, ".") || strings.ContainsRune(spec, filepath.Separator) {
+		p := spec
+		if !filepath.IsAbs(p) {
+			p = filepath.Join(workspace, p)
+		}
+		if info, statErr := os.Stat(p); statErr == nil && info.IsDir() {
+			abs, absErr := filepath.Abs(p)
+			if absErr != nil {
+				return "", "", false, absErr
+			}
+			return abs, "", true, nil
+		}
+	}
+	uri, ref := spec, defaultRef
+	if !strings.HasPrefix(spec, "git@") {
+		if i := strings.LastIndex(spec, "@"); i > 0 {
+			candidate := spec[i+1:]
+			if candidate != "" && gitpolicy.ValidateRef(candidate) == nil {
+				uri, ref = spec[:i], candidate
+			}
+		}
+	}
+	// A path-like argument that does not exist as a directory should be a clear error.
+	if filepath.IsAbs(spec) || strings.HasPrefix(spec, ".") || strings.ContainsRune(spec, filepath.Separator) {
+		if info, statErr := os.Stat(filepath.Join(workspace, spec)); statErr != nil || !info.IsDir() {
+			if !filepath.IsAbs(spec) {
+				if info2, err2 := os.Stat(spec); err2 != nil || !info2.IsDir() {
+					return "", "", false, fmt.Errorf("local skill source %q is not a directory", spec)
+				}
+			} else {
+				return "", "", false, fmt.Errorf("local skill source %q is not a directory", spec)
+			}
+		}
+	}
+	if err = gitpolicy.ValidateURI(uri); err != nil {
+		// If it looks like a local path name, report as missing directory when not found.
+		if info, statErr := os.Stat(filepath.Join(workspace, spec)); statErr == nil && info.IsDir() {
+			abs, absErr := filepath.Abs(filepath.Join(workspace, spec))
+			if absErr != nil {
+				return "", "", false, absErr
+			}
+			return abs, "", true, nil
+		}
+		return "", "", false, fmt.Errorf("invalid skill source %q: %w", spec, err)
+	}
+	if err = gitpolicy.ValidateRef(ref); err != nil {
+		return "", "", false, err
+	}
+	return uri, ref, false, nil
 }
 
 // dependencyOrder walks catalog and mapping requirements, dependencies first.

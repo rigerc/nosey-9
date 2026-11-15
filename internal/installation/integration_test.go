@@ -38,7 +38,7 @@ func TestPinnedSourceInstallsRecordsAndChecksUpdates(t *testing.T) {
 	catalogFor := func(ref string) domain.Catalog {
 		return domain.Catalog{Skills: map[string]domain.Skill{"s": {ID: "s", Source: domain.Source{Kind: "git", URI: uri, Ref: ref, SkillName: name}}}}
 	}
-	plans, err := s.Build(catalogFor(pin), catalog.Recommendations{}, Options{IDs: []string{"s"}, Agents: []string{"claude-code"}, Method: "copy", Yes: true})
+	plans, err := s.Build(context.Background(), catalogFor(pin), catalog.Recommendations{}, Options{IDs: []string{"s"}, Agents: []string{"claude-code"}, Method: "copy", Yes: true})
 	if err != nil {
 		t.Fatal(err)
 	}
