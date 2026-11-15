@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -923,7 +924,7 @@ func TestTrackableSkillsRootAndUnsafePaths(t *testing.T) {
 }
 
 // TestOfficialRegistryRoundTrip proves a no-op pass through the studio's document
-// model reproduces the committed registry exactly.
+// model reproduces the generated registry exactly and preserves locations data.
 func TestOfficialRegistryRoundTrip(t *testing.T) {
 	source := filepath.Join("..", "..", "registries", "default")
 	if _, err := os.Stat(filepath.Join(source, registrygen.ConfigName)); err != nil {
@@ -966,8 +967,18 @@ func TestOfficialRegistryRoundTrip(t *testing.T) {
 		if encodeErr != nil {
 			t.Fatal(encodeErr)
 		}
-		if !bytes.Equal(encoded, data) {
-			t.Fatal("locations writer does not reproduce the registry's formatting")
+		// Locations are authored independently of the generator and may arrive
+		// in a different key order. Compare generic JSON values so extra fields
+		// dropped by the typed writer still fail this check.
+		var original, roundTripped any
+		if err = json.Unmarshal(data, &original); err != nil {
+			t.Fatal(err)
+		}
+		if err = json.Unmarshal(encoded, &roundTripped); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(original, roundTripped) {
+			t.Fatal("locations writer does not preserve the registry's data")
 		}
 	}
 	h := newHarness(t, Options{Root: source})
