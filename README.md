@@ -56,21 +56,22 @@ This copies each skill to `tools/skills/<skill-name>` without creating agent lin
 ## Update and uninstall
 
 ```sh
-nosey update                      # every outdated catalog-managed skill
+nosey update                      # every outdated tracked skill
 nosey update SKILL_ID --yes
-nosey uninstall NAME_OR_ID...
+nosey update owner/repo           # skills installed from a source
+nosey uninstall NAME_ID_OR_SOURCE...
 nosey uninstall NAME_OR_ID --ignore-requirements --yes
 ```
 
-`nosey update [SKILL_ID...] [--ignore-conflicts] [--yes]` updates skills that follow the catalog. A skill is outdated when the catalog pin differs from the ref in `skills-lock.json` or when the upstream content differs from what is installed; the confirmation and the results state which. Each skill is refreshed at every location where it is installed in the project, keeping each location's symlink or copy mode. Requirements the catalog added are installed where the skills requiring them live. Skills outside the catalog are listed as skipped and never updated. The check needs network access, and a failed check stops the command without changing anything. Sources update in dependency order and stop at the first failure; completed updates stay recorded.
+`nosey update [SKILL_OR_SOURCE...] [--ignore-conflicts] [--yes]` updates skills tracked in `skills-lock.json`. A catalog skill is outdated when the catalog pin differs from the ref in `skills-lock.json` or when the upstream content differs from what is installed; a skill installed from a custom source (local directory, `owner/repo` or Git URL) is outdated when the content at its recorded source and ref differs, and is refreshed from there. The confirmation and the results state which. Arguments are catalog IDs, tracked names, or a source, which selects every tracked skill installed from it. Each skill is refreshed at every location where it is installed in the project, keeping each location's symlink or copy mode. Requirements the catalog added are installed where the skills requiring them live. Untracked skills are listed as skipped and never updated. The check needs network access for Git sources, and a failed check stops the command without changing anything. Sources update in dependency order and stop at the first failure; completed updates stay recorded.
 
-`nosey uninstall NAME_OR_ID... [--ignore-requirements] [--yes]` removes skills tracked in `skills-lock.json` from their recorded custom directories and applicable agent directories, then deletes their lock entries. Targets are tracked names or catalog IDs; untracked or unknown targets are refused (exit code 2). The whole selection is checked together: removal is blocked while a skill that stays installed requires a target unless `--ignore-requirements` is passed, and a skill selected together with what it requires is removed first. Removal stops at the first failure, keeps lock entries of skills that were not fully removed and reports what was not started.
+`nosey uninstall NAME_ID_OR_SOURCE... [--ignore-requirements] [--yes]` removes skills tracked in `skills-lock.json` from their recorded custom directories and applicable agent directories, then deletes their lock entries. Targets are tracked names, catalog IDs, or a recorded source (optionally `@ref`), which selects every tracked skill installed from it; untracked or unknown targets are refused (exit code 2). The whole selection is checked together: removal is blocked while a skill that stays installed requires a target unless `--ignore-requirements` is passed, and a skill selected together with what it requires is removed first. Removal stops at the first failure, keeps lock entries of skills that were not fully removed and reports what was not started.
 
 Both commands show the whole selection, confirm once, need `--yes` without a terminal, hold the same per-project operation lock as `install`, and have no JSON output. Exit codes: 2 policy or validation (including a busy workspace), 5 operation failure or partial success, 6 missing prerequisite.
 
-Agent-based installs made with Nosey and with `npx skills` interoperate: both read and write the same agent directories and `skills-lock.json`. Custom-directory locations are managed by Nosey. To install from a source that is not in a registry, run `npx skills add` directly.
+Agent-based installs made with Nosey and with `npx skills` interoperate: both read and write the same agent directories and `skills-lock.json`. Custom-directory locations are managed by Nosey.
 
-In the TUI, use Tab to change tabs, arrows to navigate, Space to select, `/` to search, `f`/`s` for filters/sorting and `i` to install all selections, including hidden selections. On the Manage tab, `u` checks installed skills for updates, `U` updates the outdated catalog skill under the cursor and `d` removes the tracked skill under the cursor, each with one confirmation. Escape cancels a dialog; `q` quits.
+In the TUI, use Tab to change tabs, arrows to navigate, Space to select, `/` to search, `f`/`s` for filters/sorting and `i` to install all selections, including hidden selections. On the Manage tab, `u` checks installed skills for updates, `U` updates the outdated tracked skill under the cursor and `d` removes the tracked skill under the cursor, each with one confirmation. Escape cancels a dialog; `q` quits.
 
 ## Settings and registries
 

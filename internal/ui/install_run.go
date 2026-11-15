@@ -121,7 +121,7 @@ func (m noseyModel) openInstallForAgents(agents []string) (noseyModel, tea.Cmd) 
 	return m, nil
 }
 
-// openUpdate plans an update of the outdated catalog skill under the cursor. It reuses the
+// openUpdate plans an update of the outdated tracked skill under the cursor. It reuses the
 // finished update check, so planning needs no network access; the confirmation page then shows
 // the reasons and locations before anything runs.
 func (m noseyModel) openUpdate(name string) (noseyModel, tea.Cmd) {
@@ -132,11 +132,15 @@ func (m noseyModel) openUpdate(name string) (noseyModel, tea.Cmd) {
 		}
 	}
 	m.err, m.message, m.warning = nil, "", ""
-	if item == nil || item.SkillID == nil || item.Status != "outdated" {
+	if item == nil || !m.canUpdate(*item) {
 		return m, nil
 	}
+	target := item.Name
+	if item.SkillID != nil {
+		target = *item.SkillID
+	}
 	check := installation.UpdateCheck{Names: m.updates}
-	plan, err := m.installer().PlanUpdate(m.ctx, m.session.Catalog, m.recs, installation.UpdateOptions{IDs: []string{*item.SkillID}, Check: &check})
+	plan, err := m.installer().PlanUpdate(m.ctx, m.session.Catalog, m.recs, installation.UpdateOptions{IDs: []string{target}, Check: &check})
 	if err != nil {
 		m.err = err
 		return m, nil

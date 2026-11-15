@@ -285,3 +285,31 @@ func TestLifecycleHelpListsTheNewKeys(t *testing.T) {
 		t.Fatal(help)
 	}
 }
+
+func TestUpdateKeyAppliesToOutdatedTrackedSkillsOutsideTheCatalog(t *testing.T) {
+	m := lifecycleModel(t)
+	delete(m.session.Catalog.Skills, "b")
+	m.updates = []string{"beta"}
+	m.inventory = m.installer().Inventory(context.Background(), m.session.Catalog).MarkOutdated(m.updates)
+	m.session.ApplyInventory(m.inventory)
+	for i, item := range m.inventory.Skills {
+		if item.Name == "beta" {
+			if item.SkillID != nil || item.Status != "outdated" {
+				t.Fatalf("%+v", item)
+			}
+			m.cursor[2] = i
+		}
+	}
+	if screen := screenText(m); !strings.Contains(screen, "U Update") {
+		t.Fatal("an outdated custom skill can be updated:", screen)
+	}
+	opened := productUpdate(t, m, tea.KeyPressMsg{Code: 'U', Text: "U"})
+	if opened.modal != "install" || opened.install.kind != "update" || opened.err != nil {
+		t.Fatal(opened.modal, opened.install.kind, opened.err)
+	}
+	for _, want := range []string{"Update 1 skill from 1 source", "beta", "upstream content changed"} {
+		if !strings.Contains(screenText(opened), want) {
+			t.Fatal(want, screenText(opened))
+		}
+	}
+}

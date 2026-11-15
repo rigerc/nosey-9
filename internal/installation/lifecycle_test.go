@@ -79,7 +79,7 @@ func updateLab(t *testing.T) (Service, *fakeFetcher, string, string) {
 	return s, f, srcA, srcB
 }
 
-func TestPlanUpdateKeepsPinAndContentReasonsAndSkipsNonCatalogSkills(t *testing.T) {
+func TestPlanUpdateKeepsPinAndContentReasonsAndLeavesCurrentNonCatalogSkills(t *testing.T) {
 	s, f, srcA, _ := updateLab(t)
 	skillAt(t, srcA, "beta", "v1.1 beta") // upstream content drift at the locked ref
 	c := catalogOf(gitSkill("a", "alpha", "o/one", shaB), gitSkill("b", "beta", "o/one", shaA))
@@ -98,10 +98,10 @@ func TestPlanUpdateKeepsPinAndContentReasonsAndSkipsNonCatalogSkills(t *testing.
 	if !slices.Equal(alpha.Targets, []string{".agents/skills/alpha (copy)"}) {
 		t.Fatalf("%v", alpha.Targets)
 	}
-	if !slices.Equal(got.Skipped, []SkippedSkill{{"gamma", "not in the current catalog"}}) {
-		t.Fatalf("%+v", got.Skipped)
+	if len(got.Skipped) != 0 {
+		t.Fatalf("a current non-catalog skill is neither planned nor skipped: %+v", got.Skipped)
 	}
-	if lines := strings.Join(got.Lines(), "\n"); !strings.Contains(lines, "update alpha: catalog pin changed") || !strings.Contains(lines, "update beta: upstream content changed") || !strings.Contains(lines, "skipped gamma") {
+	if lines := strings.Join(got.Lines(), "\n"); !strings.Contains(lines, "update alpha: catalog pin changed") || !strings.Contains(lines, "update beta: upstream content changed") || strings.Contains(lines, "gamma") {
 		t.Fatal(lines)
 	}
 	if fetched := f.fetches()[before:]; len(fetched) != 1 {
@@ -109,7 +109,7 @@ func TestPlanUpdateKeepsPinAndContentReasonsAndSkipsNonCatalogSkills(t *testing.
 	}
 }
 
-func TestUpdateAppliesPlanAndNeverTouchesNonCatalogSkills(t *testing.T) {
+func TestUpdateAppliesPlanAndLeavesCurrentNonCatalogSkills(t *testing.T) {
 	s, _, srcA, _ := updateLab(t)
 	skillAt(t, srcA, "beta", "v1.1 beta")
 	gammaBefore := read(t, s.at(".agents/skills/gamma/data.txt"))
@@ -167,11 +167,11 @@ func TestPlanUpdateIDsAndTargetErrors(t *testing.T) {
 	if got.Count() != 1 || got.Plans[0].Skills[0].ID != "a" {
 		t.Fatalf("%+v", got)
 	}
-	want := []SkippedSkill{{"beta", "already up to date"}, {"gamma", "not in the current catalog"}}
+	want := []SkippedSkill{{"beta", "already up to date"}, {"gamma", "already up to date"}}
 	if !slices.Equal(got.Skipped, want) {
 		t.Fatalf("%+v", got.Skipped)
 	}
-	for id, text := range map[string]string{"n": "is not installed", "nope": "unknown skill"} {
+	for id, text := range map[string]string{"n": "is not installed", "nope": "unknown skill or source", "o/two": "unknown skill or source"} {
 		_, err := s.PlanUpdate(context.Background(), c, catalog.Recommendations{}, UpdateOptions{IDs: []string{id}})
 		var policy PolicyError
 		if !errors.As(err, &policy) || !strings.Contains(err.Error(), text) {
@@ -180,10 +180,69 @@ func TestPlanUpdateIDsAndTargetErrors(t *testing.T) {
 	}
 }
 
-func TestPlanUpdateTreatsCatalogUnknownTrackedSkillsAsSkippedNotErrors(t *testing.T) {
-	s, _, _, _ := updateLab(t)
+func TestUpdateRefreshesCatalogUnknownTrackedSkillsFromTheirLockedSource(t *testing.T) {
+	s, f, srcA, _ := updateLab(t)
+	if got := mustPlanUpdate(t, s, catalogOf(), UpdateOptions{}); !got.Empty() || len(got.Skipped) != 0 {
+		t.Fatalf("current custom skills need no update: %+v", got)
+	}
+	skillAt(t, srcA, "gamma", "v1.1 gamma")
 	got := mustPlanUpdate(t, s, catalogOf(), UpdateOptions{})
-	if !got.Empty() || len(got.Skipped) != 3 {
+	if len(got.Plans) != 1 || got.Plans[0].Source != "o/one" || got.Plans[0].Ref != shaA || got.Count() != 1 {
+		t.Fatalf("%+v", got.Plans)
+	}
+	gamma := got.Plans[0].Skills[0]
+	if gamma.Name != "gamma" || gamma.ID != "" || !slices.Equal(gamma.Reasons, []string{ReasonContentChanged}) || !slices.Equal(gamma.Targets, []string{".agents/skills/gamma (copy)"}) {
+		t.Fatalf("%+v", gamma)
+	}
+	before := len(f.fetches())
+	if results, err := s.Update(context.Background(), got, nil); err != nil {
+		t.Fatal(err, results)
+	}
+	if fetched := f.fetches()[before:]; !slices.Equal(fetched, []string{"o/one#" + shaA}) {
+		t.Fatalf("update fetches the locked source and ref: %v", fetched)
+	}
+	if read(t, s.at(".agents/skills/gamma/data.txt")) != "v1.1 gamma" || read(t, s.at(".agents/skills/alpha/data.txt")) != "v1 alpha" {
+		t.Fatal("only gamma is refreshed")
+	}
+	lock := readLock(t, s)
+	hash, _ := skillkit.FolderHash(s.at(".agents/skills/gamma"))
+	if lock.Skills["gamma"].Ref != shaA || lock.Skills["gamma"].ComputedHash != hash || lock.Skills["gamma"].Extra["installMode"] == nil {
+		t.Fatalf("%+v", lock.Skills["gamma"])
+	}
+	if again := mustPlanUpdate(t, s, catalogOf(), UpdateOptions{}); !again.Empty() {
+		t.Fatalf("%+v", again)
+	}
+}
+
+func TestPlanUpdateSelectsTrackedSkillsBySource(t *testing.T) {
+	s, _, srcA, _ := updateLab(t)
+	skillAt(t, srcA, "beta", "v1.1 beta")
+	for _, spec := range []string{"o/one", "https://github.com/o/one", "o/one@" + shaA} {
+		got := mustPlanUpdate(t, s, catalogOf(), UpdateOptions{IDs: []string{spec}})
+		if got.Count() != 1 || got.Plans[0].Skills[0].Name != "beta" {
+			t.Fatalf("%s: %+v", spec, got.Plans)
+		}
+		want := []SkippedSkill{{"alpha", "already up to date"}, {"gamma", "already up to date"}}
+		if !slices.Equal(got.Skipped, want) {
+			t.Fatalf("%s: %+v", spec, got.Skipped)
+		}
+	}
+	if _, err := s.PlanUpdate(context.Background(), catalogOf(), catalog.Recommendations{}, UpdateOptions{IDs: []string{"o/one@" + shaB}}); err == nil || !strings.Contains(err.Error(), "unknown skill or source") {
+		t.Fatal("a source at another ref must not match:", err)
+	}
+}
+
+func TestPlanUpdateSkipsTrackedSkillsWithoutASkillPath(t *testing.T) {
+	s, _, _, _ := updateLab(t)
+	lock := readLock(t, s)
+	entry := lock.Skills["gamma"]
+	entry.SkillPath = ""
+	lock.Skills["gamma"] = entry
+	if err := lock.Write(s.Store.Workspace); err != nil {
+		t.Fatal(err)
+	}
+	got := mustPlanUpdate(t, s, catalogOf(), UpdateOptions{IDs: []string{"gamma"}})
+	if !got.Empty() || len(got.Skipped) != 1 || !strings.Contains(got.Skipped[0].Reason, "reinstall") {
 		t.Fatalf("%+v", got)
 	}
 }
@@ -644,6 +703,28 @@ func TestUninstallPartialFailureKeepsEarlierRemovals(t *testing.T) {
 	}
 	lock := readLock(t, s)
 	if _, ok := lock.Skills["alpha"]; ok || lock.Skills["gamma"].SkillPath == "" || !exists(s.at(".agents/skills/gamma")) {
+		t.Fatalf("%+v", lock.Skills)
+	}
+}
+
+func TestUninstallBySourceRemovesEveryTrackedSkillFromIt(t *testing.T) {
+	s := uninstallLab(t)
+	plan, err := s.PlanUninstall(context.Background(), catalogOf(), catalog.Recommendations{}, UninstallOptions{Targets: []string{"https://github.com/o/one@" + shaA}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names := []string{plan.Skills[0].Name, plan.Skills[1].Name, plan.Skills[2].Name}; len(plan.Skills) != 3 || !slices.Equal(names, []string{"alpha", "beta", "gamma"}) {
+		t.Fatalf("%+v", plan.Skills)
+	}
+	for _, target := range []string{"o/two", "o/one@" + shaB} {
+		if _, err = s.PlanUninstall(context.Background(), catalogOf(), catalog.Recommendations{}, UninstallOptions{Targets: []string{target}}); err == nil || !strings.Contains(err.Error(), "not a tracked skill, catalog ID or source") {
+			t.Fatal(target, err)
+		}
+	}
+	if _, err = s.Uninstall(context.Background(), plan, nil); err != nil {
+		t.Fatal(err)
+	}
+	if lock := readLock(t, s); len(lock.Skills) != 0 || exists(s.at(".agents/skills/alpha")) {
 		t.Fatalf("%+v", lock.Skills)
 	}
 }

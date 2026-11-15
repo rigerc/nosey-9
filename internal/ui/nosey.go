@@ -484,9 +484,10 @@ func (m noseyModel) cursorInventory() (installation.InventoryItem, bool) {
 	return installation.InventoryItem{}, false
 }
 
-// canUpdate reports that the skill follows the catalog and is outdated.
+// canUpdate reports that the skill is tracked and outdated, whether it follows the catalog or a
+// custom source recorded in skills-lock.json.
 func (m noseyModel) canUpdate(item installation.InventoryItem) bool {
-	return m.session.Store.Workspace != "" && item.SkillID != nil && item.Status == "outdated"
+	return m.session.Store.Workspace != "" && item.Status == "outdated" && (item.SkillID != nil || m.inventory.Tracked(item.Name))
 }
 
 // canRemove reports that the skill is tracked in skills-lock.json.

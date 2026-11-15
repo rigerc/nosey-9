@@ -15,7 +15,9 @@ import (
 
 // UninstallOptions selects tracked skills to remove.
 type UninstallOptions struct {
-	// Targets are tracked skill names or catalog IDs.
+	// Targets are tracked skill names, catalog IDs or sources recorded in skills-lock.json (a
+	// local directory, owner/repo or a Git URL, optionally with @ref); a source selects every
+	// tracked skill installed from it.
 	Targets []string
 	// IgnoreRequirements removes skills even when an installed skill still requires them.
 	IgnoreRequirements bool
@@ -55,7 +57,7 @@ func (p UninstallPlan) Lines() []string {
 	return lines
 }
 
-// PlanUninstall resolves tracked names and catalog IDs, evaluates the whole selection and
+// PlanUninstall resolves tracked names, catalog IDs and sources, evaluates the whole selection and
 // blocks removals that would leave an installed skill without a requirement. It does not take
 // the operation lock.
 func (s Service) PlanUninstall(_ context.Context, c domain.Catalog, recs catalog.Recommendations, opts UninstallOptions) (UninstallPlan, error) {
@@ -87,7 +89,13 @@ func (s Service) PlanUninstall(_ context.Context, c domain.Catalog, recs catalog
 			if _, known := c.Skills[target]; known {
 				return plan, PolicyError{Reason: target + " is not tracked in skills-lock.json, so Nosey did not install it"}
 			}
-			return plan, PolicyError{Reason: target + " is not a tracked skill or catalog ID; only skills recorded in skills-lock.json can be uninstalled"}
+			names := s.trackedFromSource(lock, target)
+			if len(names) == 0 {
+				return plan, PolicyError{Reason: target + " is not a tracked skill, catalog ID or source; only skills recorded in skills-lock.json can be uninstalled"}
+			}
+			for _, name := range names {
+				chosen[name] = true
+			}
 		}
 	}
 	selectedIDs := map[string]string{}

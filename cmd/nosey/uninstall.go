@@ -15,12 +15,14 @@ func uninstallCommand(o *cliOptions) *cobra.Command {
 	opts := installation.UninstallOptions{}
 	yes := false
 	cmd := &cobra.Command{
-		Use:   "uninstall NAME_OR_ID...",
+		Use:   "uninstall NAME_ID_OR_SOURCE...",
 		Short: "Remove skills tracked in skills-lock.json from this project",
 		Long: `Remove skills from every agent directory of this project and delete their
-skills-lock.json entries. Targets are tracked skill names or catalog IDs; a
-skill that skills-lock.json does not track, or that is unknown, is refused and
-nothing is removed. Skills outside the selection are never touched.
+skills-lock.json entries. Targets are tracked skill names, catalog IDs, or a
+source recorded in skills-lock.json (a local directory, owner/repo or a Git
+URL, optionally with @ref), which selects every tracked skill installed from
+it. A skill that skills-lock.json does not track, or that is unknown, is
+refused and nothing is removed. Skills outside the selection are never touched.
 
 The whole selection is evaluated together. Removal is blocked while a skill
 that stays installed requires one of the targets (through catalog requirements
@@ -34,6 +36,7 @@ and is required without a terminal.`,
 		Example: `  nosey uninstall react-best-practices
   nosey uninstall vercel-labs:agent-skills:react-best-practices --yes
   nosey uninstall web-design-guidelines react-best-practices --yes
+  nosey uninstall owner/repo --yes
   nosey uninstall react-best-practices --ignore-requirements --yes`,
 		Args: cobra.MinimumNArgs(1),
 	}
