@@ -10,6 +10,7 @@ const JEV_LABELS = {
   correctness: 'Correctness',
   safety: 'Safety',
   context_efficiency: 'Context efficiency',
+  technology_fit: 'Technology fit',
 };
 const LEVEL_RANK = { error: 3, warning: 2, info: 1 };
 

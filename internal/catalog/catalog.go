@@ -248,12 +248,20 @@ func numberCompare(a, b *float64) int {
 }
 
 // SortSkills orders views deterministically with missing ratings last.
+//
+// The requested order is the primary key. Ties fall back to a relevance chain
+// so the most useful skills stay on top: recommendation priority, how many
+// detected technologies recommend the skill, skill score, quality, repository
+// average and finally name and ID. name-asc is a pure alphabetical order.
 func SortSkills(views []domain.SkillView, order, _ string) {
 	slices.SortStableFunc(views, func(a, b domain.SkillView) int {
+		if order == "name-asc" {
+			return compareName(a, b)
+		}
 		value := 0
 		switch order {
 		case "priority-desc":
-			value = cmp.Compare(priorityRank(b.Priority), priorityRank(a.Priority))
+			value = comparePriority(a, b)
 		case "score-desc":
 			value = numberCompare(a.Score, b.Score)
 		case "repository-average-desc":
@@ -264,11 +272,28 @@ func SortSkills(views []domain.SkillView, order, _ string) {
 		if value != 0 {
 			return value
 		}
-		if value = strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)); value != 0 {
-			return value
+		for _, compare := range []func(a, b domain.SkillView) int{
+			comparePriority,
+			func(a, b domain.SkillView) int { return cmp.Compare(len(b.Technologies), len(a.Technologies)) },
+			func(a, b domain.SkillView) int { return numberCompare(a.Score, b.Score) },
+			func(a, b domain.SkillView) int { return cmp.Compare(qualityRank(b.Quality), qualityRank(a.Quality)) },
+			func(a, b domain.SkillView) int { return numberCompare(a.RepositoryAverage, b.RepositoryAverage) },
+		} {
+			if value = compare(a, b); value != 0 {
+				return value
+			}
 		}
-		return strings.Compare(a.ID, b.ID)
+		return compareName(a, b)
 	})
+}
+func comparePriority(a, b domain.SkillView) int {
+	return cmp.Compare(priorityRank(b.Priority), priorityRank(a.Priority))
+}
+func compareName(a, b domain.SkillView) int {
+	if value := strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)); value != 0 {
+		return value
+	}
+	return strings.Compare(a.ID, b.ID)
 }
 
 // Project filters a scan projection while preserving underlying totals and facts.

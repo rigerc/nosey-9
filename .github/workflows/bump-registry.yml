@@ -45,7 +45,7 @@ jobs:
           } > "$RUNNER_TEMP/bump-body.md"
       - name: Open or update the bump PR
         if: steps.bump.outputs.old != steps.bump.outputs.new
-        uses: peter-evans/create-pull-request@84ae59a2cdc2258d6fa0732dd66352dddae2a412 # v7.0.9
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ github.token }}
           branch: automation/bump-registry

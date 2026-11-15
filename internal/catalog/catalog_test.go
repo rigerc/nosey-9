@@ -3,6 +3,7 @@ package catalog
 import (
 	"github.com/rigerc/nosey-9/internal/detection"
 	"github.com/rigerc/nosey-9/internal/domain"
+	"slices"
 	"testing"
 )
 
@@ -114,5 +115,31 @@ func TestSharedFiltersRatingsQueriesAndGroupDeduplication(t *testing.T) {
 	}
 	if len(scan.Technologies) != 2 {
 		t.Fatal("projection changed input")
+	}
+}
+
+func TestPriorityOrderBreaksTiesByRelevanceSignals(t *testing.T) {
+	high, low := 90.0, 40.0
+	good, fair := "good", "fair"
+	views := []domain.SkillView{
+		{ID: "alpha", Name: "Alpha", Priority: "optional", Technologies: []string{"a", "b", "c"}},
+		{ID: "core", Name: "Zed core", Priority: "core", Technologies: []string{"a"}},
+		{ID: "many", Name: "Many", Priority: "recommended", Technologies: []string{"a", "b"}},
+		{ID: "few-high", Name: "Few high", Priority: "recommended", Technologies: []string{"a"}, Score: &high},
+		{ID: "few-low", Name: "Few low", Priority: "recommended", Technologies: []string{"a"}, Score: &low, Quality: &fair},
+		{ID: "few-none", Name: "Few none", Priority: "recommended", Technologies: []string{"a"}, Quality: &good},
+	}
+	SortSkills(views, "priority-desc", "")
+	got := []string{}
+	for _, v := range views {
+		got = append(got, v.ID)
+	}
+	want := []string{"core", "many", "few-high", "few-low", "few-none", "alpha"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+	SortSkills(views, "score-desc", "")
+	if views[0].ID != "few-high" || views[1].ID != "few-low" || views[2].ID != "core" {
+		t.Fatal(views)
 	}
 }
