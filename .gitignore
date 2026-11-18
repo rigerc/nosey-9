@@ -23,3 +23,5 @@ __pycache__/
 
 # Serena local state
 /.serena/
+
+/target/

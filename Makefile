@@ -1,10 +1,10 @@
 # Quality checks for the nosey CLI.
 GO ?= go
-BIN := dist/nosey
+BIN := dist/nosey-go
 LINTER_BIN := ./custom-gcl
 COVERAGE_MIN ?= 80
 # Name of the generated agent skill for this CLI.
-SKILL_NAME ?= $(notdir $(BIN))
+SKILL_NAME ?= nosey
 # Core services have a shared coverage gate; CLI/TUI tests exercise the same services.
 CORE_PACKAGES := ./internal/app ./internal/catalog ./internal/registrygen ./internal/registrypins ./internal/contracts ./internal/detection ./internal/gitclient ./internal/githubclient ./internal/installation ./internal/process ./internal/registry ./internal/settings ./internal/storage
 empty :=
@@ -17,14 +17,14 @@ comma := ,
 # Release platforms; keep in sync with the release.yml matrix.
 CROSS_TARGETS := linux/amd64 linux/arm64
 
-check: format-check tidy-check lint registry-check test-coverage build smoke
+check: format-check tidy-check lint registry-check test-coverage legacy-build smoke
 
 registry-check:
 	$(GO) run ./cmd/nosey registry generate registries/default --check
 	$(GO) run ./cmd/nosey registry validate registries/default --standalone
 
 # Needs the network: installs the generator commit the scaffold workflow pins.
-scaffold-check: build
+scaffold-check: legacy-build
 	NOSEY_BIN="$(abspath $(BIN))" bash .github/scripts/scaffold-check.sh
 
 tidy-check:
@@ -61,12 +61,12 @@ test-coverage:
 	@$(GO) tool cover -func=core-coverage.out | awk -v min=$(COVERAGE_MIN) \
 	  '/^total:/ { gsub(/%/, "", $$3); printf "Core coverage: %.1f%% (minimum: %s%%)\n", $$3, min; found=1; if ($$3 + 0 < min) exit 1 } END { if (!found) exit 1 }'
 
-build:
+legacy-build:
 	@mkdir -p dist
 	$(GO) build -trimpath -o $(BIN) ./cmd/nosey
 
 # The built binary must start and report the version declared in package.toml.
-smoke: build
+smoke: legacy-build
 	@want="$$(sed -n 's/^version *= *"\(.*\)"/\1/p' internal/package/package.toml)"; \
 	got="$$($(BIN) --version 2>&1)"; \
 	if [ "$$got" != "$$want" ]; then echo "version mismatch: binary $$got, package.toml $$want" >&2; exit 1; fi; \
@@ -74,7 +74,7 @@ smoke: build
 
 # The binary must run with no git or gh anywhere on PATH. Its scratch home stays
 # under dist/, so make clean covers it.
-native-runtime-check: build
+native-runtime-check: legacy-build
 	@home="$(abspath dist/native-runtime-home)"; mkdir -p "$$home"; \
 	bin="$(abspath $(BIN))"; \
 	env -i PATH=/nonexistent HOME="$$home" XDG_RUNTIME_DIR="$$home" "$$bin" --version >/dev/null; \
@@ -98,11 +98,20 @@ cross-build:
 	done
 
 run:
-	$(GO) run ./cmd/nosey
+	cargo run --locked --
+
+build:
+	cargo build --release --locked
+	@mkdir -p dist
+	cp target/release/nosey dist/nosey
+
+.PHONY: legacy-build desktop-test
+desktop-test:
+	cargo test --locked
 
 # Regenerate only this CLI's skill; leave other .agents/skills entries untouched.
 # Generate from the live Cobra tree through the built CLI's skillgen subcommand.
-skills: build
+skills: legacy-build
 	@set -eu; \
 	name="$(SKILL_NAME)"; \
 	case "$$name" in ''|*[!a-z0-9-]*|-*|*-) echo 'SKILL_NAME must be a lowercase, hyphenated CLI name' >&2; exit 1;; esac; \
