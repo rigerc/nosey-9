@@ -4,19 +4,40 @@ Discover agent skills for the technologies in your workspace, review their sourc
 
 Nosey provides Scan, Explore, Manage and Settings tabs, plus scriptable CLI commands. Detection stays inside the current directory or `--cwd`, discovers nested projects, honors Git ignores and configured exclusions, and reports incomplete observations explicitly.
 
-## Build and run
+## Rust desktop app
 
-Use the Go version declared in [go.mod](go.mod). Git and `gh` are not required at runtime: Nosey talks to Git and GitHub natively, so remote registries and skills from Git sources need neither executable. Git is only needed to develop Nosey (fixtures and hooks). Nosey installs skills itself: it needs no Node.js, npm or `skills` CLI at runtime. Node is only used by the registry studio's UI tests.
+Build with stable Rust and Cargo. On Linux install a Vulkan driver, Fontconfig,
+XKB/X11 and Wayland development libraries. The [GPUI Kit installation guide](https://gpui-kit.com/docs/installation/)
+lists the platform prerequisites.
 
 ```sh
-git clone --recurse-submodules https://github.com/rigerc/nosey-9.git
-cd nosey-9
-make build
-./dist/nosey --help
-./dist/nosey --cwd /path/to/project
+cargo run --locked -- --cwd /path/to/project
 ```
 
-For an existing checkout, run `git submodule update --init registries/default`. The submodule pins the official authoring data for development; the application fetches the external [official registry](https://github.com/rigerc/nosey-registry) and retains validated snapshots for offline use. First use needs a reachable registry or an explicitly configured local source.
+The window opens on **Scan**. Select a technology count to inspect the files
+that matched. **Explore** searches the registry. Select skills there or in
+Scan, then **Review install** to see dependencies and destinations before
+confirming. In **Settings**, enter agent IDs such as `codex, claude-code` or a
+project-relative install directory, and save. **Manage** checks installed
+sources for updates and removes tracked skills after confirmation.
+
+The Rust executable fetches the official registry on first use and caches it
+for offline sessions. To use a local registry, select its folder in Settings
+or pass `--registry /absolute/path/to/registry`. A checkout initialized with
+`git submodule update --init registries/default` can use that directory offline.
+
+```sh
+make build                       # release desktop executable in dist/nosey
+cargo test --locked              # Rust core and GPUI interaction tests
+cargo run --locked -- --help      # scriptable commands
+```
+
+## Original Go CLI
+
+The original implementation and its automation contracts are available through
+`make legacy-build`, which produces `dist/nosey-go`. The command reference
+below describes the Go executable. Registry authoring and the registry studio
+remain available there.
 
 ## Discover and install
 
@@ -71,7 +92,7 @@ Both commands show the whole selection, confirm once, need `--yes` without a ter
 
 Agent-based installs made with Nosey and with `npx skills` interoperate: both read and write the same agent directories and `skills-lock.json`. Custom-directory locations are managed by Nosey.
 
-In the TUI, use Tab to change tabs, arrows to navigate, Space to select, `/` to search, `f`/`s` for filters/sorting and `i` to install all selections, including hidden selections. On the Manage tab, `u` checks installed skills for updates, `U` updates the outdated tracked skill under the cursor and `d` removes the tracked skill under the cursor, each with one confirmation. Escape cancels a dialog; `q` quits.
+In the original Go TUI, use Tab to change tabs, arrows to navigate, Space to select, `/` to search, `f`/`s` for filters/sorting and `i` to install all selections, including hidden selections. On the Manage tab, `u` checks installed skills for updates, `U` updates the outdated tracked skill under the cursor and `d` removes the tracked skill under the cursor, each with one confirmation. Escape cancels a dialog; `q` quits.
 
 ## Settings and registries
 

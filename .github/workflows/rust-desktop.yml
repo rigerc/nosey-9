@@ -1,0 +1,39 @@
+name: Rust desktop
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'Cargo.*'
+      - '.github/workflows/rust-desktop.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: true
+      - name: Install native build and display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libvulkan-dev mesa-vulkan-drivers xvfb xdotool
+          rustup update stable --no-self-update
+      - name: Verify formatting and test application workflows
+        run: |
+          cargo fmt --all -- --check
+          cargo test --locked
+          cargo build --locked
+      - name: Open the native desktop window
+        run: |
+          xvfb-run -a bash -euo pipefail <<'SMOKE'
+          mkdir -p "$RUNNER_TEMP/nosey-project"
+          ./target/debug/nosey --cwd "$RUNNER_TEMP/nosey-project" --registry "$PWD/registries/default" &
+          app=$!
+          trap 'kill "$app" 2>/dev/null || true' EXIT
+          timeout 45 xdotool search --sync --onlyvisible --name '^Nosey$' > /dev/null
+          kill -0 "$app"
+          SMOKE
