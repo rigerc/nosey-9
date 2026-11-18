@@ -170,9 +170,17 @@ impl Desktop {
                 .set_directory(current)
                 .pick_folder()
                 .await
-                .map(|p| p.path().to_owned());
+                .map(|p| p.path().canonicalize());
             let _ = this.update_in(cx, |s, window, cx| {
                 s.busy = false;
+                // Workspace paths are compared after resolving symlinks.
+                let path = match path {
+                    Some(Err(e)) => {
+                        s.message(format!("Opening folder: {e}"), true, cx);
+                        None
+                    }
+                    p => p.and_then(Result::ok),
+                };
                 if let Some(path) = path {
                     if registry {
                         s.ws.registry = Some(path);
@@ -295,7 +303,12 @@ impl Desktop {
                 None => {
                     install::check_updates(&ws, &mut c, &mut items)?;
                     let n = items.iter().filter(|i| i.outdated).count();
-                    format!("{n} skills have updates")
+                    let skipped = items.iter().filter(|i| i.skipped.is_some()).count();
+                    if skipped > 0 {
+                        format!("{n} skills have updates; {skipped} could not be checked")
+                    } else {
+                        format!("{n} skills have updates")
+                    }
                 }
                 Some(Action::Install(ids)) => {
                     let done = install::install(&ws, &c, &ids, &[], false, false)?;
@@ -316,7 +329,9 @@ impl Desktop {
                         .filter(|i| i.outdated)
                         .filter_map(|i| i.catalog_id.clone())
                         .collect();
-                    if ids.is_empty() {
+                    if let Some(reason) = selected.iter().find_map(|i| i.skipped.as_deref()) {
+                        anyhow::bail!("Cannot check {name}: {reason}")
+                    } else if ids.is_empty() {
                         format!("{name} is current")
                     } else {
                         install::install(&ws, &c, &ids, &[], false, true)?;
@@ -325,17 +340,18 @@ impl Desktop {
                     }
                 }
             };
-            Ok::<_, anyhow::Error>((Arc::new(c), items, message))
+            Ok::<_, anyhow::Error>((items, message))
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
             let _ = this.update(cx, |s, cx| {
                 s.busy = false;
                 match result {
-                    Ok((c, items, msg)) => {
+                    Ok((items, msg)) => {
+                        // The operation's catalog clone gained synthetic
+                        // entries for custom sources; keep the registry view.
                         if let Some(d) = &mut s.data {
                             d.items = items;
-                            d.catalog = c;
                         }
                         s.selected.clear();
                         s.message(msg, false, cx);
@@ -622,6 +638,8 @@ impl Desktop {
                     "Missing"
                 } else if i.outdated {
                     "Update available"
+                } else if i.skipped.is_some() {
+                    "Not checked"
                 } else {
                     "Installed"
                 };

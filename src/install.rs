@@ -13,6 +13,7 @@ use std::{
     fs,
     io::{ErrorKind, Read},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use tempfile::TempDir;
 use walkdir::WalkDir;
@@ -68,6 +69,16 @@ fn read_lock(ws: &Workspace) -> Result<Value> {
     }
     Ok(v)
 }
+fn preflight(ws: &Workspace) -> Result<()> {
+    if let Some(home) = directories::BaseDirs::new().and_then(|d| d.home_dir().canonicalize().ok())
+    {
+        ensure!(
+            home != ws.root,
+            "Refusing to install into the home directory; run from a project directory"
+        );
+    }
+    Ok(())
+}
 fn operation_lock(ws: &Workspace) -> Result<fs::File> {
     let dir = ws.data.join("locks");
     fs::create_dir_all(&dir)?;
@@ -122,6 +133,8 @@ pub struct Installed {
     pub source: String,
     pub catalog_id: Option<String>,
     pub outdated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skipped: Option<String>,
 }
 
 pub fn inventory(ws: &Workspace, c: &Catalog) -> Result<Vec<Installed>> {
@@ -220,30 +233,60 @@ pub fn selection(c: &Catalog, ids: &[String], installed: &[Installed]) -> Result
     for id in ids {
         visit(c, id, &mut order, &mut BTreeSet::new())?;
     }
-    let mut present: BTreeSet<&str> = installed
+    let present: BTreeSet<&str> = installed
         .iter()
         .filter_map(|i| i.catalog_id.as_deref())
         .collect();
-    present.extend(order.iter().map(String::as_str));
+    // Only a skill that is not installed yet may introduce a name clash or a
+    // conflict; updating two already-coexisting skills must stay possible.
+    let fresh = |id: &str| !present.contains(id);
+    let conflicts = |id: &str| -> Vec<&str> {
+        c.skills
+            .get(id)
+            .map(|s| strings(&s["conflictsWith"]).collect())
+            .unwrap_or_default()
+    };
     let mut names = BTreeSet::new();
     for id in &order {
         let name = skill_name(&c.skills[id]);
         validate_name(name)?;
         ensure!(
-            names.insert(name),
+            names.insert(name.to_lowercase()),
             "Multiple selected skills install as {name}"
         );
+        if fresh(id)
+            && let Some(i) = installed.iter().find(|i| {
+                i.name.eq_ignore_ascii_case(name) && i.catalog_id.as_deref() != Some(id.as_str())
+            })
+        {
+            bail!(
+                "Installing {id} would replace the installed skill {}",
+                i.name
+            );
+        }
     }
-    for id in &present {
-        if let Some(s) = c.skills.get(*id) {
-            for other in strings(&s["conflictsWith"]) {
-                ensure!(
-                    !present.contains(other) || !(order.iter().any(|x| x == *id || x == other)),
-                    "Conflict between {id} and {other}"
-                );
+    let mut problems = BTreeSet::new();
+    for id in &order {
+        for other in conflicts(id) {
+            if (fresh(id) || fresh(other))
+                && (order.iter().any(|x| x == other) || present.contains(other))
+            {
+                problems.insert(format!("{id} conflicts with {other}"));
+            }
+        }
+        if fresh(id) {
+            for other in &present {
+                if conflicts(other).contains(&id.as_str()) {
+                    problems.insert(format!("{other} conflicts with {id}"));
+                }
             }
         }
     }
+    ensure!(
+        problems.is_empty(),
+        "{}",
+        problems.into_iter().collect::<Vec<_>>().join("; ")
+    );
     Ok(order)
 }
 
@@ -310,7 +353,8 @@ fn find_skill(root: &Path, name: &str) -> Result<PathBuf> {
     }
     found.with_context(|| format!("Source contains no SKILL.md named {name}"))
 }
-struct SourceCache(BTreeMap<(String, String), TempDir>);
+#[derive(Default)]
+struct SourceCache(BTreeMap<(String, String), Arc<TempDir>>);
 impl SourceCache {
     fn root(&mut self, c: &Catalog, s: &Value) -> Result<PathBuf> {
         let src = &s["source"];
@@ -324,8 +368,14 @@ impl SourceCache {
         }
         ensure!(src["kind"] == "git", "Unsupported skill source");
         let key = (field(src, "uri").to_owned(), field(src, "ref").to_owned());
+        // Reuse trees fetched while resolving targets or checking updates so
+        // one operation installs exactly the revision it inspected.
+        if let Some(tree) = c.trees.get(&key) {
+            return Ok(tree.path().into());
+        }
         if !self.0.contains_key(&key) {
-            self.0.insert(key.clone(), github_tree(&key.0, &key.1)?);
+            self.0
+                .insert(key.clone(), Arc::new(github_tree(&key.0, &key.1)?));
         }
         Ok(self.0[&key].path().into())
     }
@@ -501,12 +551,13 @@ pub fn install(
     copy: bool,
     update: bool,
 ) -> Result<Vec<String>> {
+    preflight(ws)?;
     let _op = operation_lock(ws)?;
     let settings = ws.settings()?;
     let items = inventory(ws, c)?;
     let mut lock = read_lock(ws)?;
     let order = selection(c, ids, &items)?;
-    let mut cache = SourceCache(BTreeMap::new());
+    let mut cache = SourceCache::default();
     let mut done = vec![];
     let mut base = vec![];
     if update {
@@ -679,7 +730,6 @@ pub fn resolve_targets(ws: &Workspace, c: &mut Catalog, args: &[String]) -> Resu
             continue;
         }
         let local = ws.root.join(arg);
-        let tree;
         let (root, src) = if local.is_dir() {
             let p = local.canonicalize()?;
             let name = p
@@ -689,11 +739,10 @@ pub fn resolve_targets(ws: &Workspace, c: &mut Catalog, args: &[String]) -> Resu
             (p.clone(), json!({"kind":"local","path":name}))
         } else {
             let (uri, rev) = arg.rsplit_once('@').unwrap_or((arg, ""));
-            tree = github_tree(uri, rev)?;
-            (
-                tree.path().into(),
-                json!({"kind":"git","uri":uri,"ref":rev}),
-            )
+            let tree = Arc::new(github_tree(uri, rev)?);
+            let root = tree.path().to_owned();
+            c.trees.insert((uri.to_owned(), rev.to_owned()), tree);
+            (root, json!({"kind":"git","uri":uri,"ref":rev}))
         };
         let mut names = BTreeSet::new();
         for e in WalkDir::new(&root)
@@ -723,37 +772,61 @@ pub fn resolve_targets(ws: &Workspace, c: &mut Catalog, args: &[String]) -> Resu
     }
     Ok(ids)
 }
+/// Compares every tracked skill with its source. A skill that cannot be
+/// checked records the reason in `skipped` instead of failing the others.
 pub fn check_updates(ws: &Workspace, c: &mut Catalog, items: &mut [Installed]) -> Result<()> {
     let lock = read_lock(ws)?;
-    let mut cache = SourceCache(BTreeMap::new());
+    let mut cache = SourceCache::default();
     for i in items.iter_mut().filter(|i| i.tracked) {
         let entry = &lock["skills"][&i.name];
         if i.catalog_id.is_none() {
-            let (src, root) = match field(entry, "sourceType") {
-                "local" => {
-                    let path = ws.root.join(&i.source).canonicalize()?;
-                    (
-                        json!({"kind":"local","path":path.file_name().context("Invalid local source")?,"skillName":i.name}),
-                        path.parent().context("Invalid local source")?.into(),
-                    )
-                }
-                "github" => (
+            let custom_source = match field(entry, "sourceType") {
+                "local" => ws
+                    .root
+                    .join(&i.source)
+                    .canonicalize()
+                    .ok()
+                    .and_then(|path| {
+                        Some((
+                            json!({"kind":"local","path":path.file_name()?.to_str()?,"skillName":i.name}),
+                            path.parent()?.to_owned(),
+                        ))
+                    })
+                    .ok_or("its local source no longer exists"),
+                "github" => Ok((
                     json!({"kind":"git","uri":i.source,"ref":field(entry,"ref"),"skillName":i.name}),
                     ws.root.clone(),
-                ),
-                kind => bail!("Unsupported tracked source type {kind} for {}", i.name),
+                )),
+                _ => Err("its source cannot be checked automatically; reinstall to enable updates"),
             };
-            i.catalog_id = Some(custom(c, src, root, &i.name)?);
+            match custom_source {
+                Ok((src, root)) => i.catalog_id = Some(custom(c, src, root, &i.name)?),
+                Err(reason) => {
+                    i.skipped = Some(reason.into());
+                    continue;
+                }
+            }
         }
         let s = &c.skills[i.catalog_id.as_ref().unwrap()];
-        let root = cache.root(c, s)?;
-        let source = find_skill(&root, &i.name)?;
-        let expected = hash(&source, &files(&source)?)?;
-        for d in &i.locations {
-            let path = confined(&ws.root, d)?.join(&i.name).canonicalize()?;
-            ensure!(path.starts_with(&ws.root), "Skill points outside workspace");
-            i.outdated |= hash(&path, &files(&path)?)? != expected;
+        let result = (|| -> Result<bool> {
+            let root = cache.root(c, s)?;
+            let source = find_skill(&root, &i.name)?;
+            let expected = hash(&source, &files(&source)?)?;
+            let mut outdated = false;
+            for d in &i.locations {
+                let path = confined(&ws.root, d)?.join(&i.name).canonicalize()?;
+                ensure!(path.starts_with(&ws.root), "Skill points outside workspace");
+                outdated |= hash(&path, &files(&path)?)? != expected;
+            }
+            Ok(outdated)
+        })();
+        match result {
+            Ok(outdated) => i.outdated |= outdated,
+            Err(e) => i.skipped = Some(format!("{e:#}")),
         }
+    }
+    for (key, tree) in cache.0 {
+        c.trees.entry(key).or_insert(tree);
     }
     Ok(())
 }

@@ -204,6 +204,8 @@ fn run() -> Result<()> {
                             "missing"
                         } else if i.outdated {
                             "outdated"
+                        } else if i.skipped.is_some() {
+                            "unchecked"
                         } else {
                             "installed"
                         },
@@ -248,6 +250,11 @@ fn run() -> Result<()> {
                 });
             }
             install::check_updates(&ws, &mut c, &mut items)?;
+            for i in &items {
+                if let Some(reason) = &i.skipped {
+                    eprintln!("Skipped {}: {reason}", i.name);
+                }
+            }
             let ids: Vec<_> = items
                 .into_iter()
                 .filter(|i| i.outdated)

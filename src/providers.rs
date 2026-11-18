@@ -34,13 +34,17 @@ pub fn ecosystem(name: &str, path: &str, mcp: bool) -> Option<&'static str> {
     })
 }
 
+// Like the Go engine, only PEP 508 list entries are normalized; requirement
+// files and TOML table keys keep the authored spelling that registry rules use.
 fn python_name(s: &str) -> String {
     s.trim()
         .split(['[', '<', '>', '=', '!', '~', ';', ' ', '@'])
         .next()
         .unwrap_or("")
-        .replace('_', "-")
-        .to_lowercase()
+        .into()
+}
+fn python_list_name(s: &str) -> String {
+    python_name(s).replace('_', "-").to_lowercase()
 }
 fn toml_packages(doc: &Value, eco: &str, out: &mut BTreeSet<String>) {
     let Some(map) = doc.as_object() else {
@@ -60,7 +64,7 @@ fn toml_packages(doc: &Value, eco: &str, out: &mut BTreeSet<String>) {
                     out.insert(if eco == "cargo" {
                         spec["package"].as_str().unwrap_or(name).into()
                     } else {
-                        python_name(name)
+                        name.clone()
                     });
                 }
             }
@@ -70,7 +74,7 @@ fn toml_packages(doc: &Value, eco: &str, out: &mut BTreeSet<String>) {
                 .flatten()
                 .filter_map(Value::as_str)
             {
-                out.insert(python_name(item));
+                out.insert(python_list_name(item));
             }
         }
         if matches!(key.as_str(), "optional-dependencies" | "dependency-groups") {
@@ -81,7 +85,7 @@ fn toml_packages(doc: &Value, eco: &str, out: &mut BTreeSet<String>) {
                     .flatten()
                     .filter_map(Value::as_str)
                 {
-                    out.insert(python_name(item));
+                    out.insert(python_list_name(item));
                 }
             }
         }

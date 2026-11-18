@@ -5,6 +5,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
@@ -15,6 +16,8 @@ pub struct Catalog {
     pub mappings: BTreeMap<String, Value>,
     pub roots: BTreeMap<String, PathBuf>,
     pub warnings: Vec<String>,
+    /// Source trees fetched during this operation, keyed by (uri, ref).
+    pub trees: BTreeMap<(String, String), Arc<tempfile::TempDir>>,
 }
 impl Catalog {
     pub fn load(ws: &Workspace, refresh: bool) -> Result<Self> {
@@ -116,6 +119,13 @@ impl Catalog {
                 .to_string();
             let path = dir.keep();
             atomic_json(&index, &json!(name))?;
+            // Older snapshots are unreachable once current.json moves on.
+            for old in fs::read_dir(&base)?.flatten() {
+                let n = old.file_name();
+                if n != *name.as_str() && n.to_string_lossy().starts_with("registry-") {
+                    let _ = fs::remove_dir_all(old.path());
+                }
+            }
             Ok(path)
         })();
         match (result, cached) {

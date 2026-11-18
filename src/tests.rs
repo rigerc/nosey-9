@@ -141,3 +141,75 @@ fn dependency_cycles_and_conflicts_are_rejected_before_writes() {
     assert!(install::install(&f.ws, &c, &["test:alpha".into()], &[], false, false).is_err());
     assert!(!f.ws.root.join("skills-lock.json").exists());
 }
+#[test]
+fn python_names_match_go_normalization() {
+    let deps = |name, text| {
+        crate::providers::dependencies("python", name, text)
+            .unwrap()
+            .into_iter()
+            .map(|(_, n)| n)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        deps(
+            "requirements.txt",
+            "SQLAlchemy==2.0\nsentry_sdk[flask]>=1\n"
+        ),
+        vec!["SQLAlchemy", "sentry_sdk"]
+    );
+    assert_eq!(
+        deps(
+            "pyproject.toml",
+            "[project]\ndependencies = [\"Sentry_SDK>=1\"]\n[tool.poetry.dependencies]\nPyMySQL = \"*\"\n"
+        ),
+        vec!["PyMySQL", "sentry-sdk"]
+    );
+}
+#[test]
+fn install_refuses_to_replace_untracked_skill() {
+    let f = Fixture::new();
+    let c = Catalog::load(&f.ws, false).unwrap();
+    let keep = f.ws.root.join(".agents/skills/beta");
+    fs::create_dir_all(&keep).unwrap();
+    fs::write(keep.join("SKILL.md"), "---\nname: beta\n---\nMine").unwrap();
+    let err = install::install(&f.ws, &c, &["test:beta".into()], &[], false, false).unwrap_err();
+    assert!(format!("{err:#}").contains("would replace the installed skill"));
+    assert_eq!(
+        fs::read_to_string(keep.join("SKILL.md")).unwrap(),
+        "---\nname: beta\n---\nMine"
+    );
+}
+#[test]
+fn existing_conflicts_do_not_block_updates() {
+    let f = Fixture::new();
+    let ws = &f.ws;
+    let mut c = Catalog::load(ws, false).unwrap();
+    install::install(ws, &c, &["test:alpha".into()], &[], false, false).unwrap();
+    c.skills.get_mut("test:alpha").unwrap()["conflictsWith"] = json!(["test:beta"]);
+    let items = install::inventory(ws, &c).unwrap();
+    install::selection(&c, &["test:alpha".into()], &items).unwrap();
+    install::install(ws, &c, &["test:alpha".into()], &[], false, true).unwrap();
+    // A fresh skill that conflicts with an installed one is still rejected.
+    install::uninstall(ws, &c, &["alpha".into()]).unwrap();
+    let items = install::inventory(ws, &c).unwrap();
+    assert!(install::selection(&c, &["test:alpha".into()], &items).is_err());
+}
+#[test]
+fn uncheckable_sources_are_skipped_not_fatal() {
+    let f = Fixture::new();
+    let ws = &f.ws;
+    let mut c = Catalog::load(ws, false).unwrap();
+    install::install(ws, &c, &["test:beta".into()], &[], false, false).unwrap();
+    let lock_path = ws.root.join("skills-lock.json");
+    let mut lock: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&lock_path).unwrap()).unwrap();
+    lock["skills"]["other"] = json!({"source":"https://example.com/x","sourceType":"well-known"});
+    lock["skills"]["gone"] = json!({"source":"missing-dir","sourceType":"local"});
+    atomic_json(&lock_path, &lock).unwrap();
+    fs::write(f.registry.join("local/beta/notes.txt"), "New").unwrap();
+    let mut items = install::inventory(ws, &c).unwrap();
+    install::check_updates(ws, &mut c, &mut items).unwrap();
+    let get = |n: &str| items.iter().find(|i| i.name == n).unwrap();
+    assert!(get("beta").outdated && get("beta").skipped.is_none());
+    assert!(get("other").skipped.is_some() && get("gone").skipped.is_some());
+}
